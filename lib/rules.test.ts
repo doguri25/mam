@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { demoRecords } from "./demo.ts";
-import { absentStudents, leaks, matchRisk, watchFlags } from "./rules.ts";
+import { absentStudents, leaks, matchRisk, watchFlags, weekStats } from "./rules.ts";
 import { DEFAULT_RISK_WORDS, type MoodRecord } from "./shared.ts";
 
 const TODAY = "2026-10-21";
@@ -60,4 +60,17 @@ test("응원 초안에서 선생님용 표현을 찾는다", () => {
   assert.deepEqual(leaks("가라앉은 날이 두 번이나 있었구나"), ["두 번"]);
   assert.deepEqual(leaks("사흘째 속상했구나. 한줄에도 적었지"), ["사흘", "한줄"]);
   assert.deepEqual(leaks("한 번 더 이야기해 줘서 고마워. 내일도 만나자"), []);
+});
+
+test("주간 숫자 묶음에는 이름·번호가 없고, 감정 단어 종류를 센다", () => {
+  const a = { ...rec(1, "2026-10-20", "am", "기뻐요"), word: "뿌듯해요" };
+  const b = { ...rec(1, "2026-10-20", "pm", "속상해요", 3, "친구"), word: "실망했어요" };
+  const c = { ...rec(2, "2026-10-21", "am", "기뻐요"), word: "뿌듯해요" };
+  const s = weekStats([a, b, c], [{ ...rec(3, "2026-10-12", "am", "기뻐요"), word: "즐거워요" }], { streakDays: 3, dropDays: 2, reasonTimes: 3, absentDays: 2 }, TODAY);
+  assert.equal(s.기록한학생수, 2);
+  assert.equal(s.하교전가라앉은날, 1);
+  assert.deepEqual(s.쓴감정단어, [["뿌듯해요", 2], ["실망했어요", 1]]);
+  assert.equal(s.쓴감정단어종류, 2);
+  assert.equal(s.지난주감정단어종류, 1);
+  assert.ok(!JSON.stringify(s).includes('"no"'));
 });

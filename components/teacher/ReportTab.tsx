@@ -2,12 +2,27 @@
 // 주간 리포트: A4 한 장으로 인쇄(브라우저 인쇄 → PDF 저장도 됨). 기본은 학생을 번호로만 표시.
 import { useState } from "react";
 import { Bars, Legend } from "./Weather";
-import type { NameOf, Overview } from "./types";
+import type { NameOf, Overview, Reload, Weekly } from "./types";
+import { api } from "@/lib/api";
 import { addDays, label, weekday } from "@/lib/date";
 import { GROUPS, groupOf, type Group } from "@/lib/shared";
 
-export default function ReportTab({ data, nameOf }: { data: Overview; nameOf: NameOf }) {
+export default function ReportTab({ data, nameOf, reload }: { data: Overview; nameOf: NameOf; reload: Reload }) {
   const [onlyNo, setOnlyNo] = useState(true);
+  const [weekly, setWeekly] = useState<Weekly | null>(data.weekly);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function makeWeekly() {
+    setBusy(true);
+    setErr("");
+    try {
+      setWeekly(await api<Weekly>("teacher", "weekly"));
+      await reload();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  }
   const { today, weekStart, students, flags, settings, absent } = data;
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const week = data.records.filter((r) => r.date >= weekStart && r.date <= today);
@@ -18,6 +33,9 @@ export default function ReportTab({ data, nameOf }: { data: Overview; nameOf: Na
   const total = students.length || 1;
   const rates = days.map((d) => new Set(week.filter((r) => r.date === d).map((r) => r.no)).size);
   const recDays = rates.filter((n) => n > 0);
+  const counts = (rs: typeof week) => rs.reduce<Record<string, number>>((m, r) => (r.word ? { ...m, [r.word]: (m[r.word] ?? 0) + 1 } : m), {});
+  const wordsNow = Object.entries(counts(week)).sort((a, b) => b[1] - a[1]);
+  const wordsPrev = Object.keys(counts(data.records.filter((r) => r.date < weekStart && r.date >= addDays(weekStart, -7)))).length;
 
   return (
     <div className="space-y-4">
@@ -43,6 +61,45 @@ export default function ReportTab({ data, nameOf }: { data: Overview; nameOf: Na
           <Stat label="먼저 살펴볼 학생" value={`${flags.length}명`} />
           <Stat label="위험 표현" value={`${risks.length}건`} />
           <Stat label="건넨 응원 한마디" value={`${cheers.length}개`} />
+        </section>
+
+        <section className="rounded-2xl border-2 border-leaf/40 bg-leaf-soft/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-bold">✨ 이번 주 마음 요약 · 다음 주 활동 추천</h3>
+            <button onClick={makeWeekly} disabled={busy} className="no-print btn-sub min-h-9 px-3 text-sm">{busy ? "만드는 중…" : weekly ? "다시 만들기" : "AI로 만들기"}</button>
+          </div>
+          {err && <p className="mt-1 text-sm text-alert">{err}</p>}
+          {weekly ? (
+            <div className="mt-2 grid gap-3 md:grid-cols-[1.1fr_1fr] print:grid-cols-[1.1fr_1fr]">
+              <ul className="list-disc space-y-1 pl-5 text-sm">{weekly.lines.map((l) => <li key={l}>{l}</li>)}</ul>
+              <div className="space-y-2">
+                {weekly.activities.map((a) => (
+                  <div key={a.title} className="rounded-xl bg-card p-2.5 text-sm">
+                    <p className="font-bold">{a.title} <span className="font-normal text-soft">· {a.minutes}분</span></p>
+                    <p className="text-soft">{a.why}</p>
+                    <p>{a.how}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-soft">이번 주 기록을 모은 숫자(이름·번호 없이)로 흐름 3줄과 다음 주 활동 2가지를 만들어요. 「교과서 연결」에 올린 활동이 있으면 그중에서 먼저 골라요.</p>
+          )}
+        </section>
+
+        <section>
+          <h3 className="mb-2 font-bold">우리 반 감정 단어가 자라요</h3>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="rounded-xl border border-line px-3 py-1.5">이번 주 쓴 감정 단어 <b className="text-lg">{wordsNow.length}</b>가지</span>
+            <span className="rounded-xl border border-line px-3 py-1.5 text-soft">지난주 {wordsPrev}가지 {wordsNow.length > wordsPrev ? `→ ${wordsNow.length - wordsPrev}가지 늘었어요 🌱` : ""}</span>
+          </div>
+          {wordsNow.length > 0 && (
+            <p className="mt-2 flex flex-wrap gap-1.5 text-sm">
+              {wordsNow.slice(0, 12).map(([word, n]) => (
+                <span key={word} className="rounded-full bg-paper px-2.5 py-0.5">{word} <span className="text-soft">{n}</span></span>
+              ))}
+            </p>
+          )}
         </section>
 
         <section>

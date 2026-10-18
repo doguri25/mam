@@ -1,9 +1,17 @@
 import type { Flag } from "@/lib/rules";
 import type { Cheer, MoodRecord, Note, Provider, Rules, Student, VoiceMode } from "@/lib/shared";
 
+export interface Weekly {
+  weekStart: string;
+  createdAt: string;
+  lines: string[];
+  activities: { title: string; why: string; how: string; minutes: number }[];
+}
+
 export interface Stamp {
   records: number;
   other: number;
+  wipe?: number;
 }
 
 // 서버가 보내는 것
@@ -13,12 +21,15 @@ export interface OverviewRaw {
   storage: "firestore" | "local";
   dataPrefix: string;
   stamp: Stamp;
+  partial?: boolean; // true면 records는 저장해 둔 때 뒤에 바뀐 것만
   students: Student[];
   records: MoodRecord[];
   demo: boolean;
   cheers: Cheer[];
   notes: Note[];
   push: { ready: boolean; key: string; devices: number };
+  lessons: { id: string; unit: string; words: string[]; activities: { title: string; how: string; minutes: number }[]; createdAt: string }[];
+  weekly: Weekly | null;
   settings: {
     className: string;
     provider: Provider;

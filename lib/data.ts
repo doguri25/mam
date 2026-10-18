@@ -95,10 +95,23 @@ export async function putRecord(r: MoodRecord) {
 export interface Stamp {
   records: number;
   other: number;
+  wipe?: number; // 기록을 지운 때. 교사 기기에 저장해 둔 기록을 버리고 다시 받게 한다.
 }
 export async function getStamp(): Promise<Stamp> {
   return (await db().get<Stamp>("meta", "stamp")) ?? { records: 0, other: 0 };
 }
 export async function touch(kind: keyof Stamp) {
   await db().set("meta", "stamp", { ...(await getStamp()), [kind]: Date.now() });
+}
+
+// 선생님이 올린 교과서·학습지 차시(감정 단어·활동)
+export interface LessonItem {
+  id: string;
+  unit: string;
+  words: string[];
+  activities: { title: string; how: string; minutes: number }[];
+  createdAt: string;
+}
+export async function getLessons(): Promise<LessonItem[]> {
+  return (await db().get<{ items: LessonItem[] }>("meta", "lessons"))?.items ?? [];
 }

@@ -1,16 +1,16 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, type NextRequest } from "next/server";
-import { cheer, ping } from "@/lib/ai";
+import { cheer, ping, weeklySummary } from "@/lib/ai";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, mask, newCode, teacherToken } from "@/lib/auth";
 import {
-  aiConfig, allRecords, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  aiConfig, allRecords, getLessons, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, saveRoster, saveSettings, touch,
 } from "@/lib/data";
 import { addDays, today } from "@/lib/date";
 import { db } from "@/lib/db";
 import { demoRecords, demoStudents } from "@/lib/demo";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
-import { watchFlags } from "@/lib/rules";
+import { watchFlags, weekStats } from "@/lib/rules";
 import { PROVIDER_IDS, type Cheer, type MoodRecord, type Note, type Provider, type Rules } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -52,8 +52,13 @@ export async function POST(req: NextRequest) {
     if (body.action === "overview") {
       const date = today();
       const stamp = await getStamp();
-      const [students, records, cheers, notes, demo, subs] = await Promise.all([
-        getRoster(), recordsFrom(addDays(date, -DAYS)), db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
+      const from = addDays(date, -DAYS);
+      // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
+      const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
+      const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from)) : recordsFrom(from);
+      const [students, records, cheers, notes, demo, subs, lessons, weekly] = await Promise.all([
+        getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
+        getLessons(), db().get<{ weekStart: string }>("meta", "weekly"),
       ]);
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
@@ -62,12 +67,15 @@ export async function POST(req: NextRequest) {
         storage: db().kind,
         dataPrefix: db().prefix,
         stamp,
+        partial,
         students,
         records: records.map(lean),
         demo: demo || records.some((r) => r.demo),
         cheers: newest(cheers).slice(0, 200),
         notes: newest(notes),
         push: { ready: pushReady(), key: pushPublicKey(), devices: subs },
+        lessons,
+        weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
         settings: publicSettings(settings),
       });
     }
@@ -178,6 +186,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // 교과서에서 고른 감정 단어·활동 저장 → 반 감정 단어에 더하고, 활동은 주간 추천 후보로
+    if (body.action === "saveLesson") {
+      const words = (Array.isArray(body.words) ? body.words : []).map((x: { word?: unknown }) => String(x.word ?? "").trim().slice(0, 12)).filter(Boolean).slice(0, 12);
+      const activities = (Array.isArray(body.activities) ? body.activities : []).slice(0, 6).map((a: { title?: unknown; how?: unknown; minutes?: unknown }) => ({
+        title: String(a.title ?? "").slice(0, 30), how: String(a.how ?? "").slice(0, 120), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
+      })).filter((a: { title: string }) => a.title);
+      const lessons = await getLessons();
+      lessons.unshift({ id: String(Date.now()), unit: String(body.unit ?? "").slice(0, 40), words, activities, createdAt: new Date().toISOString() });
+      await db().set("meta", "lessons", { items: lessons.slice(0, 30) });
+      await saveSettings({ ...settings, vocab: [...new Set([...settings.vocab, ...words])].slice(0, 60) });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "deleteLesson") {
+      await db().set("meta", "lessons", { items: (await getLessons()).filter((l) => l.id !== String(body.id)) });
+      await touch("other");
+      return NextResponse.json({ ok: true });
+    }
+
+    // 이번 주 우리 반 마음 요약 + 다음 주 활동 추천(이름·번호 없이 모은 숫자만 AI로)
+    if (body.action === "weekly") {
+      const ai = await aiConfig();
+      if (!ai) return bad("AI 키가 있어야 요약을 만들 수 있어요.");
+      const date = today();
+      const weekStart = addDays(date, -6);
+      const recs = await recordsFrom(addDays(date, -13));
+      const stats = weekStats(recs.filter((r) => r.date >= weekStart), recs.filter((r) => r.date < weekStart), settings.rules, date);
+      const lessonActivities = (await getLessons()).flatMap((l) => l.activities.map((a) => ({ ...a, unit: l.unit }))).slice(0, 12);
+      try {
+        const w = await weeklySummary(ai, stats, lessonActivities);
+        const saved = { weekStart, createdAt: new Date().toISOString(), ...w };
+        await db().set("meta", "weekly", saved);
+        await touch("other");
+        return NextResponse.json(saved);
+      } catch (e) {
+        return bad(`요약을 만들지 못했어요: ${e instanceof Error ? e.message : e}`.slice(0, 300), 502);
+      }
+    }
+
     // 휴대폰 알림 받기(이 기기 등록·해제·시험)
     if (body.action === "subscribe") {
       if (!pushReady()) return bad("서버에 알림 키(VAPID)가 아직 없어요.");
@@ -225,6 +271,7 @@ export async function POST(req: NextRequest) {
         }
       }
       await saveSettings({ ...settings, checks: {} });
+      await touch("wipe"); // 기록을 지웠으니 교사 기기에 저장해 둔 기록도 버리게
       await touch("records");
       return NextResponse.json({ ok: true });
     }

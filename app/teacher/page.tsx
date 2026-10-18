@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CheerTab from "@/components/teacher/CheerTab";
 import GuideTab from "@/components/teacher/GuideTab";
+import LessonTab from "@/components/teacher/LessonTab";
 import MapTab from "@/components/teacher/MapTab";
 import ReportTab from "@/components/teacher/ReportTab";
 import RosterTab from "@/components/teacher/RosterTab";
@@ -19,11 +20,33 @@ const TABS = [
   ["map", "🗺️ 마음 지도"],
   ["cheer", "💌 응원 한마디"],
   ["report", "📄 주간 리포트"],
+  ["lesson", "📚 교과서 연결"],
   ["roster", "🔑 학생 코드·QR"],
   ["settings", "⚙️ 설정"],
   ["guide", "📘 사용 설명서"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+
+// 교사 기기에 최근 기록을 저장해 두고, 다음에 열 때는 그 뒤에 바뀐 기록만 받는다(Firestore 읽기 줄이기). 잠그면 지운다.
+const CACHE = "mb_teacher_cache";
+interface Cache { prefix: string; wipe: number; at: number; records: MoodRecord[] }
+function readCache(): Cache | null {
+  try {
+    return JSON.parse(localStorage.getItem(CACHE) ?? "null");
+  } catch {
+    return null;
+  }
+}
+function writeCache(c: Cache | null) {
+  try {
+    if (c) localStorage.setItem(CACHE, JSON.stringify(c));
+    else localStorage.removeItem(CACHE);
+  } catch {
+    // 저장 공간이 없거나 막혀도 화면은 그대로 쓴다
+  }
+}
+const keep = (records: MoodRecord[], stamp: Stamp, prefix: string) =>
+  writeCache({ prefix, wipe: stamp.wipe ?? 0, at: stamp.records, records });
 
 export default function TeacherPage() {
   const [raw, setRaw] = useState<OverviewRaw | null>(null);
@@ -36,12 +59,24 @@ export default function TeacherPage() {
   // 처음·설정이 바뀌었을 때: 전부(최근 34일 기록)
   const load = useCallback(async () => {
     try {
-      const o = await api<OverviewRaw>("teacher", "overview");
+      const c = readCache();
+      const o = await api<OverviewRaw>("teacher", "overview", c ? { since: c.at - 5000, prefix: c.prefix, wipe: c.wipe } : {});
+      if (o.partial && c) {
+        const byId = new Map(c.records.map((r) => [r.id, r]));
+        for (const r of o.records) byId.set(r.id, r);
+        const from = addDays(o.today, -34);
+        o.records = [...byId.values()].filter((r) => r.date >= from);
+        o.demo ||= o.records.some((r) => r.demo);
+      }
+      keep(o.records, o.stamp, o.dataPrefix);
       stamp.current = o.stamp;
       setRaw(o);
       setNeedLogin(false);
     } catch (e) {
-      if ((e as { status?: number }).status === 401) setNeedLogin(true);
+      if ((e as { status?: number }).status === 401) {
+        writeCache(null);
+        setNeedLogin(true);
+      }
     }
   }, []);
 
@@ -60,7 +95,9 @@ export default function TeacherPage() {
         const byId = new Map(o.records.map((r) => [r.id, r]));
         for (const r of records) byId.set(r.id, r);
         const from = addDays(o.today, -34);
-        return { ...o, records: [...byId.values()].filter((r) => r.date >= from) };
+        const merged = [...byId.values()].filter((r) => r.date >= from);
+        keep(merged, next, o.dataPrefix);
+        return { ...o, records: merged };
       });
     } catch (e) {
       if ((e as { status?: number }).status === 401) setNeedLogin(true);
@@ -106,7 +143,7 @@ export default function TeacherPage() {
             </button>
           )}
           <Link href="/" className="btn-sub min-h-10 px-3 text-sm">학생 화면</Link>
-          <button onClick={async () => { await api("teacher", "logout"); setNeedLogin(true); }} className="btn-sub min-h-10 px-3 text-sm">잠그기</button>
+          <button onClick={async () => { await api("teacher", "logout"); writeCache(null); setNeedLogin(true); }} className="btn-sub min-h-10 px-3 text-sm">잠그기</button>
         </div>
       </header>
       {data.demo && (
@@ -128,7 +165,8 @@ export default function TeacherPage() {
       </nav>
       {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} />}
       {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
-      {tab === "report" && <ReportTab data={data} nameOf={nameOf} />}
+      {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
+      {tab === "lesson" && <LessonTab data={data} reload={load} />}
       {tab === "roster" && <RosterTab data={data} reload={load} />}
       {tab === "settings" && <SettingsTab data={data} reload={load} />}
       {tab === "guide" && <GuideTab />}

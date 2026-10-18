@@ -3,7 +3,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { leaks } from "./rules.ts";
-import { EMOTION_NAMES, REASON_NAMES, TONES, emotionOf, type MoodRecord, type Provider } from "./shared.ts";
+import { SKIP, fallbackFor, type Lang } from "./i18n.ts";
+import { EMOTION_NAMES, NUANCE, NUANCE_WORDS, REASON_NAMES, TONES, emotionOf, type MoodRecord, type Provider } from "./shared.ts";
 
 const BASE_URL: Record<Exclude<Provider, "claude">, string | undefined> = {
   upstage: "https://api.upstage.ai/v1",
@@ -69,6 +70,7 @@ const ANALYZE_SCHEMA = obj({
   question: { type: "string", description: "공감 한 마디 + 질문 하나, 반말, 30자 안" },
   options: { type: "array", items: { type: "string" }, description: "question에 대한 짧은 답 보기 2개" },
   risk: { type: "boolean" },
+  word: { type: "string", enum: ["", ...NUANCE_WORDS], description: "emotion에 맞는 더 꼭 맞는 말(nuance 중 하나), 없으면 빈 글자" },
 });
 
 const ANALYZE_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구」야. 학생이 남긴 마음 기록을 정리하고, 까닭을 조금 더 알 수 있는 질문을 딱 하나 만들어.
@@ -83,10 +85,12 @@ const ANALYZE_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구�
 - risk: 자기를 해치고 싶다, 사라지고 싶다, 누군가에게 맞거나 괴롭힘을 당한다는 내용이면 true, 아니면 false.
 - vocab에 있는 감정 단어가 어울리면 question에 자연스럽게 써도 좋아.
 - voiceTone이 있으면 말할 때 목소리 기운이야(예: "가라앉음 · 평소보다 작게, 낮게"). 말 내용이 먼저지만, 감정과 세기를 고를 때 참고해.
-  목소리 이야기를 question에 꺼내지는 마.`;
+  목소리 이야기를 question에 꺼내지는 마.
+- word: emotion을 정한 뒤, nuance[emotion] 세 말 중 학생 말에 더 꼭 맞는 하나. card만 있고 단서가 없으면 빈 글자.
+- lang이 ko가 아니면 학생은 그 언어를 써(en English, zh 简体中文, vi Tiếng Việt, ja 日本語).
+  question과 options는 그 언어로, 그 나라 3학년 아이에게 말하듯 쉽게. summary는 늘 한국어로(선생님이 읽어) — 학생 말을 한국어로 옮겨 한 줄로.`;
 
-// 위험한 마음이 보이면 아이에게 더 묻지 않는다(교사 화면 알림으로 넘김)
-export const RISK_REPLY = "말해 줘서 정말 고마워. 선생님이 꼭 알고 있을게.";
+const NUANCE_JSON = JSON.stringify(NUANCE);
 
 export interface Analysis {
   emotion: string;
@@ -96,29 +100,20 @@ export interface Analysis {
   question: string;
   options: string[];
   risk: boolean;
+  word: string;
 }
 
-const SKIP = "말하기 싫어요";
+// AI 없이도 되묻기가 되도록 까닭별 기본 질문(학생 언어로)
+export function fallbackQuestion(reason: string, emotion: string, lang: Lang = "ko") {
+  return fallbackFor(lang, reason, emotionOf(emotion)?.group === "joy");
+}
 
-// AI 없이도 되묻기가 되도록 까닭별 기본 질문
-const FALLBACK_Q: Record<string, [string, string[]]> = {
-  친구: ["그때 친구랑 무슨 일이 있었어?", ["같이 놀았어", "다툼이 있었어"]],
-  공부: ["어떤 시간 때문이었어?", ["수학 시간", "국어 시간"]],
-  집: ["지금 마음은 어때?", ["조금 괜찮아", "아직 힘들어"]], // 집 일은 캐묻지 않는다
-  몸: ["몸 어디가 그랬어?", ["머리", "배"]],
-  그냥: ["지금 제일 하고 싶은 건 뭐야?", ["쉬고 싶어", "놀고 싶어"]],
+type AnalyzeInput = {
+  text?: string; card?: { emotion: string; intensity: number; reason: string }; vocab: string[]; voiceTone?: string; lang?: Lang;
 };
 
-export function fallbackQuestion(reason: string, emotion: string) {
-  const [q, opts] = FALLBACK_Q[reason] ?? FALLBACK_Q["그냥"];
-  const lead = emotionOf(emotion)?.group === "joy" ? "좋았겠다! " : "그랬구나. ";
-  return { question: lead + q, options: [...opts, SKIP] };
-}
-
-type AnalyzeInput = { text?: string; card?: { emotion: string; intensity: number; reason: string }; vocab: string[]; voiceTone?: string };
-
 export async function analyze(ai: AI, input: AnalyzeInput): Promise<Analysis> {
-  return shape(input, await callJSON(ai, ANALYZE_SYSTEM, JSON.stringify(input), "mood", ANALYZE_SCHEMA));
+  return shape(input, await callJSON(ai, ANALYZE_SYSTEM, JSON.stringify({ ...input, nuance: NUANCE_JSON }), "mood", ANALYZE_SCHEMA));
 }
 
 // Gemini가 목소리를 직접 듣고 말투까지 판단(녹음은 보내기만 하고 저장하지 않음)
@@ -134,7 +129,7 @@ export async function analyzeWithAudio(key: string, model: string, input: Analyz
   목소리만으로 감정을 단정하지 말고 말 내용과 함께 판단해.`;
   const body = (schemaKey: "responseJsonSchema" | "responseSchema", schema: unknown) => JSON.stringify({
     systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: "user", parts: [{ inlineData: { mimeType: "audio/wav", data: wavBase64 } }, { text: JSON.stringify(input) }] }],
+    contents: [{ role: "user", parts: [{ inlineData: { mimeType: "audio/wav", data: wavBase64 } }, { text: JSON.stringify({ ...input, nuance: NUANCE_JSON }) }] }],
     generationConfig: { responseMimeType: "application/json", [schemaKey]: schema },
   });
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
@@ -158,15 +153,19 @@ function shape(input: AnalyzeInput, out: Record<string, unknown>): Analysis {
   const card = input.card;
   const emotion = card?.emotion ?? (EMOTION_NAMES.includes(String(out.emotion)) ? String(out.emotion) : "그저 그래요");
   const reason = card?.reason ?? (REASON_NAMES.includes(String(out.reason)) ? String(out.reason) : "그냥");
-  const opts = Array.isArray(out.options) ? out.options.filter((o): o is string => typeof o === "string" && !!o.trim()).slice(0, 2) : [];
+  const lang = input.lang ?? "ko";
+  const opts = Array.isArray(out.options) ? out.options.filter((o): o is string => typeof o === "string" && !!o.trim() && o !== SKIP[lang]).slice(0, 2) : [];
+  const fb = fallbackQuestion(reason, emotion, lang);
+  const word = String(out.word ?? "");
   return {
     emotion,
     reason,
     intensity: card?.intensity ?? Math.min(5, Math.max(1, Math.round(Number(out.intensity) || 3))),
     summary: String(out.summary ?? input.text ?? "").slice(0, 80),
-    question: String(out.question ?? "").slice(0, 60) || fallbackQuestion(reason, emotion).question,
-    options: [...(opts.length ? opts : fallbackQuestion(reason, emotion).options.slice(0, 2)), SKIP],
+    question: String(out.question ?? "").slice(0, 80) || fb.question,
+    options: [...(opts.length ? opts : fb.options.slice(0, 2)), SKIP[lang]],
     risk: out.risk === true,
+    word: NUANCE[emotion]?.includes(word) ? word : "", // 고른 감정의 말이 아니면 버림
   };
 }
 
@@ -210,4 +209,61 @@ export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab:
 export async function ping(ai: AI) {
   const out = await callJSON(ai, "요청대로 JSON만 답해.", '{"ok": true}를 그대로 돌려줘.', "ping", obj({ ok: { type: "boolean" } }));
   return out.ok === true;
+}
+
+// ── 교과서·학습지에서 감정 단어와 활동 뽑기 ──
+export interface Lesson {
+  unit: string;
+  words: { word: string; emotion: string; meaning: string }[];
+  activities: { title: string; how: string; minutes: number }[];
+}
+
+const LESSON_SYSTEM = `너는 초등 3학년 도덕·창체 수업 자료를 정리하는 도우미야. 받은 자료(마크다운)에서
+- unit: 차시나 단원 이름(없으면 자료 주제를 짧게).
+- words: 자료에 나오거나 자료가 다루는 감정 단어(「~해요」 꼴, 3학년이 쓰는 말) 최대 8개. emotion은 12개 큰 감정 중 가장 가까운 것, meaning은 3학년 눈높이 뜻풀이 20자 안.
+- activities: 자료에 나오는 활동을 교실에서 바로 할 수 있게 최대 4개. title 15자 안, how 한 문장, minutes 분.
+자료에 없는 내용은 지어내지 마.`;
+
+export async function extractLesson(ai: AI, markdown: string): Promise<Lesson> {
+  const schema = obj({
+    unit: { type: "string" },
+    words: { type: "array", items: obj({ word: { type: "string" }, emotion: { type: "string", enum: EMOTION_NAMES }, meaning: { type: "string" } }) },
+    activities: { type: "array", items: obj({ title: { type: "string" }, how: { type: "string" }, minutes: { type: "integer" } }) },
+  });
+  const out = await callJSON(ai, LESSON_SYSTEM, markdown.slice(0, 20_000), "lesson", schema);
+  return {
+    unit: String(out.unit ?? "").slice(0, 40),
+    words: (Array.isArray(out.words) ? out.words : []).slice(0, 8).map((x: Lesson["words"][number]) => ({
+      word: String(x.word ?? "").slice(0, 12), emotion: EMOTION_NAMES.includes(x.emotion) ? x.emotion : "그저 그래요", meaning: String(x.meaning ?? "").slice(0, 40),
+    })).filter((x: { word: string }) => x.word),
+    activities: (Array.isArray(out.activities) ? out.activities : []).slice(0, 4).map((x: Lesson["activities"][number]) => ({
+      title: String(x.title ?? "").slice(0, 30), how: String(x.how ?? "").slice(0, 120), minutes: Math.min(45, Math.max(1, Number(x.minutes) || 10)),
+    })).filter((x: { title: string }) => x.title),
+  };
+}
+
+// ── 이번 주 우리 반 마음 요약 + 다음 주 활동 추천(학생 이름·번호 없이 모은 숫자만 보냄) ──
+export interface Weekly {
+  lines: string[];
+  activities: { title: string; why: string; how: string; minutes: number }[];
+}
+
+const WEEKLY_SYSTEM = `너는 초등 3학년 담임 선생님의 학급 운영을 돕는 도우미야. 이번 주 우리 반 마음 기록을 모은 숫자(학생 이름 없음)를 보고
+- lines: 이번 주 마음 흐름을 3줄로. 숫자 근거를 넣되 진단·평가 말은 쓰지 마. 각 줄 50자 안.
+- activities: 다음 주 아침 활동이나 도덕·창체 시간에 할 활동 2개. why는 이번 주 흐름과 이어지는 까닭 한 문장, how는 하는 방법 한 문장, minutes 분.
+  lessonActivities(선생님이 올린 교과서 활동)가 있으면 그중에서 먼저 고르고, 없으면 회복적 서클·감정 카드 놀이·칭찬 릴레이처럼 교실에서 흔히 하는 활동으로.
+특정 학생을 떠올리게 하는 말은 쓰지 마.`;
+
+export async function weeklySummary(ai: AI, stats: unknown, lessonActivities: unknown[]): Promise<Weekly> {
+  const schema = obj({
+    lines: { type: "array", items: { type: "string" } },
+    activities: { type: "array", items: obj({ title: { type: "string" }, why: { type: "string" }, how: { type: "string" }, minutes: { type: "integer" } }) },
+  });
+  const out = await callJSON(ai, WEEKLY_SYSTEM, JSON.stringify({ stats, lessonActivities }), "weekly", schema);
+  return {
+    lines: (Array.isArray(out.lines) ? out.lines : []).slice(0, 3).map((l: unknown) => String(l).slice(0, 90)),
+    activities: (Array.isArray(out.activities) ? out.activities : []).slice(0, 2).map((a: Weekly["activities"][number]) => ({
+      title: String(a.title ?? "").slice(0, 30), why: String(a.why ?? "").slice(0, 120), how: String(a.how ?? "").slice(0, 160), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
+    })),
+  };
 }

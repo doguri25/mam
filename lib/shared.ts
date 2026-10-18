@@ -41,6 +41,23 @@ export const GROUPS: Record<Group, { label: string; color: string }> = {
 
 export const INTENSITY = ["조금", "살짝", "보통", "많이", "아주 많이"];
 
+// 감정 단어 키우기: 큰 감정을 고르면 더 꼭 맞는 말 세 개를 보여 준다(3학년 눈높이)
+export const NUANCE: Record<string, string[]> = {
+  기뻐요: ["뿌듯해요", "즐거워요", "행복해요"],
+  신나요: ["설레요", "들떠요", "짜릿해요"],
+  고마워요: ["감동했어요", "든든해요", "따뜻해요"],
+  편안해요: ["후련해요", "느긋해요", "홀가분해요"],
+  "그저 그래요": ["심심해요", "멍해요", "무덤덤해요"],
+  피곤해요: ["지쳤어요", "졸려요", "기운 없어요"],
+  걱정돼요: ["불안해요", "긴장돼요", "조마조마해요"],
+  무서워요: ["겁나요", "깜짝 놀랐어요", "오싹해요"],
+  슬퍼요: ["서운해요", "외로워요", "그리워요"],
+  속상해요: ["실망했어요", "아쉬워요", "창피해요"],
+  억울해요: ["답답해요", "분해요", "서러워요"],
+  화나요: ["짜증 나요", "약 올라요", "부글부글해요"],
+};
+export const NUANCE_WORDS = Object.values(NUANCE).flat();
+
 export const DEFAULT_VOCAB = ["뿌듯해요", "서운해요", "후련해요", "설레요"];
 export const DEFAULT_RISK_WORDS = [
   "죽고 싶", "죽을래", "죽어버", "사라지고 싶", "없어지고 싶", "자해",
@@ -85,6 +102,9 @@ export interface MoodRecord {
   voice?: VoiceFeatures | null; // 평소 목소리와 비교하려고 숫자만 남김(녹음은 남기지 않음)
   updatedAt?: number; // 마지막으로 바뀐 시각(ms) — 교사 화면이 바뀐 것만 다시 읽게
   demo?: boolean; // 시연(연습)용 가짜 기록
+  word?: string; // 감정 단어 키우기에서 고른 더 꼭 맞는 말(NUANCE 중 하나)
+  lang?: string; // 학생 화면 언어(ko·en·zh·vi·ja)
+  summaryKo?: string; // 한국어가 아닌 말이면 선생님이 읽을 한국어 정리
   toneBy?: "device" | "gemini" | null;
 }
 

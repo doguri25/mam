@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { isLang, t, w, type Lang } from "@/lib/i18n";
+import { useLocal } from "@/lib/local";
 import { label } from "@/lib/date";
 import { EmotionArt } from "@/components/Art";
 import type { MoodRecord } from "@/lib/shared";
@@ -14,14 +16,22 @@ function shift(month: string, n: number) {
   return d.toISOString().slice(0, 7);
 }
 
+const WEEK: Record<Lang, string[]> = {
+  ko: [..."일월화수목금토"], en: [..."SMTWTFS"], zh: [..."日一二三四五六"], vi: ["CN", "T2", "T3", "T4", "T5", "T6", "T7"], ja: [..."日月火水木金土"],
+};
+const weekRow = (l: Lang) => WEEK[l];
+
 export default function Calendar() {
   const router = useRouter();
   const [month, setMonth] = useState("");
+  const [no, setNo] = useState(0);
+  const [langRaw] = useLocal(`mb_lang_${no}`);
+  const lang: Lang = isLang(langRaw) ? langRaw : "ko";
   const [records, setRecords] = useState<MoodRecord[]>([]);
   const [pick, setPick] = useState("");
 
   useEffect(() => {
-    api<{ today: string }>("student", "me").then((m) => setMonth(m.today.slice(0, 7)), () => router.replace("/"));
+    api<{ today: string; no: number }>("student", "me").then((m) => { setMonth(m.today.slice(0, 7)); setNo(m.no); }, () => router.replace("/"));
   }, [router]);
 
   useEffect(() => {
@@ -39,16 +49,16 @@ export default function Calendar() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-5">
       <div className="mb-4 flex items-center justify-between">
-        <Link href="/me" className="btn-sub min-h-10 px-3 text-sm">← 오늘의 마음</Link>
+        <Link href="/me" className="btn-sub min-h-10 px-3 text-sm">← {t(lang, "todayRec")}</Link>
         <div className="flex items-center gap-2">
           <button onClick={() => setMonth(shift(month, -1))} className="btn-sub min-h-10 px-3" aria-label="지난달">‹</button>
-          <h1 className="font-display text-2xl">{y}년 {m}월</h1>
+          <h1 className="font-display text-2xl">{lang === "ko" ? `${y}년 ${m}월` : `${y} · ${m}`}</h1>
           <button onClick={() => setMonth(shift(month, 1))} className="btn-sub min-h-10 px-3" aria-label="다음 달">›</button>
         </div>
       </div>
       <div className="card p-3 sm:p-5">
         <div className="grid grid-cols-7 gap-1 text-center text-sm text-soft">
-          {"일월화수목금토".split("").map((d) => <div key={d} className="py-1">{d}</div>)}
+          {weekRow(lang).map((d, i) => <div key={i} className="py-1">{d}</div>)}
           {cells.map((date, i) => {
             if (!date) return <div key={`x${i}`} />;
             const am = records.find((r) => r.date === date && r.slot === "am");
@@ -80,13 +90,13 @@ export default function Calendar() {
               <div key={r.id} className="mt-3 flex items-start gap-3">
                 <EmotionArt name={r.emotion} size={44} />
                 <p>
-                  {r.slot === "am" ? "☀️ 아침" : "🌇 하교 전"} · <b>{r.emotion}</b> · {r.reason}
+                  {r.slot === "am" ? `☀️ ${w(lang, "아침")}` : `🌇 ${w(lang, "하교 전")}`} · <b>{w(lang, r.emotion)}</b>{r.word && <> · {w(lang, r.word)}</>} · {w(lang, r.reason)}
                   {r.summary && <span className="block text-soft">“{r.summary}”</span>}
                 </p>
               </div>
             ))
           ) : (
-            <p className="mt-2 text-soft">이날은 기록이 없어요.</p>
+            <p className="mt-2 text-soft">{t(lang, "notYet")}</p>
           )}
         </div>
       )}

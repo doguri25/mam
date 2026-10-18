@@ -1,12 +1,13 @@
 // 학생 API: 코드 로그인, 내 기록, AI 정리(말투 포함), 저장
 import { NextResponse, after, type NextRequest } from "next/server";
-import { RISK_REPLY, analyze, analyzeWithAudio, fallbackQuestion, type Analysis } from "@/lib/ai";
+import { analyze, analyzeWithAudio, fallbackQuestion, type Analysis } from "@/lib/ai";
+import { RISK_REPLY, isLang, type Lang } from "@/lib/i18n";
 import { STUDENT_COOKIE, decrypt, sign, unsign } from "@/lib/auth";
 import { aiConfig, getRoster, getSettings, putRecord, recordsOf } from "@/lib/data";
 import { slotNow, today } from "@/lib/date";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
-import { EMOTION_NAMES, REASON_NAMES, TONES, type MoodRecord, type Student } from "@/lib/shared";
+import { EMOTION_NAMES, NUANCE, REASON_NAMES, TONES, type MoodRecord, type Student } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
     if (body.action === "analyze") {
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 180) : "";
       const card = body.card && validCard(body.card) ? body.card : undefined;
+      const lang: Lang = isLang(body.lang) ? body.lang : "ko";
       if (!text && !card) return bad("카드나 문장이 필요해요.");
 
       // 말투: 이 학생의 평소 목소리(이전 말하기 기록)와 비교
@@ -80,9 +82,9 @@ export async function POST(req: NextRequest) {
       // 위험한 마음이면 되묻지 않고 고맙다는 말만 남긴 채 바로 저장(skipAsk)
       const finish = (r: Analysis, ai: boolean) => {
         const out = { ...r, ai, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features };
-        return NextResponse.json(r.risk || ruleRisk ? { ...out, risk: true, question: RISK_REPLY, options: [], skipAsk: true } : out);
+        return NextResponse.json(r.risk || ruleRisk ? { ...out, risk: true, question: RISK_REPLY[lang], options: [], skipAsk: true } : out);
       };
-      const input = { text: text || undefined, card, vocab: settings.vocab, voiceTone: tone ? `${tone.tone} · ${tone.why}` : undefined };
+      const input = { text: text || undefined, card, vocab: settings.vocab, voiceTone: tone ? `${tone.tone} · ${tone.why}` : undefined, lang };
 
       // Gemini가 직접 듣기: 녹음을 보내되 저장하지 않는다. 실패하면 아래 기본 길로.
       const audio = typeof body.audio === "string" && body.audio.length < MAX_AUDIO ? body.audio : null;
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest) {
       }
       // AI가 없거나 실패: 카드는 기본 되묻기로, 문장은 카드 단계로 돌려 학생이 직접 고르게
       if (!card) return NextResponse.json({ needCard: true, summary: text, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features });
-      return finish({ ...card, summary: "", ...fallbackQuestion(card.reason, card.emotion), risk: false }, false);
+      return finish({ ...card, summary: "", ...fallbackQuestion(card.reason, card.emotion, lang), risk: false, word: "" }, false);
     }
 
     if (body.action === "save") {
@@ -128,6 +130,9 @@ export async function POST(req: NextRequest) {
         toneWhy: voice ? String(r.toneWhy ?? "").slice(0, 40) : "",
         toneBy: voice && (r.toneBy === "device" || r.toneBy === "gemini") ? r.toneBy : null,
         voice,
+        word: NUANCE[r.emotion]?.includes(r.word) ? r.word : "",
+        lang: isLang(r.lang) ? r.lang : "ko",
+        summaryKo: isLang(r.lang) && r.lang !== "ko" ? String(r.summaryKo ?? "").slice(0, 120) : "",
       };
       await putRecord(rec);
       // 위험 표현이면 교사 휴대폰에 알림(응답은 기다리지 않게 뒤에서). 번호만 보내고 이름·글은 보내지 않는다.

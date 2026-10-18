@@ -2,6 +2,7 @@
 // 이 기기에만 남기는 값(localStorage): 학생 「읽어 주기」 켜기, 교사의 실명 명렬표.
 // 실명은 서버·AI로 보내지 않는다.
 import { useSyncExternalStore } from "react";
+import { langOf, type Lang } from "./i18n.ts";
 
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((f) => f());
@@ -36,11 +37,11 @@ export function useLocal(key: string): [string, (v: string) => void] {
 }
 
 // 읽어 주기: 켜져 있을 때만 말한다(🔊 버튼은 force로 늘 말함)
-export function speak(text: string, force = false) {
+export function speak(text: string, force = false, lang: Lang = "ko") {
   if ((!force && read("mb_read") !== "1") || typeof speechSynthesis === "undefined") return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "ko-KR";
+  u.lang = langOf(lang).speech;
   u.rate = 0.95;
   speechSynthesis.speak(u);
 }

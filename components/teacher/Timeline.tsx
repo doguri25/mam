@@ -3,6 +3,7 @@ import { EmotionArt, EMOTION_COLOR } from "../Art";
 import { addDays, label } from "@/lib/date";
 import type { MoodRecord } from "@/lib/shared";
 
+const LANG_KO: Record<string, string> = { en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 const TONE_COLOR: Record<string, string> = { "들떠 있음": "#f2a33a", 차분함: "#6b9e7a", 가라앉음: "#5a7fc0", 떨림: "#9b6bd3" };
 
 function Cell({ r }: { r?: MoodRecord }) {
@@ -12,6 +13,7 @@ function Cell({ r }: { r?: MoodRecord }) {
       <EmotionArt name={r.emotion} size={30} className="shrink-0" />
       <span>
         <span className="font-bold" style={{ color: EMOTION_COLOR[r.emotion] }}>{r.emotion}</span>
+        {r.word && <span className="font-bold" style={{ color: EMOTION_COLOR[r.emotion] }}> · {r.word}</span>}
         <span className="text-soft"> · {r.intensity} · {r.reason}</span>
         {r.risk && <span className="ml-1 rounded bg-alert px-1.5 text-xs text-white">위험 표현</span>}
         {r.tone && (
@@ -19,7 +21,9 @@ function Cell({ r }: { r?: MoodRecord }) {
             🎙 {r.tone}{r.toneBy === "gemini" ? "·G" : ""}
           </span>
         )}
-        {r.summary && <span className="block text-sm">“{r.summary}”</span>}
+        {r.lang && r.lang !== "ko" && <span className="ml-1 rounded-full bg-paper px-1.5 text-xs">🌐 {LANG_KO[r.lang] ?? r.lang}</span>}
+        {r.summaryKo && <span className="block text-sm">“{r.summaryKo}”</span>}
+        {r.summary && <span className={`block text-sm ${r.summaryKo ? "text-soft" : ""}`}>{r.summaryKo ? `원문: ${r.summary}` : `“${r.summary}”`}</span>}
         {r.answer && <span className="block text-sm text-soft">↳ {r.question} — {r.answer}</span>}
       </span>
     </span>

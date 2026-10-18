@@ -27,7 +27,7 @@ export interface VoiceResult {
   wav?: string;
 }
 
-export function useSpeech(onText: (text: string) => void, opts: { measure?: boolean; record?: boolean } = {}) {
+export function useSpeech(onText: (text: string) => void, opts: { measure?: boolean; record?: boolean; lang?: string } = {}) {
   const supported = useSyncExternalStore(noop, () => !!ctor(), () => false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
@@ -58,7 +58,7 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
       }
     }
     const r = new C();
-    r.lang = "ko-KR";
+    r.lang = opts.lang ?? "ko-KR";
     r.interimResults = true;
     r.continuous = false;
     r.onresult = (e) => {
@@ -72,7 +72,7 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
     r.onerror = (e) => {
       setListening(false);
       finishMeter();
-      setError(e.error === "not-allowed" ? "마이크를 쓸 수 없어요. 글로 적어 주세요." : e.error === "no-speech" ? "잘 안 들렸어요. 한 번 더 해 볼까요?" : "받아쓰기가 잘 안 됐어요. 글로 적어도 돼요.");
+      setError(e.error === "not-allowed" ? "micDenied" : e.error === "no-speech" ? "noSpeech" : "speechFail"); // 화면에서 학생 언어로 바꿔 보여 준다
     };
     r.start();
     rec.current = r;

@@ -1,6 +1,6 @@
 // 「먼저 살펴볼 학생」과 위험 표현 규칙 — AI가 아니라 코드로, 이유를 교사가 그대로 읽을 수 있게
 import { addDays } from "./date.ts";
-import { DEFAULT_RULES, isHard, type MoodRecord, type Rules } from "./shared.ts";
+import { DEFAULT_RULES, groupOf, isHard, type MoodRecord, type Rules } from "./shared.ts";
 
 export function matchRisk(text: string, words: string[]) {
   const t = text.replace(/\s+/g, " ");
@@ -68,3 +68,29 @@ export function absentStudents(records: MoodRecord[], nos: number[], today: stri
 export function leaks(text: string) {
   return text.match(/(\d+|두|세|네|다섯)\s*(번|일|회|차례)(째)?|사흘|이틀|나흘|한\s?줄|기록|신호|규칙/g) ?? [];
 }
+
+// 주간 요약용 숫자 묶음: 학생 이름·번호는 넣지 않는다(AI로 가는 것)
+export function weekStats(week: MoodRecord[], prev: MoodRecord[], rules: Rules, today: string) {
+  const count = (xs: string[]) => Object.fromEntries([...new Set(xs)].map((k) => [k, xs.filter((x) => x === k).length]));
+  const words = (rs: MoodRecord[]) => rs.map((r) => r.word).filter((w): w is string => !!w);
+  const drops = week.filter((pm) => {
+    if (pm.slot !== "pm") return false;
+    const am = week.find((r) => r.no === pm.no && r.date === pm.date && r.slot === "am");
+    return am && (isHard(am.emotion) ? -1 : 1) * am.intensity - (isHard(pm.emotion) ? -1 : 1) * pm.intensity >= 4;
+  }).length;
+  const thisWords = count(words(week));
+  return {
+    기록수: week.length,
+    기록한학생수: new Set(week.map((r) => r.no)).size,
+    날마다기록수: count(week.map((r) => r.date)),
+    감정무리: count(week.map((r) => GROUP_LABEL[groupOf(r.emotion)])),
+    힘든마음의까닭: count(week.filter((r) => isHard(r.emotion)).map((r) => r.reason)),
+    하교전가라앉은날: drops,
+    먼저살펴볼학생수: watchFlags(week, today, rules).length,
+    위험표현수: week.filter((r) => r.risk).length,
+    쓴감정단어: Object.entries(thisWords).sort((a, b) => b[1] - a[1]).slice(0, 8),
+    쓴감정단어종류: Object.keys(thisWords).length,
+    지난주감정단어종류: new Set(words(prev)).size,
+  };
+}
+const GROUP_LABEL = { joy: "기쁨", calm: "평온", sad: "슬픔", angry: "화남", fear: "불안" } as const;
