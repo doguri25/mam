@@ -200,7 +200,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       <section className="card space-y-3">
         <h2 className="font-display text-xl">연습용(시연) 데이터</h2>
         <p className="text-sm text-soft">
-          저장 위치: <b>{data.storage === "firestore" ? `Firebase Firestore (${data.dataPrefix === "maeumbit_" ? "실제 반 공간" : `연습 공간 ${data.dataPrefix}`})` : "이 컴퓨터 파일(.data/db.json)"}</b>.
+          저장 위치: <b>{data.storage === "local" ? "이 컴퓨터 파일(.data/db.json)" : `${data.storage === "mongo" ? "MongoDB Atlas" : "Firebase Firestore"} (${data.dataPrefix === "maeumbit_" ? "실제 반 공간" : `연습 공간 ${data.dataPrefix}`})`}</b>.
           연습 데이터는 가명 25명과 최근 7일 기록으로, 살펴볼 학생 3명과 위험 표현 1건이 들어 있어요. 연습 기록에는 표시가 붙어 「연습 데이터만 지우기」로 따로 지울 수 있어요.
         </p>
         <div className="flex flex-wrap items-center gap-3">

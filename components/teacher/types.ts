@@ -18,7 +18,7 @@ export interface Stamp {
 export interface OverviewRaw {
   today: string;
   weekStart: string;
-  storage: "firestore" | "local";
+  storage: "mongo" | "firestore" | "local";
   dataPrefix: string;
   stamp: Stamp;
   partial?: boolean; // true면 records는 저장해 둔 때 뒤에 바뀐 것만

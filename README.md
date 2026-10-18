@@ -55,7 +55,9 @@ npm test           # 살펴볼 학생·위험 표현 규칙 테스트
 
 ## 저장소
 
-- `.env.local`에 `FIREBASE_SERVICE_ACCOUNT`가 있으면 Firestore(`maeumbit-gil`, 서울), 없으면 `.data/db.json`.
+- 고르는 순서: `MONGODB_URI`가 있으면 MongoDB Atlas(데이터베이스 이름 `MONGODB_DB`, 기본 `maeumbit`), 없고 `FIREBASE_SERVICE_ACCOUNT`가 있으면 Firestore(`maeumbit-gil`, 서울), 둘 다 없으면 `.data/db.json`.
+- MongoDB Atlas 무료(M0)는 하루 읽기 한도가 없다(저장 512MB). Vercel에서 붙으려면 Atlas 「Network Access」에 `0.0.0.0/0`을 허용해야 한다(Vercel 서버 주소가 바뀌므로). 그래서 DB 사용자 비밀번호를 길고 무작위로 둔다.
+- Firestore에서 옮기기: `FIREBASE_SERVICE_ACCOUNT=… MONGODB_URI=… node scripts/copy-to-mongo.mjs maeumbit_` (같은 `SESSION_SECRET`이면 넣어 둔 AI 키도 그대로 풀린다).
 - Firestore 규칙은 브라우저 접근을 모두 막는다(`firestore.rules`). 읽기·쓰기는 서버의 관리자 SDK만.
 - 교사가 넣은 API 키는 `SESSION_SECRET`으로 암호화해 저장한다. 이 값을 바꾸면 키를 다시 넣어야 한다.
 
