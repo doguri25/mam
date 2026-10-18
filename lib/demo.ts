@@ -1,7 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
 import { addDays } from "./date.ts";
 import { matchRisk } from "./rules.ts";
-import { DEFAULT_RISK_WORDS, REASON_NAMES, groupOf, type MoodRecord, type Slot, type Student } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type MoodRecord, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -27,11 +27,13 @@ export function demoRecords(today: string): MoodRecord[] {
   const rand = rng(20261018);
   const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
   const out: MoodRecord[] = [];
+  const wr = rng(7); // 감정 단어는 따로 뽑아 다른 연습 기록이 바뀌지 않게
   const add = (no: number, date: string, slot: Slot, emotion: string, intensity: number, reason: string, summary = "") => {
     const hits = matchRisk(summary, DEFAULT_RISK_WORDS);
     out.push({
       id: `${no}_${date}_${slot}`, no, date, slot, method: summary ? "voice" : "card",
       emotion, intensity, reason, summary, question: "", answer: "",
+      ...(wr() < 0.6 && NUANCE[emotion] ? { word: NUANCE[emotion][Math.floor(wr() * 3)] } : {}),
       risk: hits.length > 0, riskHits: hits, riskChecked: null, demo: true,
       createdAt: `${date}T${slot === "am" ? "08:40" : "14:20"}:00+09:00`,
     });
@@ -85,6 +87,9 @@ export function demoRecords(today: string): MoodRecord[] {
   set(17, addDays(today, -5), "am", "억울해요", 3, "친구");
   set(17, addDays(today, -3), "am", "화나요", 3, "친구");
   set(17, addDays(today, -1), "am", "속상해요", 2, "친구", "쉬는 시간에 혼자 있었어요");
+  // 9번: 베트남어로 남긴 기록(선생님 화면엔 한국어 요약)
+  set(9, today, "am", "슬퍼요", 3, "친구", "Em nhớ bạn bè ở Việt Nam");
+  Object.assign(out[out.length - 1], { lang: "vi", word: "그리워요", summaryKo: "베트남에 있는 친구들이 보고 싶어요" });
   // 22번: 오늘 아침 위험 표현
   set(22, today, "am", "슬퍼요", 5, "그냥", "요즘은 그냥 사라지고 싶어요");
   return out;
