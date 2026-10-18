@@ -2,6 +2,7 @@
 // 학생 이름은 보내지 않는다(가명·기록만).
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { leaks } from "./rules.ts";
 import { EMOTION_NAMES, REASON_NAMES, TONES, emotionOf, type MoodRecord, type Provider } from "./shared.ts";
 
 const BASE_URL: Record<Exclude<Provider, "claude">, string | undefined> = {
@@ -103,7 +104,7 @@ const SKIP = "말하기 싫어요";
 const FALLBACK_Q: Record<string, [string, string[]]> = {
   친구: ["그때 친구랑 무슨 일이 있었어?", ["같이 놀았어", "다툼이 있었어"]],
   공부: ["어떤 시간 때문이었어?", ["수학 시간", "국어 시간"]],
-  집: ["집에서 누구랑 있었어?", ["가족이랑", "혼자"]],
+  집: ["지금 마음은 어때?", ["조금 괜찮아", "아직 힘들어"]], // 집 일은 캐묻지 않는다
   몸: ["몸 어디가 그랬어?", ["머리", "배"]],
   그냥: ["지금 제일 하고 싶은 건 뭐야?", ["쉬고 싶어", "놀고 싶어"]],
 };
@@ -191,9 +192,19 @@ export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab:
     최근3일: newest.filter((r) => recent.has(r.date)).map(row),
     그전기록: newest.filter((r) => !recent.has(r.date)).map(row),
   };
-  const out = await callJSON(ai, CHEER_SYSTEM, JSON.stringify(input), "cheer",
-    obj({ acknowledge: { type: "string" }, encourage: { type: "string" } }));
-  return [out.acknowledge, out.encourage].filter((d): d is string => typeof d === "string" && !!d.trim());
+  const schema = obj({ acknowledge: { type: "string" }, encourage: { type: "string" } });
+  const ask = async (extra = "") => {
+    const out = await callJSON(ai, CHEER_SYSTEM + extra, JSON.stringify(input), "cheer", schema);
+    return [out.acknowledge, out.encourage].filter((d): d is string => typeof d === "string" && !!d.trim()).map((d) => d.trim());
+  };
+  let drafts = await ask();
+  // 선생님용 숫자·말이 섞이면 한 번만 다시 쓰게 하고, 그래도 남으면 화면에 표시
+  const found = [...new Set(drafts.flatMap(leaks))];
+  if (found.length) {
+    const again = await ask(`\n- 지난 초안에 「${found.join("」, 「")}」 같은 말이 들어갔어. 이런 말은 빼고 다시 써.`).catch(() => drafts);
+    if (again.flatMap(leaks).length < drafts.flatMap(leaks).length) drafts = again;
+  }
+  return { drafts, warns: drafts.map((d) => leaks(d).join(", ")) };
 }
 
 export async function ping(ai: AI) {

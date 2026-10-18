@@ -1,0 +1,17 @@
+{
+  "name": "마음빛 길잡이 · 선생님",
+  "short_name": "마음빛 선생님",
+  "description": "학생 마음 기록을 살펴보고 위험 표현 알림을 받는 선생님 화면",
+  "id": "/teacher",
+  "start_url": "/teacher",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf8f2",
+  "theme_color": "#3f7d5c",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -83,6 +83,8 @@ export interface MoodRecord {
   tone?: string | null; // 말투(목소리 기운) — 말하기로 남긴 기록만, 교사만 봄
   toneWhy?: string;
   voice?: VoiceFeatures | null; // 평소 목소리와 비교하려고 숫자만 남김(녹음은 남기지 않음)
+  updatedAt?: number; // 마지막으로 바뀐 시각(ms) — 교사 화면이 바뀐 것만 다시 읽게
+  demo?: boolean; // 시연(연습)용 가짜 기록
   toneBy?: "device" | "gemini" | null;
 }
 

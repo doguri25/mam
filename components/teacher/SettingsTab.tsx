@@ -1,6 +1,7 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
 import { useState } from "react";
+import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { PROVIDERS, PROVIDER_IDS, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
@@ -65,18 +66,21 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     }
   }
 
-  async function demo(mode: "seed" | "clear") {
-    const ask = mode === "seed"
-      ? "지금 기록과 명단을 지우고 가짜 학생 25명 + 7일 기록을 만들까요?"
-      : "모든 기록·응원·명단을 지울까요? 되돌릴 수 없어요.";
+  async function demo(mode: "seed" | "clear" | "clearDemo") {
+    const ask = {
+      seed: "지금 기록과 명단을 모두 지우고 연습용 가짜 학생 25명 + 7일 기록을 만들까요? 실제 반 기록이 있다면 함께 지워져요.",
+      clear: "모든 기록·응원·메모·명단을 지울까요? 되돌릴 수 없어요.",
+      clearDemo: "연습용(시연) 기록만 지울까요? 실제로 남긴 기록은 그대로예요.",
+    }[mode];
     if (!confirm(ask)) return;
     await api("teacher", "demo", { mode });
-    say("demo", mode === "seed" ? "시연 데이터를 만들었어요. 「마음 지도」를 보세요." : "모두 지웠어요.");
+    say("demo", { seed: "연습 데이터를 만들었어요. 「마음 지도」를 보세요.", clear: "모두 지웠어요.", clearDemo: "연습 데이터를 지웠어요." }[mode]);
     await reload();
   }
 
   return (
     <div className="space-y-5">
+      <PushCard data={data} reload={reload} />
       <section className="card space-y-4">
         <div>
           <h2 className="font-display text-xl">AI 연결</h2>
@@ -194,12 +198,14 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       </section>
 
       <section className="card space-y-3">
-        <h2 className="font-display text-xl">시연 데이터</h2>
+        <h2 className="font-display text-xl">연습용(시연) 데이터</h2>
         <p className="text-sm text-soft">
-          저장 위치: <b>{data.storage === "firestore" ? "Firebase Firestore" : "이 컴퓨터 파일(.data/db.json)"}</b>. 시연 데이터는 가명 25명과 최근 7일 기록으로, 살펴볼 학생 3명과 위험 표현 1건이 들어 있어요.
+          저장 위치: <b>{data.storage === "firestore" ? `Firebase Firestore (${data.dataPrefix === "maeumbit_" ? "실제 반 공간" : `연습 공간 ${data.dataPrefix}`})` : "이 컴퓨터 파일(.data/db.json)"}</b>.
+          연습 데이터는 가명 25명과 최근 7일 기록으로, 살펴볼 학생 3명과 위험 표현 1건이 들어 있어요. 연습 기록에는 표시가 붙어 「연습 데이터만 지우기」로 따로 지울 수 있어요.
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={() => demo("seed")} className="btn-sub">시연 데이터 만들기</button>
+          <button onClick={() => demo("seed")} className="btn-sub">연습 데이터 만들기</button>
+          {data.demo && <button onClick={() => demo("clearDemo")} className="btn-sub">연습 데이터만 지우기</button>}
           <button onClick={() => demo("clear")} className="btn-sub text-alert">모두 지우기</button>
           <span className="text-sm">{msg.demo}</span>
         </div>

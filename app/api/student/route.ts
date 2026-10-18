@@ -1,10 +1,10 @@
 // 학생 API: 코드 로그인, 내 기록, AI 정리(말투 포함), 저장
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { RISK_REPLY, analyze, analyzeWithAudio, fallbackQuestion, type Analysis } from "@/lib/ai";
 import { STUDENT_COOKIE, decrypt, sign, unsign } from "@/lib/auth";
-import { aiConfig, allRecords, getRoster, getSettings } from "@/lib/data";
+import { aiConfig, getRoster, getSettings, putRecord, recordsOf } from "@/lib/data";
 import { slotNow, today } from "@/lib/date";
-import { db } from "@/lib/db";
+import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import { EMOTION_NAMES, REASON_NAMES, TONES, type MoodRecord, type Student } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     if (body.action === "me") {
       const date = today();
-      const mine = (await allRecords()).filter((r) => r.no === s.no);
+      const mine = await recordsOf(s.no);
       // 마음 꽃: 이번 달 기록한 날마다 한 송이(그날 마지막 마음 색)
       const month = new Map<string, string>();
       for (const r of mine.filter((r) => r.date.startsWith(date.slice(0, 7))).sort((a, b) => a.id.localeCompare(b.id))) month.set(r.date, r.emotion);
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
     if (body.action === "records") {
       const month = String(body.month ?? today().slice(0, 7));
-      const mine = (await allRecords()).filter((r) => r.no === s.no && r.date.startsWith(month));
+      const mine = (await recordsOf(s.no)).filter((r) => r.date.startsWith(month));
       return NextResponse.json({ records: mine.map(publicRecord) });
     }
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       const features = settings.voiceMode === "off" ? null : cleanFeatures(body.voice);
       let tone: { tone: string; why: string; by: "device" | "gemini" } | null = null;
       if (features) {
-        const history = (await allRecords()).filter((r) => r.no === s.no && r.voice).map((r) => r.voice!);
+        const history = (await recordsOf(s.no)).filter((r) => r.voice).map((r) => r.voice!);
         const t = toneOf(features, baseline(history));
         if (t) tone = { tone: t.tone, why: t.why, by: "device" };
       }
@@ -129,7 +129,9 @@ export async function POST(req: NextRequest) {
         toneBy: voice && (r.toneBy === "device" || r.toneBy === "gemini") ? r.toneBy : null,
         voice,
       };
-      await db().set("records", rec.id, { ...rec });
+      await putRecord(rec);
+      // 위험 표현이면 교사 휴대폰에 알림(응답은 기다리지 않게 뒤에서). 번호만 보내고 이름·글은 보내지 않는다.
+      if (rec.risk) after(() => notifyTeachers({ title: "⚠️ 바로 살펴봐 주세요", body: `${rec.no}번 학생 기록에 위험 표현이 있어요. 선생님 화면에서 확인해 주세요.`, url: "/teacher", tag: `risk-${rec.id}` }));
       return NextResponse.json({ record: publicRecord(rec) });
     }
 

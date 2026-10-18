@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { demoRecords } from "./demo.ts";
-import { absentStudents, matchRisk, watchFlags } from "./rules.ts";
+import { absentStudents, leaks, matchRisk, watchFlags } from "./rules.ts";
 import { DEFAULT_RISK_WORDS, type MoodRecord } from "./shared.ts";
 
 const TODAY = "2026-10-21";
@@ -53,4 +53,11 @@ test("위험 단어는 띄어쓰기가 달라도 찾고, 평범한 말은 지나
   assert.deepEqual(matchRisk("그냥  사라지고 싶어요", DEFAULT_RISK_WORDS), ["사라지고 싶"]);
   assert.deepEqual(matchRisk("받아쓰기 다 맞았어요!", DEFAULT_RISK_WORDS), []);
   assert.deepEqual(matchRisk("친구랑 놀아서 신났어요", DEFAULT_RISK_WORDS), []);
+});
+
+test("응원 초안에서 선생님용 표현을 찾는다", () => {
+
+  assert.deepEqual(leaks("가라앉은 날이 두 번이나 있었구나"), ["두 번"]);
+  assert.deepEqual(leaks("사흘째 속상했구나. 한줄에도 적었지"), ["사흘", "한줄"]);
+  assert.deepEqual(leaks("한 번 더 이야기해 줘서 고마워. 내일도 만나자"), []);
 });

@@ -32,7 +32,7 @@ export function demoRecords(today: string): MoodRecord[] {
     out.push({
       id: `${no}_${date}_${slot}`, no, date, slot, method: summary ? "voice" : "card",
       emotion, intensity, reason, summary, question: "", answer: "",
-      risk: hits.length > 0, riskHits: hits, riskChecked: null,
+      risk: hits.length > 0, riskHits: hits, riskChecked: null, demo: true,
       createdAt: `${date}T${slot === "am" ? "08:40" : "14:20"}:00+09:00`,
     });
   };

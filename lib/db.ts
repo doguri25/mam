@@ -1,23 +1,30 @@
 // 저장소: FIREBASE_SERVICE_ACCOUNT가 있으면 Firestore, 없으면 로컬 파일(.data/db.json)
 // Firestore는 서버(관리자 SDK)에서만 읽고 쓴다 — 브라우저는 API로만 닿는다.
+// DATA_PREFIX로 모음 이름 앞을 바꾼다: 배포는 maeumbit_, 이 컴퓨터는 maeumbit_dev_ → 연습하다 실제 반 기록을 건드리지 않게.
 import fs from "node:fs";
 import path from "node:path";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
-export type Col = "meta" | "records" | "cheers" | "notes";
+export type Col = "meta" | "records" | "cheers" | "notes" | "subs";
 type Doc = Record<string, unknown>;
+type Op = "==" | ">" | ">=";
 
 interface Store {
   kind: "firestore" | "local";
+  prefix: string;
   all<T>(col: Col): Promise<T[]>;
+  // 한 필드 조건으로 좁혀 읽기(Firestore 단일 필드 색인만 써서 따로 색인을 만들 필요 없음)
+  find<T>(col: Col, field: string, op: Op, value: string | number | boolean): Promise<T[]>;
   get<T>(col: Col, id: string): Promise<T | null>;
   set(col: Col, id: string, data: Doc): Promise<void>;
   del(col: Col, id: string): Promise<void>;
   clear(col: Col): Promise<void>;
 }
 
-const PREFIX = "maeumbit_";
+const PREFIX = process.env.DATA_PREFIX || "maeumbit_";
+const match = (v: unknown, op: Op, x: string | number | boolean) =>
+  op === "==" ? v === x : typeof v === typeof x && (op === ">" ? (v as number) > (x as number) : (v as number) >= (x as number));
 
 function firestore(sa: string): Store {
   const app = getApps()[0] ?? initializeApp({ credential: cert(JSON.parse(sa)) });
@@ -25,7 +32,10 @@ function firestore(sa: string): Store {
   const c = (col: Col) => db.collection(PREFIX + col);
   return {
     kind: "firestore",
+    prefix: PREFIX,
     all: async <T,>(col: Col) => (await c(col).get()).docs.map((d) => d.data() as T),
+    find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
+      (await c(col).where(field, op, value).get()).docs.map((d) => d.data() as T),
     get: async <T,>(col: Col, id: string) => ((await c(col).doc(id).get()).data() as T) ?? null,
     set: async (col, id, data) => void (await c(col).doc(id).set(data)),
     del: async (col, id) => void (await c(col).doc(id).delete()),
@@ -43,9 +53,9 @@ function firestore(sa: string): Store {
 function local(): Store {
   const file = path.join(process.cwd(), ".data", "db.json");
   const read = (): Record<Col, Record<string, Doc>> => {
-    const empty = { meta: {}, records: {}, cheers: {}, notes: {} };
+    const empty = { meta: {}, records: {}, cheers: {}, notes: {}, subs: {} };
     try {
-      return { ...empty, ...JSON.parse(fs.readFileSync(file, "utf8")) }; // 예전 파일엔 새 모음(notes)이 없을 수 있음
+      return { ...empty, ...JSON.parse(fs.readFileSync(file, "utf8")) }; // 예전 파일엔 새 모음이 없을 수 있음
     } catch {
       return empty;
     }
@@ -57,7 +67,10 @@ function local(): Store {
   };
   return {
     kind: "local",
+    prefix: "",
     all: async <T,>(col: Col) => Object.values(read()[col]) as T[],
+    find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
+      Object.values(read()[col]).filter((d) => match(d[field], op, value)) as T[],
     get: async <T,>(col: Col, id: string) => (read()[col][id] as T) ?? null,
     set: async (col, id, data) => {
       const d = read();

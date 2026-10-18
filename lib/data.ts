@@ -37,14 +37,21 @@ export async function getSettings(): Promise<Settings> {
 
 export async function saveSettings(s: Settings) {
   await db().set("meta", "settings", { ...s });
+  await touch("other");
 }
 
 export async function getRoster(): Promise<Student[]> {
   return (await db().get<{ students: Student[] }>("meta", "roster"))?.students ?? [];
 }
 
-export async function saveRoster(students: Student[]) {
-  await db().set("meta", "roster", { students: [...students].sort((a, b) => a.no - b.no) });
+export async function rosterIsDemo() {
+  return (await db().get<{ demo?: boolean }>("meta", "roster"))?.demo === true;
+}
+
+// demo: 시연(연습)용 가짜 명단인지 — 교사 화면에 「연습 데이터」 띠를 띄운다
+export async function saveRoster(students: Student[], demo = false) {
+  await db().set("meta", "roster", { students: [...students].sort((a, b) => a.no - b.no), demo });
+  await touch("other");
 }
 
 // 「1 햇살」, 「1,햇살」, 「1	햇살」 한 줄에 한 명. 같은 번호는 원래 코드를 그대로 둔다.
@@ -73,6 +80,25 @@ export async function aiConfig(provider?: Provider) {
   return key ? { provider: p, model: s.models[p], key } : null;
 }
 
-export async function allRecords() {
-  return db().all<MoodRecord>("records");
+// ── 기록 읽기: 통째로 읽지 않고 필요한 만큼만(Firestore 읽기 횟수 = 돌려받은 문서 수) ──
+export const allRecords = () => db().all<MoodRecord>("records"); // 내보내기에서만
+export const recordsOf = (no: number) => db().find<MoodRecord>("records", "no", "==", no);
+export const recordsFrom = (date: string) => db().find<MoodRecord>("records", "date", ">=", date);
+export const recordsChangedAfter = (ms: number) => db().find<MoodRecord>("records", "updatedAt", ">", ms);
+
+export async function putRecord(r: MoodRecord) {
+  await db().set("records", r.id, { ...r, updatedAt: Date.now() });
+  await touch("records");
+}
+
+// 변경 표시: 교사 화면은 이 문서 하나만 자주 읽고, 바뀌었을 때만 기록을 더 읽는다
+export interface Stamp {
+  records: number;
+  other: number;
+}
+export async function getStamp(): Promise<Stamp> {
+  return (await db().get<Stamp>("meta", "stamp")) ?? { records: 0, other: 0 };
+}
+export async function touch(kind: keyof Stamp) {
+  await db().set("meta", "stamp", { ...(await getStamp()), [kind]: Date.now() });
 }

@@ -17,8 +17,8 @@ function can3D() {
 }
 const subscribe = () => () => {};
 
-export default function BuddyLazy({ emotion, intensity, size = 200 }: { emotion?: string; intensity?: number; size?: number }) {
+export default function BuddyLazy({ emotion, intensity, size = 200, className }: { emotion?: string; intensity?: number; size?: number; className?: string }) {
   const ok = useSyncExternalStore(subscribe, can3D, () => false);
-  if (ok) return <Buddy emotion={emotion} intensity={intensity} size={size} />;
-  return <EmotionArt name={emotion ?? "편안해요"} size={size} />;
+  if (ok) return <Buddy emotion={emotion} intensity={intensity} size={size} className={className} />;
+  return <EmotionArt name={emotion ?? "편안해요"} size={size} className={className} />;
 }

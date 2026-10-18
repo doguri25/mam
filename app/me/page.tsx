@@ -195,8 +195,8 @@ export default function MePage() {
         </div>
       </header>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
-        <section className="card min-h-[420px] sm:p-7">
+      <div className="grid gap-5 lg:grid-cols-[1fr_300px] lg:grid-rows-[auto_1fr]">
+        <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{busy}</p>
           ) : step === "choose" ? (
@@ -329,11 +329,17 @@ export default function MePage() {
           )}
         </section>
 
-        <aside className="card flex flex-col items-center gap-3 self-start text-center lg:sticky lg:top-5">
-          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} size={220} />
-          <p className="text-sm text-soft">마음 친구</p>
-          <p className="font-display text-xl" style={{ color: pick.emotion ? EMOTION_COLOR[pick.emotion] : undefined }}>{buddyLine}</p>
-          <div className="mt-2 w-full space-y-1 border-t border-line pt-3 text-left text-sm">
+        {/* 마음 친구: 태블릿 세로·휴대폰에서는 맨 위 가로 띠, 넓은 화면에서는 오른쪽 위 */}
+        <aside className="card order-first flex items-center gap-4 p-3 lg:sticky lg:top-5 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-3 lg:self-start lg:p-5 lg:text-center">
+          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} size={220} className="size-24 shrink-0 sm:size-28 lg:size-[220px]" />
+          <div>
+            <p className="text-xs text-soft lg:text-sm">마음 친구</p>
+            <p className="font-display text-lg sm:text-xl" style={{ color: pick.emotion ? EMOTION_COLOR[pick.emotion] : undefined }}>{buddyLine}</p>
+          </div>
+        </aside>
+
+        <aside className="card space-y-3 self-start lg:col-start-2 lg:row-start-2">
+          <div className="space-y-1 text-left text-sm">
             <p className="font-bold">오늘 남긴 마음</p>
             {(["am", "pm"] as Slot[]).map((s) => {
               const r = me.records.find((x) => x.slot === s);
@@ -344,7 +350,7 @@ export default function MePage() {
               );
             })}
           </div>
-          <div className="w-full border-t border-line pt-3 text-left text-sm">
+          <div className="border-t border-line pt-3 text-left text-sm">
             <p className="font-bold">이번 달 마음 꽃밭</p>
             {me.flowers.length ? (
               <div className="mt-1 flex flex-wrap" aria-label={`마음 꽃 ${me.flowers.length}송이`}>

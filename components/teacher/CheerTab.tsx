@@ -5,10 +5,12 @@ import Timeline from "./Timeline";
 import Notes from "./Notes";
 import type { NameOf, Overview, Reload } from "./types";
 import { api } from "@/lib/api";
+import { leaks } from "@/lib/rules";
 import { PROVIDERS } from "@/lib/shared";
 
 export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Overview; reload: Reload; no: number | null; setNo: (n: number) => void; nameOf: NameOf }) {
   const [drafts, setDrafts] = useState<string[]>([]);
+  const [warns, setWarns] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -20,7 +22,8 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
     setBusy(true);
     setMsg("");
     try {
-      const r = await api<{ drafts: string[] }>("teacher", "cheer", { no });
+      const r = await api<{ drafts: string[]; warns: string[] }>("teacher", "cheer", { no });
+      setWarns(r.warns ?? []);
       setDrafts(r.drafts);
       setText(r.drafts[0] ?? "");
     } catch (e) {
@@ -77,11 +80,15 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                   <button key={i} onClick={() => setText(d)} className={`chip p-3 text-left text-sm ${text === d ? "chip-on" : ""}`}>
                     <b className="text-xs text-soft">{["마음 알아주기", "응원하기"][i] ?? `초안 ${i + 1}`}</b>
                     <span className="mt-1 block">{d}</span>
+                    {warns[i] && <span className="mt-1 block text-xs text-alert">⚠️ 아이에게 맞지 않을 수 있는 말: {warns[i]}</span>}
                   </button>
                 ))}
               </div>
             )}
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} className="field" placeholder="초안을 고르거나 직접 써 주세요." />
+            {leaks(text).length > 0 && (
+              <p className="text-xs text-alert">⚠️ 「{leaks(text).join("」, 「")}」 — 선생님용 숫자·말은 아이에게 보내기 전에 고쳐 주세요.</p>
+            )}
             {msg && <p className="text-sm">{msg}</p>}
             <div className="flex justify-end">
               <button onClick={save} disabled={!text.trim()} className="btn-main">선생님이 확인했어요 · 저장하고 복사</button>

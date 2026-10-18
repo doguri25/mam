@@ -63,3 +63,8 @@ export function absentStudents(records: MoodRecord[], nos: number[], today: stri
   const seen = new Set(records.filter((r) => classDays.includes(r.date)).map((r) => r.no));
   return nos.filter((no) => !seen.has(no));
 }
+
+// 응원 초안에서 아이에게 그대로 옮기면 안 되는 선생님용 표현(횟수·날수·기록 이름)
+export function leaks(text: string) {
+  return text.match(/(\d+|두|세|네|다섯)\s*(번|일|회|차례)(째)?|사흘|이틀|나흘|한\s?줄|기록|신호|규칙/g) ?? [];
+}

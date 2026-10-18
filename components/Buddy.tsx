@@ -59,10 +59,11 @@ function Blob({ group, intensity }: { group: Group; intensity: number }) {
   );
 }
 
-export default function Buddy({ emotion, intensity = 3, size = 200 }: { emotion?: string; intensity?: number; size?: number }) {
+// className을 주면 그 상자 크기를 따른다(화면 폭에 따라 크기를 바꾸려고)
+export default function Buddy({ emotion, intensity = 3, size = 200, className }: { emotion?: string; intensity?: number; size?: number; className?: string }) {
   const group = emotion ? groupOf(emotion) : "calm";
   return (
-    <div style={{ width: size, height: size }} aria-hidden>
+    <div className={className} style={className ? undefined : { width: size, height: size }} aria-hidden>
       <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 3.4], fov: 45 }} gl={{ alpha: true, antialias: true }}>
         <ambientLight intensity={0.9} />
         <directionalLight position={[2, 3, 4]} intensity={1.4} />
