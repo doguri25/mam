@@ -107,6 +107,11 @@ export async function trialAiSource(): Promise<"trial" | "class" | "none"> {
   return s.keys[s.provider] ? "class" : "none";
 }
 
+// 체험 공간이 실제로 부르는 AI(체험 전용 키 또는 빌려 쓰는 실제 반 키). 화면에 AI 이름을 맞게 보이려고.
+export async function demoProvider(): Promise<Provider> {
+  return trialKey()?.provider ?? (await keySettings()).provider;
+}
+
 // 한 제공자의 키만(교과서 읽기 Document Parse·Gemini 음성 듣기)
 export async function rawKey(p: Provider) {
   const tk = isDemo() ? trialKey() : null;

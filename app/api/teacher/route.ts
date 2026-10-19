@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { DEMO_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, aiConfig, allRecords, demoAiUsed, trialAiSource, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, aiConfig, allRecords, demoAiUsed, demoProvider, trialAiSource, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -111,7 +111,7 @@ async function handle(req: NextRequest) {
         letters: newest(letters).slice(0, 150),
         reflects, // 이번 주·지난주 한 주 돌아보기
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
-        settings: publicSettings(settings),
+        settings: publicSettings(isDemo() ? { ...settings, provider: await demoProvider() } : settings),
       });
     }
 
