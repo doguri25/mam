@@ -6,11 +6,11 @@ import {
   aiConfig, allRecords, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, saveLooks, savePin, saveRoster, saveSettings, touch,
 } from "@/lib/data";
-import { addDays, today } from "@/lib/date";
+import { addDays, slotNow, today } from "@/lib/date";
 import { db } from "@/lib/db";
 import { demoLooks, demoRecords, demoStudents } from "@/lib/demo";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
-import { watchFlags, weekStats } from "@/lib/rules";
+import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { PROVIDER_IDS, type Cheer, type MoodRecord, type Note, type Provider, type Rules } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -97,6 +97,18 @@ export async function POST(req: NextRequest) {
         looks: Object.fromEntries(Object.entries(looks).map(([no, l]) => [no, { ...l, name: "" }])),
         weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
         settings: publicSettings(settings),
+      });
+    }
+
+    // 교실 TV 「우리 반 마음 날씨」: 오늘 기록을 이름·번호 없이 묶은 숫자만 보낸다(위험 표현 여부도 빼고)
+    if (body.action === "classWeather") {
+      const date = today();
+      const which = body.slot === "now" ? slotNow() : body.slot === "am" || body.slot === "pm" ? body.slot : null;
+      const todays = (await recordsFrom(date)).filter((r) => r.date === date && (!which || r.slot === which));
+      // 「하루 전체」면 학생마다 가장 나중 기록 하나만 센다
+      const latest = which ? todays : [...new Map(todays.sort((a, b) => a.slot.localeCompare(b.slot)).map((r) => [r.no, r])).values()];
+      return NextResponse.json({
+        date, slot: which ?? "day", now: slotNow(), className: settings.className, students: (await getRoster()).length, ...classWeather(latest),
       });
     }
 

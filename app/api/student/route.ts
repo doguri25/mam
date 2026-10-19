@@ -7,7 +7,7 @@ import { aiConfig, getLooks, getRoster, getSettings, putRecord, recordsOf, saveL
 import { slotNow, today } from "@/lib/date";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
-import { DEFAULT_LOOK, EMOTION_NAMES, NUANCE, REASON_NAMES, TONES, cleanLook, type MoodRecord, type Student } from "@/lib/shared";
+import { CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, NUANCE, REASON_NAMES, TONES, cleanLook, type CalmTool, type Felt, type MoodRecord, type Student } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -56,6 +56,17 @@ export async function POST(req: NextRequest) {
         flowers: [...month].map(([d, emotion]) => ({ date: d, emotion })),
         look: looks[s.no] ?? DEFAULT_LOOK,
       });
+    }
+
+    // 마음 다스리기 도구를 써 본 느낌을 이 시간의 기록에 붙인다(선생님이 어떤 도구가 도움이 되는지 보게)
+    if (body.action === "calm") {
+      const tool = body.tool as CalmTool, felt = body.felt as Felt;
+      if (!CALM_TOOLS.includes(tool) || !FELT.includes(felt) || !["am", "pm"].includes(body.slot)) return bad("모양이 맞지 않아요.");
+      const rec = (await recordsOf(s.no)).find((r) => r.id === `${s.no}_${today()}_${body.slot}`);
+      if (!rec) return bad("먼저 마음을 남겨 주세요.", 404);
+      const next = { ...rec, calm: [...(rec.calm ?? []), { tool, felt, at: new Date().toISOString() }].slice(-10) };
+      await putRecord(next);
+      return NextResponse.json({ record: publicRecord(next) });
     }
 
     // 내 마음 친구 꾸미기

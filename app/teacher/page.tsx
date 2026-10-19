@@ -142,6 +142,7 @@ export default function TeacherPage() {
               {names.on ? "실명으로 보는 중" : "가명으로 보는 중"}
             </button>
           )}
+          <a href="/teacher/tv" target="_blank" rel="noopener" className="btn-sub min-h-10 px-3 text-sm">📺 교실 화면</a>
           <Link href="/" className="btn-sub min-h-10 px-3 text-sm">학생 화면</Link>
           <button onClick={async () => { await api("teacher", "logout"); writeCache(null); setNeedLogin(true); }} className="btn-sub min-h-10 px-3 text-sm">잠그기</button>
         </div>

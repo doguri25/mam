@@ -1,6 +1,6 @@
 // 「먼저 살펴볼 학생」과 위험 표현 규칙 — AI가 아니라 코드로, 이유를 교사가 그대로 읽을 수 있게
 import { addDays } from "./date.ts";
-import { DEFAULT_RULES, groupOf, isHard, type MoodRecord, type Rules } from "./shared.ts";
+import { CALM_KO, CALM_TOOLS, DEFAULT_RULES, groupOf, isHard, type Group, type MoodRecord, type Rules } from "./shared.ts";
 
 export function matchRisk(text: string, words: string[]) {
   const t = text.replace(/\s+/g, " ");
@@ -91,6 +91,38 @@ export function weekStats(week: MoodRecord[], prev: MoodRecord[], rules: Rules, 
     쓴감정단어: Object.entries(thisWords).sort((a, b) => b[1] - a[1]).slice(0, 8),
     쓴감정단어종류: Object.keys(thisWords).length,
     지난주감정단어종류: new Set(words(prev)).size,
+    마음다스리기: calmStats(week),
   };
+}
+
+// 마음 다스리기 도구별로 몇 번 썼고, 그중 「조금 나아졌어요」가 몇 번인지(이름·번호 없이)
+export function calmStats(records: MoodRecord[]) {
+  const uses = records.flatMap((r) => r.calm ?? []);
+  return Object.fromEntries(
+    CALM_TOOLS.filter((t) => uses.some((u) => u.tool === t)).map((t) => {
+      const mine = uses.filter((u) => u.tool === t);
+      return [CALM_KO[t], { 횟수: mine.length, 나아짐: mine.filter((u) => u.felt === "better").length }];
+    }),
+  );
+}
+
+// 교실 TV 「우리 반 마음 날씨」: 이름·번호 없이 감정 무리 수와 감정 단어만. 위험 표현 여부는 넣지 않는다.
+export type Weather = "sunny" | "warm" | "rain" | "storm" | "fog" | "partly" | "cloudy" | "rainbow";
+export function classWeather(records: MoodRecord[]) {
+  const groups: Record<Group, number> = { joy: 0, calm: 0, sad: 0, angry: 0, fear: 0 };
+  for (const r of records) groups[groupOf(r.emotion)]++;
+  const n = records.length;
+  const words = Object.entries(
+    records.reduce<Record<string, number>>((m, r) => (r.word ? { ...m, [r.word]: (m[r.word] ?? 0) + 1 } : m), {}),
+  ).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const [top, topN] = (Object.entries(groups) as [Group, number][]).sort((a, b) => b[1] - a[1])[0];
+  const light = (groups.joy + groups.calm) / (n || 1);
+  const weather: Weather =
+    n === 0 ? "partly"
+    : topN / n >= 0.5 ? ({ joy: "sunny", calm: "warm", sad: "rain", angry: "storm", fear: "fog" } as const)[top]
+    : light >= 0.6 ? "partly"
+    : light <= 0.4 ? "cloudy"
+    : "rainbow";
+  return { n, groups, words, weather };
 }
 const GROUP_LABEL = { joy: "기쁨", calm: "평온", sad: "슬픔", angry: "화남", fear: "불안" } as const;

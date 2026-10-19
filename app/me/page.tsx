@@ -4,14 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
-import Breathe from "@/components/Breathe";
+import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
 import MoodPicker, { type Pick } from "@/components/MoodPicker";
 import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
 import { CHEER, LANGS, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
-import { groupOf, type BuddyLook, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
+import { groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
 
 type Me = {
@@ -49,7 +49,7 @@ export default function MePage() {
   const [busy, setBusy] = useState<UIKey | "">("");
   const [note, setNote] = useState<UIKey | string>("");
   const [cheer, setCheer] = useState(0); // 저장하면 마음 친구가 한 번 인사
-  const [breathe, setBreathe] = useState<"off" | "offer" | "on">("off");
+  const [calm, setCalm] = useState<"off" | "offer" | "open">("off"); // 마음 다스리기 도구 상자
   const [readAloud, setReadAloud] = useLocal("mb_read");
   const [langRaw, setLang] = useLocal(`mb_lang_${me?.no ?? 0}`); // 같은 태블릿을 돌려 써도 학생마다 따로
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
@@ -88,7 +88,7 @@ export default function MePage() {
     setTone(NO_TONE);
     setSummaryKo("");
     setQa({ question: "", options: [], aiRisk: false, skip: false });
-    setBreathe("off");
+    setCalm("off");
     setStep(next);
   }
 
@@ -151,13 +151,24 @@ export default function MePage() {
       });
       setStep("done");
       setCheer((n) => n + 1);
-      // 힘든 마음(슬픔·화남·불안)이면 마음 친구와 숨 고르기를 권한다
-      setBreathe(["sad", "angry", "fear"].includes(groupOf(record.emotion)) ? "offer" : "off");
+      // 힘든 마음(슬픔·화남·불안)이면 마음 다스리기 도구 상자를 권한다
+      setCalm(["sad", "angry", "fear"].includes(groupOf(record.emotion)) ? "offer" : "off");
       say(tt("saved").replace("✓ ", ""));
     } catch (e) {
       setNote((e as Error).message);
     }
     setBusy("");
+  }
+
+  // 도구를 써 본 느낌은 이 시간(아침·하교 전)에 남긴 기록에 붙인다. 아직 기록이 없으면 남기지 않는다.
+  async function sendCalm(tool: CalmTool, felt: Felt) {
+    if (!me!.records.some((r) => r.slot === slot)) return;
+    try {
+      const { record } = await api<{ record: MoodRecord }>("student", "calm", { slot, tool, felt });
+      setMe((m) => (m ? { ...m, records: [...m.records.filter((r) => r.slot !== slot), record] } : m));
+    } catch {
+      // 느낌을 못 남겨도 학생 화면은 그대로 둔다
+    }
   }
 
   async function nextFriend() {
@@ -218,6 +229,8 @@ export default function MePage() {
         <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{tt(busy)}</p>
+          ) : calm === "open" ? (
+            <CalmBox look={me.look} emotion={pick.emotion ?? done?.emotion} lang={lang} onFelt={sendCalm} onClose={() => setCalm("off")} />
           ) : step === "choose" ? (
             <div className="space-y-5">
               <h2 className="font-display text-2xl">{tt("how", { slot: slotName(slot) })}<SayBtn lang={lang} text={`${tt("how", { slot: slotName(slot) })} ${tt("card")}, ${tt("voice")}`} /></h2>
@@ -325,8 +338,6 @@ export default function MePage() {
                 <button onClick={() => save(answer)} disabled={!answer.trim()} className="btn-main px-8">{tt("answerSave")}</button>
               </div>
             </div>
-          ) : breathe === "on" ? (
-            <Breathe look={me.look} emotion={pick.emotion} lang={lang} onDone={() => setBreathe("off")} />
           ) : (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="rounded-full bg-leaf-soft px-4 py-1 text-sm font-bold text-leaf">{tt("saved")}</p>
@@ -337,12 +348,12 @@ export default function MePage() {
                 {pick.word && <> · <b style={{ color: EMOTION_COLOR[pick.emotion ?? ""] }}>{w(lang, pick.word)}</b></>} · {w(lang, pick.reason ?? "")}
               </p>
               <p className="flex items-center gap-1 text-sm text-soft"><Flower color={EMOTION_COLOR[pick.emotion ?? ""] ?? "#ffc23c"} size={24} /> {tt("flowerToday")}</p>
-              {breathe === "offer" && (
+              {calm === "offer" && (
                 <div className="w-full max-w-md rounded-2xl bg-leaf-soft p-4">
-                  <p className="font-display text-xl">{tt("breatheAsk")}<SayBtn lang={lang} text={tt("breatheAsk")} /></p>
+                  <p className="font-display text-xl">{tt("calmAsk")}<SayBtn lang={lang} text={tt("calmAsk")} /></p>
                   <div className="mt-3 flex justify-center gap-2">
-                    <button onClick={() => setBreathe("on")} className="btn-main">{tt("breatheYes")}</button>
-                    <button onClick={() => setBreathe("off")} className="btn-sub">{tt("breatheNo")}</button>
+                    <button onClick={() => setCalm("open")} className="btn-main">{tt("calmOpen")}</button>
+                    <button onClick={() => setCalm("off")} className="btn-sub">{tt("calmLater")}</button>
                   </div>
                 </div>
               )}
@@ -360,7 +371,10 @@ export default function MePage() {
           <div>
             <p className="text-xs text-soft lg:text-sm">{me.look.name || tt("buddy")}</p>
             <p className="font-display text-lg sm:text-xl" style={{ color: pick.emotion ? EMOTION_COLOR[pick.emotion] : undefined }}>{buddyLine}</p>
-            <Link href="/me/buddy" className="mt-1 inline-block text-sm text-leaf underline underline-offset-4">{tt("buddyEdit")}</Link>
+            <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm lg:justify-center">
+              <Link href="/me/buddy" className="text-leaf underline underline-offset-4">{tt("buddyEdit")}</Link>
+              <button onClick={() => setCalm("open")} className="text-leaf underline underline-offset-4">{tt("calmOpen")}</button>
+            </span>
           </div>
         </aside>
 

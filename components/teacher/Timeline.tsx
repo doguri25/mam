@@ -1,7 +1,7 @@
 // 학생 한 명의 최근 2주: 날마다 아침·하교 전 두 칸
 import { EmotionArt, EMOTION_COLOR } from "../Art";
 import { addDays, label } from "@/lib/date";
-import type { MoodRecord } from "@/lib/shared";
+import { CALM_KO, FELT_KO, type MoodRecord } from "@/lib/shared";
 
 const LANG_KO: Record<string, string> = { en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 const TONE_COLOR: Record<string, string> = { "들떠 있음": "#f2a33a", 차분함: "#6b9e7a", 가라앉음: "#5a7fc0", 떨림: "#9b6bd3" };
@@ -25,6 +25,11 @@ function Cell({ r }: { r?: MoodRecord }) {
         {r.summaryKo && <span className="block text-sm">“{r.summaryKo}”</span>}
         {r.summary && <span className={`block text-sm ${r.summaryKo ? "text-soft" : ""}`}>{r.summaryKo ? `원문: ${r.summary}` : `“${r.summary}”`}</span>}
         {r.answer && <span className="block text-sm text-soft">↳ {r.question} — {r.answer}</span>}
+        {r.calm?.map((c) => (
+          <span key={c.at} className={`mr-1 mt-1 inline-block rounded-full px-2 py-0.5 text-xs ${c.felt === "better" ? "bg-leaf-soft text-leaf" : "bg-paper text-soft"}`}>
+            🧰 {CALM_KO[c.tool]} → {FELT_KO[c.felt]}
+          </span>
+        ))}
       </span>
     </span>
   );

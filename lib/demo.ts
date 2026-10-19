@@ -1,7 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
 import { addDays } from "./date.ts";
 import { matchRisk } from "./rules.ts";
-import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type MoodRecord, type Slot, type Student } from "./shared.ts";
+import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -90,6 +90,16 @@ export function demoRecords(today: string): MoodRecord[] {
   // 9번: 베트남어로 남긴 기록(선생님 화면엔 한국어 요약)
   set(9, today, "am", "슬퍼요", 3, "친구", "Em nhớ bạn bè ở Việt Nam");
   Object.assign(out[out.length - 1], { lang: "vi", word: "그리워요", summaryKo: "베트남에 있는 친구들이 보고 싶어요" });
+  // 힘든 마음을 남긴 뒤 마음 다스리기 도구를 써 본 기록(선생님 화면에서 어떤 도구가 도움이 되는지 보이게)
+  const calm = (no: number, date: string, slot: Slot, ...uses: [CalmTool, Felt][]) => {
+    const r = out.find((x) => x.id === `${no}_${date}_${slot}`);
+    if (r) r.calm = uses.map(([tool, felt], i) => ({ tool, felt, at: `${date}T${slot === "am" ? "08:4" : "14:2"}${i + 2}:00+09:00` }));
+  };
+  calm(3, addDays(today, -1), "pm", ["breathe", "better"]);
+  calm(3, today, "am", ["breathe", "better"], ["draw", "same"]);
+  calm(11, addDays(today, -2), "pm", ["senses", "unsure"]);
+  calm(17, addDays(today, -3), "am", ["squeeze", "better"]);
+  calm(17, addDays(today, -1), "am", ["squeeze", "better"]);
   // 22번: 오늘 아침 위험 표현
   set(22, today, "am", "슬퍼요", 5, "그냥", "요즘은 그냥 사라지고 싶어요");
   return out;

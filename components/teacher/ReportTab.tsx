@@ -5,6 +5,7 @@ import { Bars, Legend } from "./Weather";
 import type { NameOf, Overview, Reload, Weekly } from "./types";
 import { api } from "@/lib/api";
 import { addDays, label, weekday } from "@/lib/date";
+import { calmStats } from "@/lib/rules";
 import { GROUPS, groupOf, type Group } from "@/lib/shared";
 
 export default function ReportTab({ data, nameOf, reload }: { data: Overview; nameOf: NameOf; reload: Reload }) {
@@ -35,6 +36,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const recDays = rates.filter((n) => n > 0);
   const counts = (rs: typeof week) => rs.reduce<Record<string, number>>((m, r) => (r.word ? { ...m, [r.word]: (m[r.word] ?? 0) + 1 } : m), {});
   const wordsNow = Object.entries(counts(week)).sort((a, b) => b[1] - a[1]);
+  const calm = calmStats(week);
   const wordsPrev = Object.keys(counts(data.records.filter((r) => r.date < weekStart && r.date >= addDays(weekStart, -7)))).length;
 
   return (
@@ -99,6 +101,21 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
                 <span key={word} className="rounded-full bg-paper px-2.5 py-0.5">{word} <span className="text-soft">{n}</span></span>
               ))}
             </p>
+          )}
+        </section>
+
+        <section>
+          <h3 className="mb-2 font-bold">🧰 마음 다스리기 (힘들 때 써 본 도구)</h3>
+          {Object.keys(calm).length ? (
+            <p className="flex flex-wrap gap-2 text-sm">
+              {Object.entries(calm).map(([tool, c]) => (
+                <span key={tool} className="rounded-xl border border-line px-3 py-1.5">
+                  <b>{tool}</b> {c.횟수}번 <span className="text-leaf">· 조금 나아졌어요 {c.나아짐}</span>
+                </span>
+              ))}
+            </p>
+          ) : (
+            <p className="text-sm text-soft">이번 주에는 아직 쓴 도구가 없어요.</p>
           )}
         </section>
 

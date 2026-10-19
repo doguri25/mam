@@ -1,7 +1,8 @@
 "use client";
 // 3D 마음 친구: 모델 파일 없이 기본 도형으로 만든 「빛 방울」.
 // 학생이 고른 몸 색·모양·눈·볼·무늬·팔다리·꾸미개를 입고, 감정 무리에 따라 표정·동작·둘레 빛이 바뀐다.
-// cheer: 값이 바뀔 때마다 한 번 인사(폴짝 + 손 흔들기, 힘든 마음은 토닥 끄덕) · breath: 숨 고르기 시작부터 지난 ms.
+// cheer: 값이 바뀔 때마다 한 번 인사(폴짝 + 손 흔들기, 힘든 마음은 토닥 끄덕)
+// breath: 숨 고르기 시작부터 지난 ms(부풀었다 줄어듦) · squeeze: 꼭 쥐었다 펴기 시작부터 지난 ms(움츠렸다 풀림).
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useRef } from "react";
 import { BackSide, DoubleSide, type Group as ThreeGroup, type Mesh } from "three";
@@ -212,7 +213,7 @@ function Accessory({ acc, body }: { acc: BuddyAcc; body: string }) {
   return null;
 }
 
-function Blob({ group, intensity, look, cheer = 0, breath }: { group: Group; intensity: number; look: BuddyLook; cheer?: number; breath?: number }) {
+function Blob({ group, intensity, look, cheer = 0, breath, squeeze }: { group: Group; intensity: number; look: BuddyLook; cheer?: number; breath?: number; squeeze?: number }) {
   const root = useRef<ThreeGroup>(null);
   const body = useRef<Mesh>(null);
   const arms = useRef<(ThreeGroup | null)[]>([]);
@@ -229,10 +230,14 @@ function Blob({ group, intensity, look, cheer = 0, breath }: { group: Group; int
     g.scale.setScalar(1);
     if (cheer !== hop.current.key) hop.current = { key: cheer, at: t };
     const since = t - hop.current.at;
-    const cheering = breath === undefined && since < 1.8;
+    const cheering = breath === undefined && squeeze === undefined && since < 1.8;
     if (breath !== undefined) {
       puff.current += (breathOf(breath) - puff.current) * 0.15; // 부모가 0.1초마다 주는 값을 부드럽게 따라감
       g.scale.setScalar(1 + 0.28 * puff.current);
+    } else if (squeeze !== undefined) {
+      puff.current += (breathOf(squeeze) - puff.current) * 0.15;
+      g.scale.setScalar(1 - 0.16 * puff.current); // 꼭 쥐면 움츠러들고 살짝 떨림
+      g.position.x = puff.current > 0.6 ? Math.sin(t * 40) * 0.012 : 0;
     } else if (cheering) {
       const q = since / 1.8;
       if (hard) g.rotation.x = Math.sin(q * Math.PI * 4) * 0.16 * (1 - q); // 토닥토닥 끄덕
@@ -248,7 +253,7 @@ function Blob({ group, intensity, look, cheer = 0, breath }: { group: Group; int
       if (!a) return;
       const d = i === 0 ? -1 : 1;
       const wave = cheering && !hard ? Math.sin(since * 14) * 0.5 + 0.9 : 0;
-      a.rotation.z = d * (hard ? 0.15 : 0.55 + Math.sin(t * 2 + i) * 0.08 + wave);
+      a.rotation.z = squeeze !== undefined ? d * (0.1 + 0.9 * (1 - puff.current)) : d * (hard ? 0.15 : 0.55 + Math.sin(t * 2 + i) * 0.08 + wave);
     });
   });
   const mood = GROUPS[group].color;
@@ -336,19 +341,20 @@ export interface BuddyProps {
   look?: BuddyLook;
   cheer?: number;
   breath?: number;
+  squeeze?: number;
   size?: number;
   className?: string;
 }
 
 // className을 주면 그 상자 크기를 따른다(화면 폭에 따라 크기를 바꾸려고)
-export default function Buddy({ emotion, intensity = 3, look = DEFAULT_LOOK, cheer, breath, size = 200, className }: BuddyProps) {
+export default function Buddy({ emotion, intensity = 3, look = DEFAULT_LOOK, cheer, breath, squeeze, size = 200, className }: BuddyProps) {
   const group = emotion ? groupOf(emotion) : "calm";
   return (
     <div className={className} style={className ? undefined : { width: size, height: size }} aria-hidden>
       <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 4.6], fov: 45 }} gl={{ alpha: true, antialias: true }}>
         <ambientLight intensity={0.9} />
         <directionalLight position={[2, 3, 4]} intensity={1.4} />
-        <Blob group={group} intensity={intensity} look={look} cheer={cheer} breath={breath} />
+        <Blob group={group} intensity={intensity} look={look} cheer={cheer} breath={breath} squeeze={squeeze} />
       </Canvas>
     </div>
   );

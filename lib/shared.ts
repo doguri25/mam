@@ -106,7 +106,17 @@ export interface MoodRecord {
   lang?: string; // 학생 화면 언어(ko·en·zh·vi·ja)
   summaryKo?: string; // 한국어가 아닌 말이면 선생님이 읽을 한국어 정리
   toneBy?: "device" | "gemini" | null;
+  calm?: CalmUse[]; // 마음 다스리기 도구를 써 본 뒤 학생이 고른 느낌
 }
+
+// 마음 다스리기 도구 상자: 숨 고르기 · 꼭 쥐었다 펴기 · 5-4-3-2-1 찾기 · 마음 그리기
+export const CALM_TOOLS = ["breathe", "squeeze", "senses", "draw"] as const;
+export const FELT = ["better", "same", "unsure"] as const;
+export type CalmTool = (typeof CALM_TOOLS)[number];
+export type Felt = (typeof FELT)[number];
+export interface CalmUse { tool: CalmTool; felt: Felt; at: string }
+export const CALM_KO: Record<CalmTool, string> = { breathe: "숨 고르기", squeeze: "꼭 쥐었다 펴기", senses: "5-4-3-2-1 찾기", draw: "마음 그리기" };
+export const FELT_KO: Record<Felt, string> = { better: "조금 나아졌어요", same: "그대로예요", unsure: "잘 모르겠어요" };
 
 export interface Cheer {
   id: string;

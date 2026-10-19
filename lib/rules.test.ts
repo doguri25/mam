@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { demoRecords } from "./demo.ts";
-import { absentStudents, leaks, matchRisk, watchFlags, weekStats } from "./rules.ts";
+import { absentStudents, calmStats, classWeather, leaks, matchRisk, watchFlags, weekStats } from "./rules.ts";
 import { DEFAULT_RISK_WORDS, type MoodRecord } from "./shared.ts";
 
 const TODAY = "2026-10-21";
@@ -73,4 +73,22 @@ test("주간 숫자 묶음에는 이름·번호가 없고, 감정 단어 종류�
   assert.equal(s.쓴감정단어종류, 2);
   assert.equal(s.지난주감정단어종류, 1);
   assert.ok(!JSON.stringify(s).includes('"no"'));
+});
+
+test("반 마음 날씨: 절반 넘는 무리가 날씨를 정하고, 섞이면 구름·무지개", () => {
+  const many = (emotion: string, k: number, from = 1) => Array.from({ length: k }, (_, i) => rec(from + i, TODAY, "am", emotion));
+  assert.equal(classWeather([...many("기뻐요", 6), ...many("슬퍼요", 2, 10)]).weather, "sunny");
+  assert.equal(classWeather([...many("슬퍼요", 5), ...many("기뻐요", 3, 10)]).weather, "rain");
+  assert.equal(classWeather([...many("기뻐요", 4), ...many("편안해요", 3, 10), ...many("화나요", 3, 20)]).weather, "partly");
+  assert.equal(classWeather([...many("기뻐요", 2), ...many("슬퍼요", 3, 10), ...many("무서워요", 3, 20)]).weather, "cloudy");
+  assert.equal(classWeather([...many("기뻐요", 3), ...many("슬퍼요", 4, 10), ...many("편안해요", 2, 20), ...many("화나요", 1, 30)]).weather, "rainbow");
+  const w = classWeather([{ ...rec(1, TODAY, "am", "기뻐요"), word: "뿌듯해요", risk: true }]);
+  assert.deepEqual(w.words, [["뿌듯해요", 1]]);
+  assert.equal(JSON.stringify(w).includes("risk"), false); // 위험 표시는 반 화면으로 나가지 않음
+});
+
+test("마음 다스리기: 도구별 횟수와 나아짐(이름 없이)", () => {
+  const a = { ...rec(1, TODAY, "am", "슬퍼요"), calm: [{ tool: "breathe" as const, felt: "better" as const, at: "" }, { tool: "draw" as const, felt: "same" as const, at: "" }] };
+  const b = { ...rec(2, TODAY, "am", "화나요"), calm: [{ tool: "breathe" as const, felt: "better" as const, at: "" }] };
+  assert.deepEqual(calmStats([a, b, rec(3, TODAY, "am", "기뻐요")]), { "숨 고르기": { 횟수: 2, 나아짐: 2 }, "마음 그리기": { 횟수: 1, 나아짐: 0 } });
 });
