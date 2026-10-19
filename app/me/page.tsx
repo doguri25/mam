@@ -1,6 +1,7 @@
 "use client";
 // 오늘의 마음: 고르기(카드/말) → 살펴보기 → 되묻기 한 번 → 저장. 학생이 고른 언어로 보여 준다(기록은 한국어 감정 이름).
-// 학생은 주로 태블릿: 가로면 오른쪽에 마음 친구·「더 해 보기」, 세로면 위에 마음 친구 띠·아래에 「더 해 보기」. 단추는 손가락 크기(48px 이상).
+// 학생은 주로 태블릿: 가로(넓은) 화면이면 오른쪽에 마음 친구·오늘 기록, 아래에 「더 해 보기」 한 줄.
+// 세로면 위에 마음 친구 띠·아래에 「더 해 보기」. 단추는 손가락 크기(48px 이상).
 // 와이파이가 끊기면 기록을 이 기기에 담아 두었다가 연결되면 보낸다(lib/queue).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -274,8 +275,8 @@ export default function MePage() {
         </div>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px] lg:grid-rows-[auto_auto_1fr] lg:gap-5">
-        <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-3 lg:row-start-1 lg:self-start">
+      <div className="grid gap-4 lg:grid-cols-[1fr_300px] lg:grid-rows-[auto_1fr_auto] lg:gap-5">
+        <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:self-start">
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{tt(busy)}</p>
           ) : calm === "open" ? (
@@ -417,7 +418,7 @@ export default function MePage() {
         </section>
 
         {/* 마음 친구: 세로 태블릿·휴대폰에서는 맨 위 가로 띠, 가로(넓은) 화면에서는 오른쪽 위 */}
-        <aside className="card order-first flex items-center gap-4 p-3 lg:sticky lg:top-4 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-2 lg:self-start lg:p-4 lg:text-center">
+        <aside className="card order-first flex items-center gap-4 p-3 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-2 lg:self-start lg:p-4 lg:text-center">
           <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} look={me.look} cheer={cheer} size={170} className="size-24 shrink-0 sm:size-32 lg:size-[170px]" />
           <div>
             <p className="text-xs text-soft lg:text-sm">{me.look.name || tt("buddy")}</p>
@@ -425,10 +426,10 @@ export default function MePage() {
           </div>
         </aside>
 
-        {/* 더 해 보기: 세로 태블릿에서는 기록 아래 4칸, 가로에서는 오른쪽 2칸 */}
-        <nav aria-label={tt("hubMore")} className="card p-3 lg:col-start-2 lg:row-start-2 lg:p-4">
+        {/* 더 해 보기: 세로 태블릿·휴대폰에서는 기록 아래 3~4칸, 넓은 화면(PC·가로 태블릿)에서는 맨 아래 가로 한 줄 7칸 */}
+        <nav aria-label={tt("hubMore")} className="card p-3 lg:col-span-2 lg:col-start-1 lg:row-start-3 lg:p-4">
           <p className="mb-2 font-bold">{tt("hubMore")}</p>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-2">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
             {tiles.map((x) =>
               x.href ? (
                 <Link key={x.label} href={x.href} className={tileClass}>
@@ -444,7 +445,7 @@ export default function MePage() {
           </div>
         </nav>
 
-        <aside className="card space-y-3 self-start lg:col-start-2 lg:row-start-3">
+        <aside className="card space-y-3 self-start lg:col-start-2 lg:row-start-2">
           <div className="space-y-1 text-left text-sm">
             <p className="font-bold">{tt("todayRec")}</p>
             {(["am", "pm"] as Slot[]).map((s) => {
