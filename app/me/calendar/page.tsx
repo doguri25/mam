@@ -8,7 +8,8 @@ import { isLang, t, w, type Lang } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
 import { label } from "@/lib/date";
 import { EmotionArt } from "@/components/Art";
-import type { MoodRecord } from "@/lib/shared";
+import BuddyLazy from "@/components/BuddyLazy";
+import type { BuddyLook, MoodRecord } from "@/lib/shared";
 
 function shift(month: string, n: number) {
   const [y, m] = month.split("-").map(Number);
@@ -29,9 +30,17 @@ export default function Calendar() {
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
   const [records, setRecords] = useState<MoodRecord[]>([]);
   const [pick, setPick] = useState("");
+  const [buddy, setBuddy] = useState<{ look: BuddyLook; flowers: number; emotion?: string } | null>(null);
 
   useEffect(() => {
-    api<{ today: string; no: number }>("student", "me").then((m) => { setMonth(m.today.slice(0, 7)); setNo(m.no); }, () => router.replace("/"));
+    api<{ today: string; no: number; look: BuddyLook; flowers: { emotion: string }[] }>("student", "me").then(
+      (m) => {
+        setMonth(m.today.slice(0, 7));
+        setNo(m.no);
+        setBuddy({ look: m.look, flowers: m.flowers.length, emotion: m.flowers.at(-1)?.emotion });
+      },
+      () => router.replace("/"),
+    );
   }, [router]);
 
   useEffect(() => {
@@ -56,6 +65,15 @@ export default function Calendar() {
           <button onClick={() => setMonth(shift(month, 1))} className="btn-sub min-h-10 px-3" aria-label="다음 달">›</button>
         </div>
       </div>
+      {buddy && (
+        <div className="card mb-4 flex items-center gap-4 p-3">
+          <BuddyLazy look={buddy.look} emotion={buddy.emotion} size={110} className="size-24 shrink-0 sm:size-28" />
+          <div>
+            <p className="text-sm text-soft">{buddy.look.name || t(lang, "buddy")}</p>
+            <p className="font-display text-xl sm:text-2xl">{buddy.flowers ? t(lang, "calBuddy", { n: buddy.flowers }) : t(lang, "calBuddyEmpty")}</p>
+          </div>
+        </div>
+      )}
       <div className="card p-3 sm:p-5">
         <div className="grid grid-cols-7 gap-1 text-center text-sm text-soft">
           {weekRow(lang).map((d, i) => <div key={i} className="py-1">{d}</div>)}

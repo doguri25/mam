@@ -1,5 +1,5 @@
 import type { Flag } from "@/lib/rules";
-import type { Cheer, MoodRecord, Note, Provider, Rules, Student, VoiceMode } from "@/lib/shared";
+import type { BuddyLook, Cheer, MoodRecord, Note, Provider, Rules, Student, VoiceMode } from "@/lib/shared";
 
 export interface Weekly {
   weekStart: string;
@@ -21,7 +21,8 @@ export interface OverviewRaw {
   storage: "mongo" | "firestore" | "local";
   dataPrefix: string;
   stamp: Stamp;
-  partial?: boolean; // true면 records는 저장해 둔 때 뒤에 바뀐 것만
+  partial?: boolean;
+  pinSet: boolean; // 선생님이 비밀번호를 바꿨는지 // true면 records는 저장해 둔 때 뒤에 바뀐 것만
   students: Student[];
   records: MoodRecord[];
   demo: boolean;
@@ -30,6 +31,7 @@ export interface OverviewRaw {
   push: { ready: boolean; key: string; devices: number };
   lessons: { id: string; unit: string; words: string[]; activities: { title: string; how: string; minutes: number }[]; createdAt: string }[];
   weekly: Weekly | null;
+  looks: Record<number, BuddyLook>;
   settings: {
     className: string;
     provider: Provider;

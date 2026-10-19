@@ -1,6 +1,7 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
 import { useState } from "react";
+import PinCard from "./PinCard";
 import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
@@ -80,6 +81,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
 
   return (
     <div className="space-y-5">
+      <PinCard pinSet={data.pinSet} />
       <PushCard data={data} reload={reload} />
       <section className="card space-y-4">
         <div>

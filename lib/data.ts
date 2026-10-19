@@ -1,7 +1,7 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
-import { decrypt, newCode } from "./auth.ts";
+import { decrypt, newCode, type Pin } from "./auth.ts";
 import { db } from "./db.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -103,6 +103,18 @@ export async function getStamp(): Promise<Stamp> {
 export async function touch(kind: keyof Stamp) {
   await db().set("meta", "stamp", { ...(await getStamp()), [kind]: Date.now() });
 }
+
+// 학생마다 꾸민 마음 친구(번호 → 모습). 문서 하나에 모아 두어 교사 화면도 한 번에 읽는다.
+export async function getLooks(): Promise<Record<number, BuddyLook>> {
+  return (await db().get<{ items: Record<number, BuddyLook> }>("meta", "looks"))?.items ?? {};
+}
+export async function saveLooks(items: Record<number, BuddyLook>) {
+  await db().set("meta", "looks", { items });
+}
+
+// 선생님이 바꾼 비밀번호(해시). 화면 설정과 따로 두어 overview로 나가지 않게 한다.
+export const getPin = () => db().get<Pin>("meta", "pin");
+export const savePin = (p: Pin) => db().set("meta", "pin", { ...p });
 
 // 선생님이 올린 교과서·학습지 차시(감정 단어·활동)
 export interface LessonItem {

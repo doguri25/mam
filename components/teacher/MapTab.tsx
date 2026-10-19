@@ -2,6 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useState } from "react";
 import { EmotionArt } from "../Art";
+import BuddyFace from "../BuddyFace";
 import Notes from "./Notes";
 import Timeline from "./Timeline";
 import Weather from "./Weather";
@@ -90,7 +91,10 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
                   className={`rounded-2xl border p-2.5 text-left text-sm hover:border-leaf ${alerted ? "border-alert bg-alert-soft" : flagged ? "border-sun bg-[#fff8e1]" : gone ? "border-dashed border-soft/50" : "border-line"}`}
                 >
                   <span className="flex justify-between gap-1 text-soft">
-                    <span className="truncate">{s.no} <b className="text-ink">{nameOf(s.no)}</b></span>
+                    <span className="flex min-w-0 items-center gap-1">
+                      <BuddyFace look={data.looks[s.no]} emotion={(pm ?? am)?.emotion} size={22} className="shrink-0" />
+                      <span className="truncate">{s.no} <b className="text-ink">{nameOf(s.no)}</b></span>
+                    </span>
                     {(flagged || alerted) && <span aria-label="살펴보기 신호">{alerted ? "🔴" : "🟡"}</span>}
                   </span>
                   <span className="mt-1.5 flex items-center gap-1">
@@ -151,7 +155,10 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
         <div className="no-print fixed inset-0 z-10 grid place-items-center bg-black/30 p-4" onClick={() => setOpen(null)} onKeyDown={(e) => e.key === "Escape" && setOpen(null)}>
           <div className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${open}번 기록`}>
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-2xl">{open}번 {nameOf(open)} · 최근 2주</h2>
+              <h2 className="flex items-center gap-2 font-display text-2xl">
+                <BuddyFace look={data.looks[open]} emotion={records.filter((r) => r.no === open).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />
+                {open}번 {nameOf(open)} · 최근 2주
+              </h2>
               <button onClick={() => setOpen(null)} className="btn-sub min-h-9 px-3" aria-label="닫기" autoFocus>✕</button>
             </div>
             {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm">🟡 {r}</p>)}

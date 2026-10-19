@@ -139,3 +139,30 @@ export const PROVIDERS = {
 } as const;
 export type Provider = keyof typeof PROVIDERS;
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as Provider[];
+
+// 마음 친구 꾸미기: 몸 색(빈 값이면 감정 색을 따라감) · 모양 · 꾸미개 · 이름(학생 화면에만 보임)
+export const BUDDY_COLORS = ["", "#f6c445", "#ff9eb0", "#ffa45c", "#7cc88f", "#5cc8c0", "#7fb5f0", "#b79cf0", "#c9b8a6"] as const;
+export const BUDDY_SHAPES = ["round", "squish", "bean"] as const;
+export const BUDDY_ACCS = ["none", "sprout", "ribbon", "party", "crown", "glasses"] as const;
+export type BuddyShape = (typeof BUDDY_SHAPES)[number];
+export type BuddyAcc = (typeof BUDDY_ACCS)[number];
+export interface BuddyLook { color: string; shape: BuddyShape; acc: BuddyAcc; name: string }
+export const DEFAULT_LOOK: BuddyLook = { color: "", shape: "round", acc: "none", name: "" };
+const oneOf = <T extends string>(list: readonly T[], v: unknown, d: T): T => (list.includes(v as T) ? (v as T) : d);
+export function cleanLook(x: unknown): BuddyLook {
+  const o = (x ?? {}) as Record<string, unknown>;
+  return {
+    color: oneOf(BUDDY_COLORS, o.color, ""),
+    shape: oneOf(BUDDY_SHAPES, o.shape, "round"),
+    acc: oneOf(BUDDY_ACCS, o.acc, "none"),
+    name: String(o.name ?? "").replace(/[<>{}]/g, "").trim().slice(0, 8),
+  };
+}
+
+// 숨 고르기: 4초 들이쉬고 4초 내쉬기. 화면 글자와 3D 친구가 같은 값을 쓴다.
+export const BREATH_MS = 8000;
+export function breathOf(ms: number) {
+  const p = (ms % BREATH_MS) / BREATH_MS;
+  const ease = (x: number) => 0.5 - Math.cos(Math.PI * x) / 2;
+  return p < 0.5 ? ease(p * 2) : 1 - ease((p - 0.5) * 2); // 0(내쉼) ~ 1(들이쉼)
+}

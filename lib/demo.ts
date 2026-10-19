@@ -1,7 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
 import { addDays } from "./date.ts";
 import { matchRisk } from "./rules.ts";
-import { DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type MoodRecord, type Slot, type Student } from "./shared.ts";
+import { BUDDY_ACCS, BUDDY_COLORS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type MoodRecord, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -92,5 +92,17 @@ export function demoRecords(today: string): MoodRecord[] {
   Object.assign(out[out.length - 1], { lang: "vi", word: "그리워요", summaryKo: "베트남에 있는 친구들이 보고 싶어요" });
   // 22번: 오늘 아침 위험 표현
   set(22, today, "am", "슬퍼요", 5, "그냥", "요즘은 그냥 사라지고 싶어요");
+  return out;
+}
+
+// 연습 반 학생들이 꾸민 마음 친구(절반쯤만 꾸민 것처럼)
+export function demoLooks(): Record<number, BuddyLook> {
+  const rand = rng(31);
+  const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
+  const out: Record<number, BuddyLook> = {};
+  for (let no = 1; no <= 25; no++) {
+    if (rand() < 0.4) continue;
+    out[no] = { color: pick(BUDDY_COLORS), shape: pick(BUDDY_SHAPES), acc: pick(BUDDY_ACCS), name: "" };
+  }
   return out;
 }

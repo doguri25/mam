@@ -27,23 +27,38 @@ export const STUDENT_COOKIE = "mb_s";
 export const TEACHER_COOKIE = "mb_t";
 export const TEACHER_HOURS = 8;
 
-export function teacherToken() {
-  return sign(`t:${Date.now() + TEACHER_HOURS * 3600_000}`);
+// 표 안의 v는 비밀번호 판(버전). 비밀번호를 바꾸면 v가 올라가 다른 기기의 예전 표는 무효가 된다.
+export function teacherToken(v = 0) {
+  return sign(`t:${Date.now() + TEACHER_HOURS * 3600_000}:${v}`);
 }
-export function isTeacher(cookie: string | undefined) {
-  const v = unsign(cookie);
-  return !!v && v.startsWith("t:") && Number(v.slice(2)) > Date.now();
+export function isTeacher(cookie: string | undefined, v = 0) {
+  const x = unsign(cookie);
+  if (!x?.startsWith("t:")) return false;
+  const [, exp, ver = "0"] = x.split(":");
+  return Number(exp) > Date.now() && Number(ver) === v;
 }
 
-// 비밀번호 4자리는 금방 맞혀지므로, 5번 틀리면 1분 잠근다
-// ponytail: 메모리 잠금이라 서버가 여러 대면 대마다 따로 센다. 실제 운영 전에 더 긴 비밀번호로 바꿀 것.
+// 선생님이 바꾼 비밀번호는 그대로 두지 않고 scrypt로 바꿔 저장한다. 없으면 TEACHER_PASSWORD(또는 1324).
+export interface Pin { salt: string; hash: string; v: number }
+const scrypt = (pin: string, salt: string) => crypto.scryptSync(pin, salt, 32).toString("base64url");
+export const validPin = (pin: string) => /^\d{4,12}$/.test(pin);
+export function makePin(pin: string, v: number): Pin {
+  const salt = crypto.randomBytes(16).toString("base64url");
+  return { salt, hash: scrypt(pin, salt), v };
+}
+const same = (a: string, b: string) => {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
+// 숫자 비밀번호는 금방 맞혀지므로, 5번 틀리면 1분 잠근다
+// ponytail: 메모리 잠금이라 서버가 여러 대면 대마다 따로 센다. 여러 반이 쓰면 저장소에 세도록 바꿀 것.
 let fails = 0;
 let lockedUntil = 0;
-export function checkPassword(input: string): { ok: boolean; wait?: number } {
+export function checkPassword(input: string, pin?: Pin | null): { ok: boolean; wait?: number } {
   if (Date.now() < lockedUntil) return { ok: false, wait: Math.ceil((lockedUntil - Date.now()) / 1000) };
-  const want = Buffer.from(process.env.TEACHER_PASSWORD || "1324");
-  const got = Buffer.from(String(input));
-  const ok = want.length === got.length && crypto.timingSafeEqual(want, got);
+  const got = String(input);
+  const ok = pin ? same(scrypt(got, pin.salt), pin.hash) : same(process.env.TEACHER_PASSWORD || "1324", got);
   if (ok) fails = 0;
   else if (++fails >= 5) {
     fails = 0;

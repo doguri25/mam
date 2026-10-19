@@ -4,18 +4,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
+import Breathe from "@/components/Breathe";
 import BuddyLazy from "@/components/BuddyLazy";
 import MoodPicker, { type Pick } from "@/components/MoodPicker";
 import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
 import { CHEER, LANGS, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
-import { groupOf, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
+import { groupOf, type BuddyLook, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
 
 type Me = {
   no: number; alias: string; className: string; vocab: string[]; voiceMode: VoiceMode; slot: Slot; today: string;
-  records: MoodRecord[]; flowers: { date: string; emotion: string }[];
+  records: MoodRecord[]; flowers: { date: string; emotion: string }[]; look: BuddyLook;
 };
 type Step = "choose" | "card" | "voice" | "confirm" | "ask" | "done";
 type Tone = { tone: string | null; toneWhy: string; toneBy: string | null; voice: VoiceFeatures | null };
@@ -47,6 +48,8 @@ export default function MePage() {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState<UIKey | "">("");
   const [note, setNote] = useState<UIKey | string>("");
+  const [cheer, setCheer] = useState(0); // 저장하면 마음 친구가 한 번 인사
+  const [breathe, setBreathe] = useState<"off" | "offer" | "on">("off");
   const [readAloud, setReadAloud] = useLocal("mb_read");
   const [langRaw, setLang] = useLocal(`mb_lang_${me?.no ?? 0}`); // 같은 태블릿을 돌려 써도 학생마다 따로
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
@@ -85,6 +88,7 @@ export default function MePage() {
     setTone(NO_TONE);
     setSummaryKo("");
     setQa({ question: "", options: [], aiRisk: false, skip: false });
+    setBreathe("off");
     setStep(next);
   }
 
@@ -146,6 +150,9 @@ export default function MePage() {
         flowers: [...me!.flowers.filter((f) => f.date !== today), { date: today, emotion: record.emotion }],
       });
       setStep("done");
+      setCheer((n) => n + 1);
+      // 힘든 마음(슬픔·화남·불안)이면 마음 친구와 숨 고르기를 권한다
+      setBreathe(["sad", "angry", "fear"].includes(groupOf(record.emotion)) ? "offer" : "off");
       say(tt("saved").replace("✓ ", ""));
     } catch (e) {
       setNote((e as Error).message);
@@ -318,6 +325,8 @@ export default function MePage() {
                 <button onClick={() => save(answer)} disabled={!answer.trim()} className="btn-main px-8">{tt("answerSave")}</button>
               </div>
             </div>
+          ) : breathe === "on" ? (
+            <Breathe look={me.look} emotion={pick.emotion} lang={lang} onDone={() => setBreathe("off")} />
           ) : (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="rounded-full bg-leaf-soft px-4 py-1 text-sm font-bold text-leaf">{tt("saved")}</p>
@@ -328,6 +337,15 @@ export default function MePage() {
                 {pick.word && <> · <b style={{ color: EMOTION_COLOR[pick.emotion ?? ""] }}>{w(lang, pick.word)}</b></>} · {w(lang, pick.reason ?? "")}
               </p>
               <p className="flex items-center gap-1 text-sm text-soft"><Flower color={EMOTION_COLOR[pick.emotion ?? ""] ?? "#ffc23c"} size={24} /> {tt("flowerToday")}</p>
+              {breathe === "offer" && (
+                <div className="w-full max-w-md rounded-2xl bg-leaf-soft p-4">
+                  <p className="font-display text-xl">{tt("breatheAsk")}<SayBtn lang={lang} text={tt("breatheAsk")} /></p>
+                  <div className="mt-3 flex justify-center gap-2">
+                    <button onClick={() => setBreathe("on")} className="btn-main">{tt("breatheYes")}</button>
+                    <button onClick={() => setBreathe("off")} className="btn-sub">{tt("breatheNo")}</button>
+                  </div>
+                </div>
+              )}
               <div className="mt-2 flex flex-wrap justify-center gap-3">
                 <Link href="/me/calendar" className="btn-sub">{tt("calendar")}</Link>
                 <button onClick={nextFriend} className="btn-main">{tt("next")}</button>
@@ -338,10 +356,11 @@ export default function MePage() {
 
         {/* 마음 친구: 태블릿 세로·휴대폰에서는 맨 위 가로 띠, 넓은 화면에서는 오른쪽 위 */}
         <aside className="card order-first flex items-center gap-4 p-3 lg:sticky lg:top-5 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-3 lg:self-start lg:p-5 lg:text-center">
-          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} size={220} className="size-24 shrink-0 sm:size-28 lg:size-[220px]" />
+          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} look={me.look} cheer={cheer} size={220} className="size-24 shrink-0 sm:size-28 lg:size-[220px]" />
           <div>
-            <p className="text-xs text-soft lg:text-sm">{tt("buddy")}</p>
+            <p className="text-xs text-soft lg:text-sm">{me.look.name || tt("buddy")}</p>
             <p className="font-display text-lg sm:text-xl" style={{ color: pick.emotion ? EMOTION_COLOR[pick.emotion] : undefined }}>{buddyLine}</p>
+            <Link href="/me/buddy" className="mt-1 inline-block text-sm text-leaf underline underline-offset-4">{tt("buddyEdit")}</Link>
           </div>
         </aside>
 

@@ -2,7 +2,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { extractLesson } from "@/lib/ai";
 import { TEACHER_COOKIE, decrypt, isTeacher } from "@/lib/auth";
-import { aiConfig, getSettings } from "@/lib/data";
+import { aiConfig, getPin, getSettings } from "@/lib/data";
 import { parseDocument } from "@/lib/upstage";
 
 export const maxDuration = 60;
@@ -11,7 +11,7 @@ const OK = /\.(pdf|png|jpe?g|webp|heic|bmp|tiff?|hwp|hwpx|docx?|pptx?)$/i;
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 export async function POST(req: NextRequest) {
-  if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
+  if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, (await getPin())?.v ?? 0)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) return bad("파일을 골라 주세요.");

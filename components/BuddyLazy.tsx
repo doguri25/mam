@@ -3,7 +3,8 @@
 import dynamic from "next/dynamic";
 import { useSyncExternalStore } from "react";
 import { EmotionArt } from "./Art";
-
+import type { BuddyProps } from "./Buddy";
+import BuddyFace from "./BuddyFace";
 
 const Buddy = dynamic(() => import("./Buddy"), { ssr: false, loading: () => null });
 
@@ -17,8 +18,10 @@ function can3D() {
 }
 const subscribe = () => () => {};
 
-export default function BuddyLazy({ emotion, intensity, size = 200, className }: { emotion?: string; intensity?: number; size?: number; className?: string }) {
+export default function BuddyLazy(props: BuddyProps) {
   const ok = useSyncExternalStore(subscribe, can3D, () => false);
-  if (ok) return <Buddy emotion={emotion} intensity={intensity} size={size} className={className} />;
-  return <EmotionArt name={emotion ?? "편안해요"} size={size} className={className} />;
+  if (ok) return <Buddy {...props} />;
+  const { emotion, look, size = 200, className } = props;
+  // 꾸민 모습이 있으면 그 얼굴로, 없으면 감정 그림으로
+  return look ? <BuddyFace look={look} emotion={emotion} size={size} className={className} /> : <EmotionArt name={emotion ?? "편안해요"} size={size} className={className} />;
 }

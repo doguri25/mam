@@ -1,14 +1,14 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, weeklySummary } from "@/lib/ai";
-import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, mask, newCode, teacherToken } from "@/lib/auth";
+import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherToken, validPin } from "@/lib/auth";
 import {
-  aiConfig, allRecords, getLessons, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
-  rosterIsDemo, saveRoster, saveSettings, touch,
+  aiConfig, allRecords, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  rosterIsDemo, saveLooks, savePin, saveRoster, saveSettings, touch,
 } from "@/lib/data";
 import { addDays, today } from "@/lib/date";
 import { db } from "@/lib/db";
-import { demoRecords, demoStudents } from "@/lib/demo";
+import { demoLooks, demoRecords, demoStudents } from "@/lib/demo";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { watchFlags, weekStats } from "@/lib/rules";
 import { PROVIDER_IDS, type Cheer, type MoodRecord, type Note, type Provider, type Rules } from "@/lib/shared";
@@ -18,25 +18,42 @@ const strList = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).trim(
 const lean = (r: MoodRecord) => ({ ...r, voice: undefined }); // 목소리 숫자는 화면에 필요 없음
 const DAYS = 34; // 교사 화면이 들고 있는 기록 범위(월간 그래프 30일 + 여유)
 
+function withTeacherCookie(v: number) {
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(TEACHER_COOKIE, teacherToken(v), {
+    httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge: TEACHER_HOURS * 3600, path: "/",
+  });
+  return res;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   try {
-    if (body.action === "login") {
-      const r = checkPassword(String(body.password ?? ""));
-      if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
-      if (!r.ok) return bad("비밀번호가 맞지 않아요.", 401);
-      const res = NextResponse.json({ ok: true });
-      res.cookies.set(TEACHER_COOKIE, teacherToken(), {
-        httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge: TEACHER_HOURS * 3600, path: "/",
-      });
-      return res;
-    }
     if (body.action === "logout") {
       const res = NextResponse.json({ ok: true });
       res.cookies.delete(TEACHER_COOKIE);
       return res;
     }
-    if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
+    const pin = await getPin();
+    if (body.action === "login") {
+      const r = checkPassword(String(body.password ?? ""), pin);
+      if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
+      if (!r.ok) return bad("비밀번호가 맞지 않아요.", 401);
+      return withTeacherCookie(pin?.v ?? 0);
+    }
+    if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, pin?.v ?? 0)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
+
+    // 비밀번호 바꾸기: 지금 비밀번호를 확인하고, 바꾼 기기만 계속 열려 있게 새 표를 준다
+    if (body.action === "changePin") {
+      const next = String(body.next ?? "");
+      if (!validPin(next)) return bad("새 비밀번호는 숫자 4~12자리로 해 주세요.");
+      const r = checkPassword(String(body.current ?? ""), pin);
+      if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
+      if (!r.ok) return bad("지금 비밀번호가 맞지 않아요.", 401);
+      const np = makePin(next, (pin?.v ?? 0) + 1);
+      await savePin(np);
+      return withTeacherCookie(np.v);
+    }
 
     // 변경 표시만(문서 1개 읽기). 교사 화면은 이것만 20초마다 묻는다.
     if (body.action === "stamp") return NextResponse.json(await getStamp());
@@ -56,9 +73,9 @@ export async function POST(req: NextRequest) {
       // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
       const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
       const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from)) : recordsFrom(from);
-      const [students, records, cheers, notes, demo, subs, lessons, weekly] = await Promise.all([
+      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks] = await Promise.all([
         getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
-        getLessons(), db().get<{ weekStart: string }>("meta", "weekly"),
+        getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
       ]);
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
@@ -68,6 +85,7 @@ export async function POST(req: NextRequest) {
         dataPrefix: db().prefix,
         stamp,
         partial,
+        pinSet: !!pin,
         students,
         records: records.map(lean),
         demo: demo || records.some((r) => r.demo),
@@ -75,6 +93,8 @@ export async function POST(req: NextRequest) {
         notes: newest(notes),
         push: { ready: pushReady(), key: pushPublicKey(), devices: subs },
         lessons,
+        // 마음 친구 이름은 학생이 실명을 쓸 수 있어 선생님 화면에 보내지 않는다
+        looks: Object.fromEntries(Object.entries(looks).map(([no, l]) => [no, { ...l, name: "" }])),
         weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
         settings: publicSettings(settings),
       });
@@ -251,13 +271,16 @@ export async function POST(req: NextRequest) {
         if (await rosterIsDemo()) {
           await db().clear("cheers");
           await db().clear("notes");
+          await db().del("meta", "looks");
           await saveRoster([]);
         }
       } else {
         await db().clear("records");
         await db().clear("cheers");
         await db().clear("notes");
+        await db().del("meta", "looks");
         if (mode === "seed") {
+          await saveLooks(demoLooks());
           const taken = new Set<string>();
           await saveRoster(demoStudents(() => {
             const c = newCode(taken);

@@ -1,6 +1,7 @@
 "use client";
 // 응원 한마디: 학생 기록 2주 → AI 초안 2개 → 선생님이 고쳐서 복사·저장 (학생에게 자동으로 보내지 않음)
 import { useState } from "react";
+import BuddyFace from "../BuddyFace";
 import Timeline from "./Timeline";
 import Notes from "./Notes";
 import type { NameOf, Overview, Reload } from "./types";
@@ -61,7 +62,10 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
       ) : (
         <div className="space-y-5">
           <section className="card">
-            <h2 className="mb-3 font-display text-2xl">{s.no}번 {nameOf(s.no)} · 최근 2주</h2>
+            <h2 className="mb-3 flex items-center gap-2 font-display text-2xl">
+              <BuddyFace look={data.looks[s.no]} emotion={data.records.filter((r) => r.no === s.no).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />
+              {s.no}번 {nameOf(s.no)} · 최근 2주
+            </h2>
             <Timeline records={data.records.filter((r) => r.no === s.no)} today={data.today} />
           </section>
           <section className="card space-y-3">

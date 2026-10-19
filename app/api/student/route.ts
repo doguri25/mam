@@ -3,11 +3,11 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, type Lang } from "@/lib/i18n";
 import { STUDENT_COOKIE, decrypt, sign, unsign } from "@/lib/auth";
-import { aiConfig, getRoster, getSettings, putRecord, recordsOf } from "@/lib/data";
+import { aiConfig, getLooks, getRoster, getSettings, putRecord, recordsOf, saveLooks } from "@/lib/data";
 import { slotNow, today } from "@/lib/date";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
-import { EMOTION_NAMES, NUANCE, REASON_NAMES, TONES, type MoodRecord, type Student } from "@/lib/shared";
+import { DEFAULT_LOOK, EMOTION_NAMES, NUANCE, REASON_NAMES, TONES, cleanLook, type MoodRecord, type Student } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     if (body.action === "me") {
       const date = today();
-      const mine = await recordsOf(s.no);
+      const [mine, looks] = await Promise.all([recordsOf(s.no), getLooks()]);
       // 마음 꽃: 이번 달 기록한 날마다 한 송이(그날 마지막 마음 색)
       const month = new Map<string, string>();
       for (const r of mine.filter((r) => r.date.startsWith(date.slice(0, 7))).sort((a, b) => a.id.localeCompare(b.id))) month.set(r.date, r.emotion);
@@ -54,7 +54,16 @@ export async function POST(req: NextRequest) {
         no: s.no, alias: s.alias, className: settings.className, vocab: settings.vocab, voiceMode: settings.voiceMode,
         slot: slotNow(), today: date, records: mine.filter((r) => r.date === date).map(publicRecord),
         flowers: [...month].map(([d, emotion]) => ({ date: d, emotion })),
+        look: looks[s.no] ?? DEFAULT_LOOK,
       });
+    }
+
+    // 내 마음 친구 꾸미기
+    // ponytail: 문서 하나를 읽고 고쳐 쓰므로 두 학생이 같은 순간 저장하면 한쪽이 묻힐 수 있다. 반 하나·태블릿 돌려쓰기면 충분.
+    if (body.action === "look") {
+      const look = cleanLook(body.look);
+      await saveLooks({ ...(await getLooks()), [s.no]: look });
+      return NextResponse.json({ look });
     }
 
     if (body.action === "records") {
