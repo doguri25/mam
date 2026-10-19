@@ -35,6 +35,8 @@ export interface OverviewRaw {
   letters: Letter[];
   reflects: Reflect[];
   trial: { aiUsed: number; aiCap: number; aiSource: "trial" | "class" | "none" | null } | null; // 심사용 체험 공간이면
+  space: string; // 학급 공간(""=홍북초, demo=체험, c…=가입한 학급)
+  account: string; // 로그인한 이름
   settings: {
     className: string;
     provider: Provider;

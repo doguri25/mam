@@ -50,6 +50,8 @@ function writeCache(c: Cache | null) {
     // 저장 공간이 없거나 막혀도 화면은 그대로 쓴다
   }
 }
+// 저장소 앞이름에서 학급 공간(「공간_」)을 뺀 것: maeumbit_가 아니면 이 컴퓨터 연습 공간(DATA_PREFIX)
+const basePrefix = (o: { dataPrefix: string; space: string }) => (o.space ? o.dataPrefix.slice(0, -(o.space.length + 1)) : o.dataPrefix);
 const keep = (records: MoodRecord[], stamp: Stamp, prefix: string) =>
   writeCache({ prefix, wipe: stamp.wipe ?? 0, at: stamp.records, records });
 
@@ -65,7 +67,7 @@ export default function TeacherPage() {
     window.scrollTo(0, 0);
   };
   const [cheerNo, setCheerNo] = useState<number | null>(null);
-  const names = useNames();
+  const names = useNames(raw?.space ?? "");
   const stamp = useRef<Stamp | null>(null);
 
   // 처음·설정이 바뀌었을 때: 전부(최근 34일 기록)
@@ -73,6 +75,13 @@ export default function TeacherPage() {
     try {
       const c = readCache();
       const o = await api<OverviewRaw>("teacher", "overview", c ? { since: c.at - 5000, prefix: c.prefix, wipe: c.wipe } : {});
+      // 체험 표로는 정식 선생님 화면을 열지 않는다. 체험은 /try의 「선생님으로 둘러보기」(/teacher?try)로만 들어온다.
+      if (o.trial && !new URLSearchParams(location.search).has("try")) {
+        await api("try", "end");
+        writeCache(null);
+        setNeedLogin(true);
+        return;
+      }
       if (o.partial && c) {
         const byId = new Map(c.records.map((r) => [r.id, r]));
         for (const r of o.records) byId.set(r.id, r);
@@ -153,9 +162,9 @@ export default function TeacherPage() {
     <nav aria-label="선생님 메뉴" className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div>
         <p className="font-display text-xl text-leaf">마음빛 길잡이</p>
-        <p className="text-sm text-soft">{data.settings.className} · 선생님</p>
+        <p className="text-sm text-soft">{data.settings.className} · {data.account}</p>
         {data.trial && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">🧪 심사용 체험</p>}
-        {!data.trial && data.dataPrefix && data.dataPrefix !== "maeumbit_" && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">이 컴퓨터 연습 공간</p>}
+        {!data.trial && basePrefix(data) && basePrefix(data) !== "maeumbit_" && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">이 컴퓨터 연습 공간</p>}
       </div>
       {NAV.map((g) => (
         <div key={g.title}>
@@ -250,38 +259,75 @@ export default function TeacherPage() {
   );
 }
 
+// 로그인: 이름(학급마다 하나) + 비밀번호. 처음 온 선생님은 「새 학급 만들기」로 바로 가입한다.
 function Login({ onDone }: { onDone: () => Promise<void> }) {
+  const [savedName, setSavedName] = useLocal("mb_tname"); // 이 기기에서 마지막으로 들어온 이름
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState(savedName);
+  const [className, setClassName] = useState("");
   const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const signup = mode === "signup";
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (signup && pw !== pw2) return setError("비밀번호 두 칸이 서로 달라요.");
+    setBusy(true);
+    setError("");
     try {
-      await api("teacher", "login", { password: pw });
+      await api("teacher", signup ? "signup" : "login", { name, password: pw, className });
+      setSavedName(name.trim());
       await onDone();
     } catch (err) {
       setError((err as Error).message);
       setPw("");
+      setPw2("");
     }
+    setBusy(false);
   }
+  const pwField = (id: string, value: string, set: (v: string) => void, label: string, auto: string) => (
+    <label htmlFor={id} className="block text-left">
+      <span className="text-sm font-bold">{label}</span>
+      <input id={id} type="password" inputMode="numeric" autoComplete={auto} value={value} onChange={(e) => set(e.target.value)} className="field mt-1 text-center text-2xl tracking-[0.5em]" />
+    </label>
+  );
   return (
-    <main className="grid min-h-dvh place-items-center px-5">
+    <main className="grid min-h-dvh place-items-center px-5 py-8">
       <form onSubmit={submit} className="card w-full max-w-sm space-y-4 text-center">
-        <p className="text-4xl">🔒</p>
-        <h1 className="font-display text-2xl">선생님 관리 화면</h1>
-        <label htmlFor="pw" className="sr-only">비밀번호</label>
-        <input
-          id="pw"
-          type="password"
-          inputMode="numeric"
-          autoComplete="current-password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          className="field text-center text-2xl tracking-[0.5em]"
-          placeholder="비밀번호"
-          autoFocus
-        />
+        <p className="text-4xl">{signup ? "🏫" : "🔒"}</p>
+        <h1 className="font-display text-2xl">{signup ? "새 학급 만들기" : "선생님 관리 화면"}</h1>
+        <label htmlFor="tname" className="block text-left">
+          <span className="text-sm font-bold">이름</span>
+          <input
+            id="tname"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="username"
+            className="field mt-1"
+            placeholder={signup ? "예: 홍북초 3-2 김민지" : "가입할 때 쓴 이름"}
+            maxLength={20}
+            autoFocus={!name}
+          />
+          {signup && <span className="mt-1 block text-xs text-soft">다른 선생님과 겹치지 않게 학교·학년·반을 붙여 주세요. 들어올 때 이 이름을 써요.</span>}
+        </label>
+        {signup && (
+          <label htmlFor="cname" className="block text-left">
+            <span className="text-sm font-bold">학급 이름</span>
+            <input id="cname" value={className} onChange={(e) => setClassName(e.target.value)} className="field mt-1" placeholder="예: 3학년 2반" maxLength={20} />
+          </label>
+        )}
+        {pwField("pw", pw, setPw, signup ? "비밀번호 (숫자 4자리 이상)" : "비밀번호", signup ? "new-password" : "current-password")}
+        {signup && pwField("pw2", pw2, setPw2, "비밀번호 한 번 더", "new-password")}
         {error && <p role="alert" className="text-alert">{error}</p>}
-        <button className="btn-main w-full" disabled={!pw}>열기</button>
+        <button className="btn-main w-full" disabled={busy || !name.trim() || !pw || (signup && !pw2)}>
+          {busy ? "잠시만요…" : signup ? "학급 만들고 들어가기" : "열기"}
+        </button>
+        {signup && <p className="text-xs text-soft">학생 코드와 AI 키는 들어간 뒤 「학생 코드·QR」과 「설정」에서 넣어요. 학급마다 따로라 다른 반 기록은 보이지 않아요.</p>}
+        <button type="button" onClick={() => { setMode(signup ? "login" : "signup"); setError(""); }} className="text-sm font-bold text-leaf underline underline-offset-4">
+          {signup ? "이미 학급이 있어요 · 들어가기" : "처음이신가요? 새 학급 만들기"}
+        </button>
         <p className="flex justify-center gap-4 text-sm text-soft">
           <Link href="/" className="underline underline-offset-4">학생 화면으로</Link>
           <Link href="/try" className="underline underline-offset-4">비밀번호 없이 체험하기</Link>

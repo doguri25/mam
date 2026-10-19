@@ -1,7 +1,9 @@
 // 저장소: MONGODB_URI가 있으면 MongoDB, FIREBASE_SERVICE_ACCOUNT가 있으면 Firestore, 없으면 로컬 파일(.data/db.json)
 // MongoDB·Firestore는 서버(관리자 SDK)에서만 읽고 쓴다 — 브라우저는 API로만 닿는다.
 // DATA_PREFIX로 모음 이름 앞을 바꾼다: 배포는 maeumbit_, 이 컴퓨터는 maeumbit_dev_ → 연습하다 실제 반 기록을 건드리지 않게.
-// 심사용 체험(inSpace("demo"))은 그 요청 동안만 앞이름에 demo_를 더해 실제 반과 완전히 따로 쓴다.
+// 학급마다 공간이 따로다: inSpace(공간)이면 그 요청 동안 앞이름에 「공간_」을 더한다.
+// ""(앞이름 없음) = 처음부터 있던 반(홍북초 계정), "demo" = 심사용 체험, "c…" = 새로 가입한 학급.
+// 선생님 계정(accounts)·학생 코드 색인(codes)은 모든 학급이 함께 쓰므로 공간 밖(outOfSpace)에서만 읽고 쓴다.
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
@@ -9,7 +11,7 @@ import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { MongoClient } from "mongodb";
 
-export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets";
+export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets" | "accounts" | "codes";
 type Doc = Record<string, unknown>;
 type Op = "==" | ">" | ">=";
 
@@ -27,11 +29,13 @@ interface Store {
 }
 
 const PREFIX = process.env.DATA_PREFIX || "maeumbit_";
-const space = new AsyncLocalStorage<"demo">();
-export const inSpace = <T,>(name: "demo", fn: () => T) => space.run(name, fn);
-export const outOfSpace = <T,>(fn: () => T) => space.exit(fn); // 체험 중에도 실제 반의 AI 키를 읽을 때만
-export const isDemo = () => space.getStore() === "demo";
-const prefix = () => (isDemo() ? `${PREFIX}demo_` : PREFIX);
+// ponytail: 학급마다 모음(컬렉션)이 10개씩 생긴다. MongoDB 무료(M0)는 모음 500개까지라 50학급쯤이 한도 — 넘으면 문서에 학급 칸을 두는 방식으로.
+const space = new AsyncLocalStorage<string>();
+export const inSpace = <T,>(name: string, fn: () => T) => space.run(name, fn);
+export const outOfSpace = <T,>(fn: () => T) => space.exit(fn); // 계정·코드 색인, 체험이 빌려 쓰는 홍북초 AI 키
+export const spaceId = () => space.getStore() ?? "";
+export const isDemo = () => spaceId() === "demo";
+const prefix = () => (spaceId() ? `${PREFIX}${spaceId()}_` : PREFIX);
 const match = (v: unknown, op: Op, x: string | number | boolean) =>
   op === "==" ? v === x : typeof v === typeof x && (op === ">" ? (v as number) > (x as number) : (v as number) >= (x as number));
 
@@ -97,7 +101,7 @@ function mongo(uri: string): Store {
 function local(): Store {
   const file = path.join(process.cwd(), ".data", "db.json");
   type Data = Record<string, Record<string, Doc>>;
-  const key = (col: Col) => (isDemo() ? `demo_${col}` : col);
+  const key = (col: Col) => (spaceId() ? `${spaceId()}_${col}` : col);
   const read = (): Data => {
     try {
       return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -118,7 +122,7 @@ function local(): Store {
   };
   return {
     kind: "local",
-    get prefix() { return isDemo() ? "demo_" : ""; },
+    get prefix() { return spaceId() ? `${spaceId()}_` : ""; },
     all: async <T,>(col: Col) => Object.values(rows(col)) as T[],
     find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
       Object.values(rows(col)).filter((d) => match(d[field], op, value)) as T[],

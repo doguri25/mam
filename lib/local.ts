@@ -56,8 +56,9 @@ export function parseNames(text: string) {
   return out;
 }
 
-export function useNames() {
-  const [raw, setRaw] = useLocal("mb_names");
+// 학급(공간)마다 따로: 한 기기를 여러 선생님이 써도 다른 반 실명이 섞이지 않게. 홍북초 반은 예전 열쇠 그대로.
+export function useNames(space = "") {
+  const [raw, setRaw] = useLocal(space ? `mb_names_${space}` : "mb_names");
   const [show, setShow] = useLocal("mb_show_names");
   const names = parseNames(raw);
   const on = show === "1" && Object.keys(names).length > 0;

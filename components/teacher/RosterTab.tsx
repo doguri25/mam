@@ -9,7 +9,7 @@ import { useNames } from "@/lib/local";
 export default function RosterTab({ data, reload }: { data: Overview; reload: Reload }) {
   const [text, setText] = useState(() => data.students.map((s) => `${s.no} ${s.alias}`).join("\n"));
   const [msg, setMsg] = useState("");
-  const names = useNames();
+  const names = useNames(data.space);
   const [qr, setQr] = useState<Record<string, string>>({});
   const origin = window.location.origin; // 이 탭은 로그인 뒤 브라우저에서만 그려진다
 

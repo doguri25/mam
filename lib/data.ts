@@ -1,8 +1,8 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
-import { decrypt, newCode, type Pin } from "./auth.ts";
+import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { today } from "./date.ts";
 import { demoExtras, demoLooks, demoRecords, demoStudents } from "./demo.ts";
-import { db, isDemo, outOfSpace } from "./db.ts";
+import { db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
@@ -51,9 +51,81 @@ export async function rosterIsDemo() {
 }
 
 // demo: 시연(연습)용 가짜 명단인지 — 교사 화면에 「연습 데이터」 띠를 띄운다
+// 학생 코드는 모든 학급을 통틀어 하나뿐이어야 한다(학생 로그인은 코드로 학급을 찾는다). 다른 학급이 쓰는 코드면 새로 뽑아
+// 저장하고, 공간 밖 「codes」 색인(코드 → 학급 공간·번호)을 이 학급 명단에 맞춘다. 실제로 저장한 명단을 돌려준다.
+interface CodeRow { id: string; space: string; no: number }
 export async function saveRoster(students: Student[], demo = false) {
-  await db().set("meta", "roster", { students: [...students].sort((a, b) => a.no - b.no), demo });
+  const sp = spaceId();
+  const index = await outOfSpace(() => db().all<CodeRow>("codes"));
+  const others = new Set(index.filter((x) => x.space !== sp).map((x) => x.id));
+  for (const old of ["", "demo"]) if (old !== sp) for (const s of await inSpace(old, getRoster)) others.add(s.code); // 색인 전에 만든 코드
+  const taken = new Set([...others, ...students.map((s) => s.code)]);
+  const list = [...students].sort((a, b) => a.no - b.no).map((s) => {
+    if (!others.has(s.code)) return s;
+    const code = newCode(taken);
+    taken.add(code);
+    return { ...s, code };
+  });
+  await db().set("meta", "roster", { students: list, demo });
+  const mine = new Set(list.map((s) => s.code));
+  await outOfSpace(async () => {
+    for (const x of index) if (x.space === sp && !mine.has(x.id)) await db().del("codes", x.id);
+    await db().setMany("codes", list.map((s): [string, Record<string, unknown>] => [s.code, { id: s.code, space: sp, no: s.no }]));
+  });
   await touch("other");
+  return list;
+}
+
+// 학생 코드 → 학급 공간(없으면 null). 색인이 생기기 전 코드는 홍북초·체험 명단에서 찾는다.
+export async function locateCode(code: string): Promise<string | null> {
+  if (!/^[A-Z0-9]{4,10}$/.test(code)) return null;
+  const hit = await outOfSpace(() => db().get<CodeRow>("codes", code));
+  if (hit) return hit.space;
+  for (const sp of ["", "demo"]) if ((await inSpace(sp, getRoster)).some((s) => s.code === code)) return sp;
+  return null;
+}
+
+// ── 선생님 계정: 이름(로그인 이름) → 학급 공간 ──
+// 홍북초(TEACHER_NAME)는 처음부터 있던 반(앞이름 없는 공간)이라 계정 문서가 없다. 새 학급은 누구나 가입해 만든다.
+export const ROOT_NAME = process.env.TEACHER_NAME || "홍북초";
+export interface Account { id: string; name: string; space: string; createdAt: string }
+// 한글 채움 문자·폭 없는 글자는 지운다(「홍북초ㅤ」처럼 보이지 않는 글자로 홍북초인 척하는 이름을 막음)
+const tidy = (name: string) => name.normalize("NFC").replace(/[\u115F\u1160\u3164\uFFA0\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim();
+export const nameKey = (name: string) => tidy(name).toLowerCase();
+export const validName = (name: string) => /^[\p{L}\p{N} ·_-]{2,20}$/u.test(tidy(name));
+
+export async function findAccount(name: string): Promise<Account | null> {
+  const id = nameKey(name);
+  if (!id) return null;
+  if (id === nameKey(ROOT_NAME)) return { id, name: ROOT_NAME, space: "", createdAt: "" };
+  return outOfSpace(() => db().get<Account>("accounts", id));
+}
+
+export async function createAccount(name: string, className: string, password: string): Promise<{ space: string; v: number } | { error: string }> {
+  const clean = tidy(name);
+  if (!validName(clean)) return { error: "이름은 2~20자 글자·숫자로 써 주세요." };
+  if (!validPin(password)) return { error: "비밀번호는 숫자 4~12자리로 해 주세요." };
+  if (await findAccount(clean)) return { error: "이미 있는 이름이에요. 학교·학년·반을 붙여 다르게 써 주세요(예: 홍북초 3-2 김민지)." };
+  // 학급마다 모음이 10개쯤 생겨 MongoDB 무료(모음 500개) 한도를 넘지 않게 학급 수를 막는다(MAX_CLASSES로 바꿈)
+  if ((await outOfSpace(() => db().all("accounts"))).length >= (Number(process.env.MAX_CLASSES) || 40))
+    return { error: "더 만들 수 있는 학급 수를 넘었어요. 관리하시는 선생님께 알려 주세요." };
+  // ponytail: 같은 이름 두 가입이 같은 순간에 오면 나중 것이 계정을 덮어 먼저 만든 학급이 주인 없이 남는다. 생기면 「없을 때만 만들기」로.
+  const space = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  const pin = makePin(password, 1);
+  // 비밀번호를 먼저 저장하고 계정을 연다(계정만 있고 비밀번호가 없는 학급이 생기지 않게)
+  await inSpace(space, async () => {
+    await savePin(pin);
+    await db().set("meta", "account", { name: clean });
+    await saveSettings({ ...defaultSettings(), className: className.trim().slice(0, 20) || defaultSettings().className });
+  });
+  await outOfSpace(() => db().set("accounts", nameKey(clean), { id: nameKey(clean), name: clean, space, createdAt: new Date().toISOString() }));
+  return { space, v: pin.v };
+}
+
+// 화면 위에 보일 계정 이름
+export async function accountName() {
+  if (isDemo()) return "심사용 체험";
+  return (await db().get<{ name: string }>("meta", "account"))?.name ?? ROOT_NAME;
 }
 
 // 「1 햇살」, 「1,햇살」, 「1	햇살」 한 줄에 한 명. 같은 번호는 원래 코드를 그대로 둔다.
@@ -76,6 +148,7 @@ export function parseRoster(text: string, old: Student[]): Student[] {
 
 // 체험 공간은 실제 반에 넣은 AI 키를 빌려 쓰되 하루 DEMO_AI_PER_DAY번까지만(키는 화면에 나가지 않는다)
 export const DEMO_AI_PER_DAY = 200;
+// 체험 공간은 (체험 전용 키가 없으면) 홍북초 반의 키를 빌려 쓴다. 다른 학급은 각자 넣은 키만.
 const keySettings = () => (isDemo() ? outOfSpace(() => getSettings()) : getSettings());
 
 export async function demoAiUsed() {

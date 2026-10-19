@@ -1,13 +1,13 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
-import { DEMO_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherToken, validPin } from "@/lib/auth";
+import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, aiConfig, allRecords, demoAiUsed, demoProvider, trialAiSource, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, accountName, aiConfig, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
-import { db, inSpace, isDemo } from "@/lib/db";
+import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
@@ -27,8 +27,9 @@ function withTeacherCookie(v: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const run = () => handle(req);
-  return req.cookies.get(DEMO_COOKIE)?.value === "1" ? inSpace("demo", run) : run();
+  // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
+  if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
+  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)); // 표에 적힌 학급 공간에서
 }
 
 // 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
@@ -42,13 +43,25 @@ async function handle(req: NextRequest) {
       res.cookies.delete(TEACHER_COOKIE);
       return res;
     }
-    const pin = await getPin();
+    // 로그인: 이름으로 학급을 찾고 그 학급 공간에서 비밀번호를 맞춰 본다(어느 쪽이 틀렸는지는 알려 주지 않음)
     if (body.action === "login") {
-      const r = checkPassword(String(body.password ?? ""), pin);
-      if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
-      if (!r.ok) return bad("비밀번호가 맞지 않아요.", 401);
-      return withTeacherCookie(pin?.v ?? 0);
+      const acc = await findAccount(String(body.name ?? ""));
+      if (!acc) return bad("이름이나 비밀번호가 맞지 않아요.", 401);
+      return inSpace(acc.space, async () => {
+        const pin = await getPin();
+        const r = checkPassword(String(body.password ?? ""), pin);
+        if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
+        if (!r.ok) return bad("이름이나 비밀번호가 맞지 않아요.", 401);
+        return withTeacherCookie(pin?.v ?? 0);
+      });
     }
+    // 새 학급 만들기(누구나): 이름·학급 이름·비밀번호. AI 키는 들어간 뒤 「설정」에서 각자 넣는다.
+    if (body.action === "signup") {
+      const r = await createAccount(String(body.name ?? ""), String(body.className ?? ""), String(body.password ?? ""));
+      if ("error" in r) return bad(r.error);
+      return inSpace(r.space, () => withTeacherCookie(r.v));
+    }
+    const pin = await getPin();
     if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, pin?.v ?? 0)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
 
     if (isDemo() && DEMO_BLOCKED.has(body.action)) return bad("체험에서는 쓸 수 없는 기능이에요.", 403);
@@ -111,6 +124,8 @@ async function handle(req: NextRequest) {
         letters: newest(letters).slice(0, 150),
         reflects, // 이번 주·지난주 한 주 돌아보기
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
+        space: spaceId(), // 이 기기의 실명 명렬표를 학급마다 따로 두는 열쇠
+        account: await accountName(),
         settings: publicSettings(isDemo() ? { ...settings, provider: await demoProvider() } : settings),
       });
     }
@@ -194,8 +209,7 @@ async function handle(req: NextRequest) {
     if (body.action === "roster") {
       const students = parseRoster(String(body.text ?? ""), await getRoster());
       if (!students.length) return bad("「번호 가명」 모양으로 한 줄에 한 명씩 적어 주세요.");
-      await saveRoster(students);
-      return NextResponse.json({ students });
+      return NextResponse.json({ students: await saveRoster(students) });
     }
 
     if (body.action === "newCode") {
@@ -203,8 +217,7 @@ async function handle(req: NextRequest) {
       const s = roster.find((x) => x.no === Number(body.no));
       if (!s) return bad("없는 번호예요.");
       s.code = newCode(new Set(roster.map((x) => x.code)));
-      await saveRoster(roster, await rosterIsDemo());
-      return NextResponse.json({ students: roster });
+      return NextResponse.json({ students: await saveRoster(roster, await rosterIsDemo()) });
     }
 
     if (body.action === "settings") {

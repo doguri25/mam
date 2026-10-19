@@ -1,4 +1,5 @@
-// 심사용 체험: 비밀번호 없이 체험 공간(가짜 반)으로 들어가고 나온다. 실제 반 데이터와는 저장 공간부터 따로다.
+// 심사용 체험: 비밀번호 없이 체험 공간(가짜 반)으로 들어가고 나온다. 실제 학급 데이터와는 저장 공간부터 따로다.
+// 체험 선생님 표에는 공간 demo가 적혀 있고, 체험 학생은 코드로 체험 공간을 찾는다.
 import { NextResponse, type NextRequest } from "next/server";
 import { DEMO_COOKIE, STUDENT_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, teacherToken } from "@/lib/auth";
 import { getRoster, seedPractice } from "@/lib/data";
@@ -8,6 +9,8 @@ import { db, inSpace } from "@/lib/db";
 const secure = process.env.NODE_ENV === "production";
 
 export async function POST(req: NextRequest) {
+  // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
+  if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
   const body = await req.json().catch(() => ({}));
   if (body.action === "end") {
     const res = NextResponse.json({ ok: true });
@@ -21,9 +24,9 @@ export async function POST(req: NextRequest) {
       if (day?.date !== today() || body.action === "reset") await seedPractice();
       const students = (await getRoster()).slice(0, 8).map((s) => ({ no: s.no, alias: s.alias, code: s.code }));
       const res = NextResponse.json({ students });
-      res.cookies.set(DEMO_COOKIE, "1", { httpOnly: true, sameSite: "lax", secure, maxAge: TEACHER_HOURS * 3600, path: "/" });
-      res.cookies.set(TEACHER_COOKIE, teacherToken(0, true), { httpOnly: true, sameSite: "strict", secure, maxAge: TEACHER_HOURS * 3600, path: "/" });
-      res.cookies.delete(STUDENT_COOKIE); // 이 기기에 남아 있던 실제 반 학생은 나가게
+      res.cookies.delete(DEMO_COOKIE); // 예전 체험 표시는 더 쓰지 않음
+      res.cookies.set(TEACHER_COOKIE, teacherToken(0), { httpOnly: true, sameSite: "strict", secure, maxAge: TEACHER_HOURS * 3600, path: "/" });
+      res.cookies.delete(STUDENT_COOKIE); // 이 기기에 남아 있던 실제 학급 학생은 나가게
       return res;
     });
   } catch (e) {

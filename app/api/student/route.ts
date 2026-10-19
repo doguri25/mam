@@ -1,12 +1,12 @@
 // 학생 API: 코드 로그인, 내 기록, AI 정리(말투 포함), 저장(끊김 대비 포함), 마음 다스리기, 꾸미기,
-// 공감 쪽지, 한 주 돌아보기, 반 감정 단어 사전. 체험 쿠키가 있으면 요청 전체가 체험 공간에서 돈다.
+// 공감 쪽지, 한 주 돌아보기, 반 감정 단어 사전. 요청 전체가 그 학생의 학급 공간에서 돈다(로그인은 코드로 학급을 찾음).
 import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { aiConfig, getLooks, getRoster, getSettings, putRecord, rawKey, recordsFrom, recordsOf, saveLooks, touch, type Settings } from "@/lib/data";
+import { aiConfig, getLooks, getRoster, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, saveLooks, touch, type Settings } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
-import { db, inSpace, isDemo } from "@/lib/db";
+import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import {
@@ -36,12 +36,23 @@ function alertTeacher(no: number, what: string, tag: string) {
 const wordsOf = (rs: MoodRecord[]) => [...new Set(rs.map((r) => r.word).filter((w): w is string => !!w))];
 
 export async function POST(req: NextRequest) {
-  const run = () => handle(req);
-  return req.cookies.get(DEMO_COOKIE)?.value === "1" ? inSpace("demo", run) : run();
+  // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
+  if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
+  const body = await req.json().catch(() => ({}));
+  return inSpace(await studentSpace(req, body), () => handle(req, body));
 }
 
-async function handle(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
+// 학생 쿠키 「번호:코드:공간」. 로그인은 코드 색인으로, 끊김 기록은 qtoken에 적힌 공간으로.
+type Body = Awaited<ReturnType<NextRequest["json"]>>; // 요청 몸(any) — 동작마다 아래에서 걸러 쓴다
+async function studentSpace(req: NextRequest, body: Body) {
+  if (body.action === "login") return (await locateCode(String(body.code ?? "").trim().toUpperCase())) ?? "";
+  if (body.action === "saveQueued") return readQueueToken(body.qtoken)?.space ?? "";
+  const parts = unsign(req.cookies.get(STUDENT_COOKIE)?.value)?.split(":") ?? [];
+  if (parts.length >= 3) return parts[2];
+  return req.cookies.get(DEMO_COOKIE)?.value === "1" ? "demo" : ""; // 공간이 적히기 전 쿠키
+}
+
+async function handle(req: NextRequest, body: Body) {
   try {
     if (body.action === "login") {
       const code = String(body.code ?? "").trim().toUpperCase();
@@ -49,7 +60,7 @@ async function handle(req: NextRequest) {
       if (!s) return bad("코드를 다시 확인해 주세요.", 401);
       // qtoken: 와이파이가 끊겨 기기에 담아 둔 오늘 기록을, 다른 친구가 들어온 뒤에도 보낼 수 있게
       const res = NextResponse.json({ no: s.no, alias: s.alias, qtoken: queueToken(s.no, s.code, today()) });
-      res.cookies.set(STUDENT_COOKIE, sign(`${s.no}:${s.code}`), {
+      res.cookies.set(STUDENT_COOKIE, sign(`${s.no}:${s.code}:${spaceId()}`), {
         httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 60 * 60 * 24 * 180, path: "/",
       });
       return res;

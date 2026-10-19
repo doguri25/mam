@@ -50,7 +50,7 @@ export default function TryPage() {
       ) : (
         <>
           <section className="grid gap-4 md:grid-cols-3">
-            <Link href="/teacher" className="card flex flex-col gap-2 hover:border-leaf">
+            <Link href="/teacher?try" className="card flex flex-col gap-2 hover:border-leaf">
               <span className="text-4xl" aria-hidden>👩‍🏫</span>
               <span className="font-display text-2xl">선생님으로 둘러보기</span>
               <span className="text-sm text-soft">마음 지도 · 응원 한마디 · 공감 쪽지 검토 · 상담 의견서 · 주간 리포트 · 가정 소식지</span>
@@ -86,7 +86,7 @@ export default function TryPage() {
         </>
       )}
       <p className="text-center text-sm text-soft">
-        실제 반 선생님은 <Link href="/teacher" className="underline">선생님 화면</Link>에서 비밀번호로 들어가요. 체험 중이면 먼저 「체험 끝내기」를 눌러 주세요.
+        실제 학급 선생님은 <Link href="/teacher" className="underline">선생님 화면</Link>에서 이름과 비밀번호로 들어가요(처음이면 「새 학급 만들기」). 체험 중이어도 선생님 화면으로 가면 체험은 끝나요.
       </p>
     </main>
   );

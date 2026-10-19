@@ -1,6 +1,6 @@
 // 서명한 쿠키로 학생·교사를 구분하고, 교사가 넣은 API 키는 암호화해서 저장한다
 import crypto from "node:crypto";
-import { isDemo } from "./db.ts";
+import { spaceId } from "./db.ts";
 
 function secret() {
   const s = process.env.SESSION_SECRET;
@@ -28,30 +28,36 @@ export const STUDENT_COOKIE = "mb_s";
 export const TEACHER_COOKIE = "mb_t";
 export const TEACHER_HOURS = 8;
 
-export const DEMO_COOKIE = "mb_demo"; // 심사용 체험 중(이 쿠키가 있으면 요청 전체가 체험 공간에서 돈다)
+export const DEMO_COOKIE = "mb_demo"; // 예전 체험 표시(공간이 적히지 않은 예전 학생 쿠키를 체험 공간으로 보낼 때만 읽음)
 
-// 표 안의 v는 비밀번호 판(버전). 비밀번호를 바꾸면 v가 올라가 다른 기기의 예전 표는 무효가 된다.
-// 끝의 d는 체험 공간 표 — 체험 표로는 실제 반을, 실제 반 표로는 체험 공간을 열 수 없다.
-export function teacherToken(v = 0, demo = isDemo()) {
-  return sign(`t:${Date.now() + TEACHER_HOURS * 3600_000}:${v}${demo ? ":d" : ""}`);
+// 선생님 표: t:만료:v:공간. v는 비밀번호 판 — 비밀번호를 바꾸면 v가 올라가 다른 기기의 예전 표는 무효가 된다.
+// 공간(""·demo·c…)은 이 표로 열 수 있는 학급 — 요청 전체가 그 학급 공간에서 돈다. 예전 표(공간 없음·끝이 d)도 읽는다.
+export function teacherToken(v = 0, sp = spaceId()) {
+  return sign(`t:${Date.now() + TEACHER_HOURS * 3600_000}:${v}:${sp}`);
 }
-export function isTeacher(cookie: string | undefined, v = 0, demo = isDemo()) {
+function readTeacher(cookie: string | undefined) {
   const x = unsign(cookie);
-  if (!x?.startsWith("t:")) return false;
-  const [, exp, ver = "0", d] = x.split(":");
-  return Number(exp) > Date.now() && Number(ver) === v && (d === "d") === demo;
+  if (!x?.startsWith("t:")) return null;
+  const [, exp, ver = "0", sp = ""] = x.split(":");
+  return Number(exp) > Date.now() ? { v: Number(ver), space: sp === "d" ? "demo" : sp } : null;
+}
+export const teacherSpace = (cookie: string | undefined) => readTeacher(cookie)?.space ?? "";
+export function isTeacher(cookie: string | undefined, v = 0, sp = spaceId()) {
+  const t = readTeacher(cookie);
+  return !!t && t.v === v && t.space === sp;
 }
 
-// 와이파이가 끊겼을 때 기기에 잠시 담아 둔 기록을 나중에 보내는 표: 그 학생·그날 기록만 저장할 수 있다
-export const queueToken = (no: number, code: string, date: string) => sign(`q:${no}:${code}:${date}`);
+// 와이파이가 끊겼을 때 기기에 잠시 담아 둔 기록을 나중에 보내는 표: 그 학급·학생·그날 기록만 저장할 수 있다
+export const queueToken = (no: number, code: string, date: string, sp = spaceId()) => sign(`q:${no}:${code}:${date}:${sp}`);
 export function readQueueToken(token: unknown) {
   const v = unsign(typeof token === "string" ? token : undefined);
   if (!v?.startsWith("q:")) return null;
-  const [, no, code, date] = v.split(":");
-  return { no: Number(no), code, date };
+  const [, no, code, date, sp = ""] = v.split(":");
+  return { no: Number(no), code, date, space: sp };
 }
 
-// 선생님이 바꾼 비밀번호는 그대로 두지 않고 scrypt로 바꿔 저장한다. 없으면 TEACHER_PASSWORD(또는 1324).
+// 선생님이 바꾼 비밀번호는 그대로 두지 않고 scrypt로 바꿔 저장한다.
+// 저장된 비밀번호가 없을 때 TEACHER_PASSWORD(또는 1324)는 처음부터 있던 반(홍북초)에서만 통한다. 새 학급은 가입할 때 늘 저장.
 export interface Pin { salt: string; hash: string; v: number }
 const scrypt = (pin: string, salt: string) => crypto.scryptSync(pin, salt, 32).toString("base64url");
 export const validPin = (pin: string) => /^\d{4,12}$/.test(pin);
@@ -64,19 +70,20 @@ const same = (a: string, b: string) => {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
-// 숫자 비밀번호는 금방 맞혀지므로, 5번 틀리면 1분 잠근다
-// ponytail: 메모리 잠금이라 서버가 여러 대면 대마다 따로 센다. 여러 반이 쓰면 저장소에 세도록 바꿀 것.
-let fails = 0;
-let lockedUntil = 0;
+// 숫자 비밀번호는 금방 맞혀지므로, 한 학급에서 5번 틀리면 그 학급만 1분 잠근다
+// ponytail: 메모리 잠금이라 서버가 여러 대면 대마다 따로 센다. 막아야 할 일이 생기면 저장소에 세도록 바꿀 것.
+const locks = new Map<string, { fails: number; until: number }>();
 export function checkPassword(input: string, pin?: Pin | null): { ok: boolean; wait?: number } {
-  if (Date.now() < lockedUntil) return { ok: false, wait: Math.ceil((lockedUntil - Date.now()) / 1000) };
+  const lock = locks.get(spaceId()) ?? { fails: 0, until: 0 };
+  if (Date.now() < lock.until) return { ok: false, wait: Math.ceil((lock.until - Date.now()) / 1000) };
   const got = String(input);
-  const ok = pin ? same(scrypt(got, pin.salt), pin.hash) : same(process.env.TEACHER_PASSWORD || "1324", got);
-  if (ok) fails = 0;
-  else if (++fails >= 5) {
-    fails = 0;
-    lockedUntil = Date.now() + 60_000;
+  const ok = pin ? same(scrypt(got, pin.salt), pin.hash) : spaceId() === "" && same(process.env.TEACHER_PASSWORD || "1324", got);
+  if (ok) lock.fails = 0;
+  else if (++lock.fails >= 5) {
+    lock.fails = 0;
+    lock.until = Date.now() + 60_000;
   }
+  locks.set(spaceId(), lock);
   return { ok };
 }
 

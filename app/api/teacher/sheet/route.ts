@@ -2,7 +2,7 @@
 // 업스테이지 Solar는 그림을 못 보므로 Document Parse(OCR 강제 + enhanced: 손글씨·그림 설명)로 먼저 글로 바꾼다.
 import { NextResponse, type NextRequest } from "next/server";
 import { sheetFeedback } from "@/lib/ai";
-import { DEMO_COOKIE, TEACHER_COOKIE, isTeacher } from "@/lib/auth";
+import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
 import { aiConfig, getPin } from "@/lib/data";
 import { db, inSpace } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
@@ -14,8 +14,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 const text = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
 
 export async function POST(req: NextRequest) {
-  const run = () => handle(req);
-  return req.cookies.get(DEMO_COOKIE)?.value === "1" ? inSpace("demo", run) : run();
+  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)); // 표에 적힌 학급 공간에서
 }
 
 async function handle(req: NextRequest) {

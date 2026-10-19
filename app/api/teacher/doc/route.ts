@@ -1,7 +1,7 @@
 // 교과서·학습지 올리기: 업스테이지 Document Parse로 글을 뽑고, AI가 감정 단어·활동을 정리해 돌려준다(저장은 선생님이 고른 뒤)
 import { NextResponse, type NextRequest } from "next/server";
 import { extractLesson } from "@/lib/ai";
-import { DEMO_COOKIE, TEACHER_COOKIE, isTeacher } from "@/lib/auth";
+import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
 import { aiConfig, getPin, rawKey } from "@/lib/data";
 import { inSpace } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
@@ -12,8 +12,7 @@ const OK = /\.(pdf|png|jpe?g|webp|heic|bmp|tiff?|hwp|hwpx|docx?|pptx?)$/i;
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 export async function POST(req: NextRequest) {
-  const run = () => handle(req);
-  return req.cookies.get(DEMO_COOKIE)?.value === "1" ? inSpace("demo", run) : run();
+  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)); // 표에 적힌 학급 공간에서
 }
 
 async function handle(req: NextRequest) {
