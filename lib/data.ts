@@ -178,6 +178,7 @@ export async function getLessons(): Promise<LessonItem[]> {
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
 export async function seedPractice() {
   for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
+  if (isDemo()) await db().clear("sheets"); // 체험 공간은 여럿이 함께 쓰므로 하루마다 비움(실제 반의 활동지 피드백은 그대로)
   const date = today();
   const taken = new Set<string>();
   await saveRoster(demoStudents(() => {

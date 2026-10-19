@@ -11,7 +11,7 @@ import { db, inSpace, isDemo } from "@/lib/db";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type Rules } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type Rules, type SheetRun } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const strList = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, 60) : null);
@@ -292,6 +292,23 @@ async function handle(req: NextRequest) {
     if (body.action === "deleteLesson") {
       await db().set("meta", "lessons", { items: (await getLessons()).filter((l) => l.id !== String(body.id)) });
       await touch("other");
+      return NextResponse.json({ ok: true });
+    }
+
+    // 활동지 피드백 회차: 목록(최근 20회) · 학생에게 줄 말 고치기 · 회차 지우기. 만들기는 /api/teacher/sheet
+    if (body.action === "sheets") {
+      const runs = (await db().all<SheetRun>("sheets")).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
+      return NextResponse.json({ runs });
+    }
+    if (body.action === "sheetEdit") {
+      const run = await db().get<SheetRun>("sheets", String(body.id));
+      if (!run) return bad("활동지 피드백을 찾지 못했어요.", 404);
+      const items = run.items.map((x) => (x.no === Number(body.no) ? { ...x, toStudent: String(body.toStudent ?? "").slice(0, 400) } : x));
+      await db().set("sheets", run.id, { ...run, items });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "sheetDelete") {
+      await db().del("sheets", String(body.id));
       return NextResponse.json({ ok: true });
     }
 

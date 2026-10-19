@@ -217,3 +217,17 @@ export interface Reflect {
 export const ACC_UNLOCK: Record<BuddyAcc, number> = {
   none: 0, sprout: 0, ribbon: 0, glasses: 1, flower: 2, cat: 3, party: 4, bunny: 5, headphones: 6, crown: 8,
 };
+
+// 활동지 피드백: 교육부 한국형 사회정서교육 4대 핵심역량(2026 교육부 안내)에 비추어 AI가 쓰고 선생님이 고친다
+export const SEL_AREAS = ["자기감정 인식·관리", "관계 인식·관리", "공동체 가치 인식·관리", "정신건강 인식·관리"] as const;
+export type SelArea = (typeof SEL_AREAS)[number];
+export interface SheetPoint { area: SelArea; point: string; evidence: string }
+export interface SheetItem {
+  no: number; pages: number[]; // 스캔한 PDF의 몇째 쪽(1부터)
+  read: string; topic: string; criteria: string; strengths: SheetPoint[]; grow: SheetPoint[];
+  toStudent: string; why: string; check: string; blank: boolean;
+}
+export interface SheetRun {
+  id: string; file: string; topic: string; content: string; criteria: string; pagesPer: number; skip: number[];
+  createdAt: string; items: SheetItem[];
+}

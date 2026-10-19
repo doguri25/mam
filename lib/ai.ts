@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { leaks } from "./rules.ts";
 import { SKIP, fallbackFor, langOf, type Lang } from "./i18n.ts";
-import { EMOTION_NAMES, NUANCE, NUANCE_WORDS, REASON_NAMES, TONES, emotionOf, type MoodRecord, type Provider } from "./shared.ts";
+import { EMOTION_NAMES, NUANCE, NUANCE_WORDS, REASON_NAMES, SEL_AREAS, TONES, emotionOf, type MoodRecord, type Provider, type SheetItem, type SheetPoint } from "./shared.ts";
 
 const BASE_URL: Record<Exclude<Provider, "claude">, string | undefined> = {
   upstage: "https://api.upstage.ai/v1",
@@ -20,15 +20,20 @@ export interface AI {
   key: string;
 }
 
-export async function callJSON(ai: AI, system: string, user: string, name: string, schema: Record<string, unknown>) {
+// images: JPEG base64(data: 머리 없이). 그림을 볼 수 있는 Claude·ChatGPT·Gemini에서만 쓴다(Solar는 글만).
+export async function callJSON(ai: AI, system: string, user: string, name: string, schema: Record<string, unknown>, images: string[] = []) {
   let text: string | null | undefined;
+  const timeout = images.length ? 55_000 : 40_000;
   if (ai.provider === "claude") {
-    const client = new Anthropic({ apiKey: ai.key, timeout: 40_000, maxRetries: 1 });
+    const client = new Anthropic({ apiKey: ai.key, timeout, maxRetries: images.length ? 0 : 1 });
+    const content = images.length
+      ? [...images.map((data) => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data } })), { type: "text" as const, text: user }]
+      : user;
     const params = {
       model: ai.model,
       max_tokens: 4000,
       system,
-      messages: [{ role: "user" as const, content: user }],
+      messages: [{ role: "user" as const, content }],
       output_config: { format: { type: "json_schema" as const, schema }, effort: "low" as const },
     };
     const res = CLAUDE_FALLBACK.has(ai.model)
@@ -38,12 +43,17 @@ export async function callJSON(ai: AI, system: string, user: string, name: strin
     if (msg.stop_reason === "refusal") throw new Error("AI가 이 요청에 답하지 않았어요.");
     text = msg.content.find((b) => b.type === "text")?.text;
   } else {
-    const client = new OpenAI({ apiKey: ai.key, baseURL: BASE_URL[ai.provider], timeout: 40_000, maxRetries: 1 });
+    const client = new OpenAI({ apiKey: ai.key, baseURL: BASE_URL[ai.provider], timeout, maxRetries: images.length ? 0 : 1 });
     const res = await client.chat.completions.create({
       model: ai.model,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: user },
+        {
+          role: "user",
+          content: images.length
+            ? [...images.map((data) => ({ type: "image_url" as const, image_url: { url: `data:image/jpeg;base64,${data}` } })), { type: "text" as const, text: user }]
+            : user,
+        },
       ],
       response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
       // 업스테이지는 추론을 꺼서 빠르게(아이가 기다리는 화면)
@@ -303,4 +313,55 @@ export async function translateNotice(ai: AI, text: string, lang: Exclude<Lang, 
 줄 나눔과 제목·목록 모양은 그대로 두고, 학부모가 읽기 쉬운 공손한 말로. 새 내용을 더하지 마.`;
   const out = await callJSON(ai, system, text.slice(0, 4000), "translate", obj({ text: { type: "string" } }));
   return String(out.text ?? "").slice(0, 6000);
+}
+
+// ── 활동지 피드백: 스캔한 활동지(글·그림)를 보고 사회정서교육 4대 핵심역량에 비추어 피드백과 그 이유를 쓴다 ──
+const SHEET_SYSTEM = `너는 초등학교 3학년 담임 선생님이 학생 활동지(글·그림)에 피드백을 쓰도록 돕는 도우미야.
+기준은 교육부 한국형 사회정서교육의 4대 핵심역량이야.
+- 자기감정 인식·관리: 내 감정을 알아차리고 이름 붙이며, 알맞게 표현하고 다스림
+- 관계 인식·관리: 다른 사람의 마음을 헤아리고(공감), 배려하며 이야기 나누고 함께 어울림, 갈등을 풀어 감
+- 공동체 가치 인식·관리: 약속·규칙·존중·책임·나눔처럼 함께 살아가는 가치를 알고 실천함
+- 정신건강 인식·관리: 힘든 마음·스트레스를 알아차리고 스스로 돌보거나 도움을 청함
+받는 것: 선생님이 적은 topic(활동 주제)·content(활동 내용)·criteria(피드백 기준). 빈 칸이면 활동지를 보고 네가 알맞게 판단해.
+그리고 활동지 이미지, 또는 업스테이지 Document Parse가 읽어 낸 글(그림은 설명 글로 옴).
+쓸 것:
+- read: 활동지에서 읽은 내용 2~3문장. 글은 학생이 쓴 말을 따옴표로 짧게 옮기고, 그림은 무엇을 그렸는지(사람·표정·색·장면) 보이는 대로.
+  선생님이 AI가 제대로 읽었는지 확인하는 칸이야. 활동지에 적힌 학생 이름은 옮기지 마. 글씨를 알아보기 어려우면 지어내지 말고 「알아보기 어려움」이라고 써.
+- topic: 선생님이 적은 주제가 있으면 그대로, 없으면 활동지를 보고 짐작한 주제 15자 안.
+- criteria: 실제로 적용한 피드백 기준 한 문장(선생님 기준이 있으면 그것을 줄여서, 없으면 네가 세운 기준).
+- strengths: 잘 드러난 점 1~2개. area는 4대 역량 중 가장 가까운 것, point는 무엇이 잘 드러났는지 한 문장, evidence는 근거가 된 활동지 속 말이나 그림.
+- grow: 더 키워 볼 점 0~1개(같은 꼴). 모자람을 꼬집지 말고 다음에 해 볼 한 걸음으로.
+- toStudent: 학생에게 돌려줄 피드백 2~3문장. 선생님이 3학년에게 말하는 다정한 말투(~했구나, ~해요, ~해 볼까요?).
+  활동지의 구체적인 내용을 짚어 알아주고, grow가 있으면 부드럽게 권해. 이름·점수·등급·다른 친구와 비교·진단하는 말은 쓰지 마.
+- why: 이 피드백을 쓴 이유(선생님용) 2~3문장. 어떤 기준과 역량에 비추어, 활동지의 어떤 부분을 보고 그렇게 썼는지.
+- check: 자해·사라지고 싶다·괴롭힘·폭력·학대가 걱정되는 글이나 그림이 있으면 무엇이 보였는지 한 문장(선생님이 직접 살펴보게). 없으면 빈 글자.
+- blank: 활동지가 비었거나 거의 읽을 수 없으면 true(그때 strengths·grow는 비우고 toStudent는 빈 글자).
+한국어로.`;
+
+const POINT = obj({ area: { type: "string", enum: [...SEL_AREAS] }, point: { type: "string" }, evidence: { type: "string" } });
+const SHEET_SCHEMA = obj({
+  read: { type: "string" }, topic: { type: "string" }, criteria: { type: "string" },
+  strengths: { type: "array", items: POINT }, grow: { type: "array", items: POINT },
+  toStudent: { type: "string" }, why: { type: "string" }, check: { type: "string" }, blank: { type: "boolean" },
+});
+
+export type SheetFeedback = Omit<SheetItem, "no" | "pages">;
+export async function sheetFeedback(
+  ai: AI,
+  input: { topic: string; content: string; criteria: string; parsed?: string },
+  images: string[],
+): Promise<SheetFeedback> {
+  const { parsed, ...teacher } = input;
+  const user = JSON.stringify({ ...teacher, ...(parsed ? { parsed: parsed.slice(0, 8000) } : {}) });
+  const out = await callJSON(ai, SHEET_SYSTEM, user, "sheet", SHEET_SCHEMA, parsed ? [] : images);
+  const points = (v: unknown, n: number): SheetPoint[] => (Array.isArray(v) ? v : []).slice(0, n).map((p) => ({
+    area: (SEL_AREAS as readonly string[]).includes(p?.area) ? p.area : SEL_AREAS[0],
+    point: String(p?.point ?? "").slice(0, 160), evidence: String(p?.evidence ?? "").slice(0, 160),
+  })).filter((p) => p.point);
+  return {
+    read: String(out.read ?? "").slice(0, 400), topic: String(out.topic ?? "").slice(0, 40), criteria: String(out.criteria ?? "").slice(0, 200),
+    strengths: points(out.strengths, 2), grow: points(out.grow, 1),
+    toStudent: String(out.toStudent ?? "").slice(0, 300), why: String(out.why ?? "").slice(0, 400),
+    check: String(out.check ?? "").slice(0, 200), blank: out.blank === true,
+  };
 }

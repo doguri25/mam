@@ -126,3 +126,15 @@ export function classWeather(records: MoodRecord[]) {
   return { n, groups, words, weather };
 }
 const GROUP_LABEL = { joy: "기쁨", calm: "평온", sad: "슬픔", angry: "화남", fear: "불안" } as const;
+
+// 활동지 피드백: 스캔한 순서대로 쪽을 학생 번호에 붙인다. 전출·결석으로 활동지가 없는 번호는 건너뛴다.
+export const parseNums = (text: string) => [...new Set((text.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0 && n < 100))].sort((a, b) => a - b);
+export function sheetGroups(pageCount: number, pagesPer: number, skip: number[]) {
+  const out: { no: number; pages: number[] }[] = [];
+  let no = 0;
+  for (let p = 1; p <= pageCount; p += pagesPer) {
+    do no++; while (skip.includes(no));
+    out.push({ no, pages: Array.from({ length: Math.min(pagesPer, pageCount - p + 1) }, (_, i) => p + i) });
+  }
+  return out;
+}

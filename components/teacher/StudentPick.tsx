@@ -1,6 +1,6 @@
 "use client";
 // 응원 한마디·상담 의견서가 함께 쓰는 틀:
-// 위에는 가로 학생 명단(🟡 살펴볼 학생 먼저), 아래는 왼쪽 「최근 기록」(화면에 고정, 칸 안에서만 스크롤) + 오른쪽 「작성 칸」.
+// 위에는 여러 줄 학생 명단(🟡 살펴볼 학생 먼저, 가로 스크롤 없음), 아래는 왼쪽 「최근 기록」(화면에 고정, 칸 안에서만 스크롤) + 오른쪽 「작성 칸」.
 // 넓은 화면(1280px 이상)은 좌우로 두고 왼쪽 칸이 화면에 고정된다. 그보다 좁으면(가로·세로 태블릿) 참고 칸을 위에 고정하고
 // 높이를 줄여(화면의 1/3쯤) 아래 작성 칸을 써 내려가는 동안에도 기록이 계속 보이게 한다.
 import BuddyFace from "../BuddyFace";
@@ -14,17 +14,18 @@ export function StudentStrip({ data, no, onPick, nameOf }: { data: Overview; no:
   const last = (n: number) => data.records.filter((r) => r.no === n).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion;
   return (
     <div className="no-print card p-2">
-      <p className="px-2 pb-1 text-xs text-soft">학생 고르기 · 🟡 살펴볼 신호가 있는 학생이 앞에 와요 · 옆으로 밀어 더 보기</p>
-      <div className="flex snap-x gap-1.5 overflow-x-auto pb-1" role="listbox" aria-label="학생">
+      <p className="px-2 pb-1 text-xs text-soft">학생 고르기 · 🟡 살펴볼 신호가 있는 학생이 앞에 와요</p>
+      {/* 가로 스크롤 없이 여러 줄로(25명이면 넓은 화면 두세 줄) */}
+      <div className="flex flex-wrap gap-1.5" role="listbox" aria-label="학생">
         {order.map((s) => (
           <button
             key={s.no}
             role="option"
             aria-selected={s.no === no}
             onClick={() => onPick(s.no)}
-            className={`flex min-h-12 shrink-0 snap-start items-center gap-1.5 rounded-2xl border px-3 text-sm font-bold ${s.no === no ? "border-leaf bg-leaf text-white" : "border-line bg-card hover:bg-paper"}`}
+            className={`flex min-h-11 items-center gap-1 rounded-2xl border px-2.5 text-sm font-bold ${s.no === no ? "border-leaf bg-leaf text-white" : "border-line bg-card hover:bg-paper"}`}
           >
-            <BuddyFace look={data.looks[s.no]} emotion={last(s.no)} size={26} />
+            <BuddyFace look={data.looks[s.no]} emotion={last(s.no)} size={22} />
             {s.no} {nameOf(s.no)}
             {flagged.has(s.no) && <span aria-label="살펴볼 신호">🟡</span>}
           </button>

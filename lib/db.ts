@@ -9,7 +9,7 @@ import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { MongoClient } from "mongodb";
 
-export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters";
+export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets";
 type Doc = Record<string, unknown>;
 type Op = "==" | ">" | ">=";
 

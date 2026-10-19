@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { demoRecords } from "./demo.ts";
-import { absentStudents, calmStats, classWeather, leaks, matchRisk, watchFlags, weekStats } from "./rules.ts";
+import { absentStudents, calmStats, classWeather, leaks, matchRisk, parseNums, sheetGroups, watchFlags, weekStats } from "./rules.ts";
 import { DEFAULT_RISK_WORDS, type MoodRecord } from "./shared.ts";
 
 const TODAY = "2026-10-21";
@@ -91,4 +91,10 @@ test("마음 다스리기: 도구별 횟수와 나아짐(이름 없이)", () => 
   const a = { ...rec(1, TODAY, "am", "슬퍼요"), calm: [{ tool: "breathe" as const, felt: "better" as const, at: "" }, { tool: "draw" as const, felt: "same" as const, at: "" }] };
   const b = { ...rec(2, TODAY, "am", "화나요"), calm: [{ tool: "breathe" as const, felt: "better" as const, at: "" }] };
   assert.deepEqual(calmStats([a, b, rec(3, TODAY, "am", "기뻐요")]), { "숨 고르기": { 횟수: 2, 나아짐: 2 }, "마음 그리기": { 횟수: 1, 나아짐: 0 } });
+});
+
+test("활동지 번호: 스캔 순서대로, 건너뛸 번호는 빼고, 한 학생 여러 쪽", () => {
+  assert.deepEqual(parseNums("12, 4 ,4번 x"), [4, 12]);
+  assert.deepEqual(sheetGroups(5, 1, [2, 3]).map((g) => g.no), [1, 4, 5, 6, 7]);
+  assert.deepEqual(sheetGroups(5, 2, [1]), [{ no: 2, pages: [1, 2] }, { no: 3, pages: [3, 4] }, { no: 4, pages: [5] }]);
 });
