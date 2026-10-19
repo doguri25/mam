@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { DEMO_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, aiConfig, allRecords, demoAiUsed, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, aiConfig, allRecords, demoAiUsed, trialAiSource, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -88,6 +88,7 @@ async function handle(req: NextRequest) {
         getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
         db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)), isDemo() ? demoAiUsed() : 0,
       ]);
+      const aiSource = isDemo() ? await trialAiSource() : null;
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
         today: date,
@@ -109,7 +110,7 @@ async function handle(req: NextRequest) {
         weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
         letters: newest(letters).slice(0, 150),
         reflects, // 이번 주·지난주 한 주 돌아보기
-        trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY } : null,
+        trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
         settings: publicSettings(settings),
       });
     }
@@ -161,7 +162,7 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ draft, from: addDays(date, -13), to: date, records: recs.length });
     }
 
-    // ── 가정 소식지 번역(다문화 가정용) ──
+    // ── 가정 소식지 번역(이주배경학생 가정용) ──
     if (body.action === "translate") {
       const lang = body.lang;
       if (!isLang(lang) || lang === "ko" || typeof body.text !== "string" || !body.text.trim()) return bad("번역할 언어와 내용을 확인해 주세요.");

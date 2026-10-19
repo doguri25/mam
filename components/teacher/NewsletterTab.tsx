@@ -1,6 +1,6 @@
 "use client";
 // 가정 소식지: 이번 주 우리 반 마음(이름 없이 반 전체)·배운 감정 단어·교실 활동·집에서 해 볼 마음 놀이·선생님 한마디를
-// 한 장으로. 선생님이 고르고 고친 내용만 담고 자동으로 보내지 않는다. 다문화 가정용 번역본도 만들 수 있다.
+// 한 장으로. 선생님이 고르고 고친 내용만 담고 자동으로 보내지 않는다. 이주배경학생 가정용 번역본도 만들 수 있다.
 import { useState } from "react";
 import type { Overview } from "./types";
 import { api } from "@/lib/api";
@@ -63,22 +63,12 @@ export default function NewsletterTab({ data }: { data: Overview }) {
         <button onClick={() => navigator.clipboard?.writeText(translated || whole)} className="btn-sub">📋 글자 복사(알림장·문자용)</button>
         <span className="text-sm text-soft">반 전체 이야기만 담겨요. 학생 이름·번호는 들어가지 않아요. 자동으로 보내지 않아요.</span>
       </div>
-      <article className={`card mx-auto max-w-[210mm] space-y-4 bg-white p-6 sm:p-8 print:border-0 print:p-0 ${translated ? "print:hidden" : ""}`}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full border-b-2 border-ink pb-2 font-display text-2xl outline-none sm:text-3xl" />
-        {field("이번 주 우리 반 마음", mood, setMood)}
-        {field("이번 주 배운 감정 단어", wordsText, setWordsText, 1)}
-        {field("교실에서 한 활동", acts, setActs)}
-        {field("집에서 해 볼 마음 놀이", play, setPlay, 4)}
-        {field("선생님 한마디", note, setNote)}
-      </article>
-
       <section className="no-print card space-y-3">
-        <h3 className="font-display text-xl">🌐 다문화 가정용 번역본</h3>
-        {langs.length > 0 && (
-          <p className="text-sm text-soft">
-            이번 달 다른 언어로 기록한 학생: {langs.map(([l, s]) => `${LANGS.find((x) => x.id === l)?.label ?? l} ${s.size}명`).join(", ")}
-          </p>
-        )}
+        <h3 className="font-display text-xl">🌐 이주배경학생 가정용 번역본</h3>
+        <p className="text-sm text-soft">
+          아래 한국어 소식지를 고친 뒤 언어를 골라 만들면 바로 아래에 번역본이 나와요. 번역본이 있으면 인쇄할 때 번역본만 나가요.
+          {langs.length > 0 && <> 이번 달 다른 언어로 기록한 학생: <b className="text-ink">{langs.map(([l, s]) => `${LANGS.find((x) => x.id === l)?.label ?? l} ${s.size}명`).join(", ")}</b></>}
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <select value={lang} onChange={(e) => setLang(e.target.value as Exclude<Lang, "ko">)} className="field w-auto">
             {LANGS.filter((l) => l.id !== "ko").map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
@@ -92,6 +82,15 @@ export default function NewsletterTab({ data }: { data: Overview }) {
       {translated && (
         <article className="card mx-auto max-w-[210mm] whitespace-pre-wrap bg-white p-6 text-lg leading-relaxed sm:p-8 print:border-0 print:p-0">{translated}</article>
       )}
+      <article className={`card mx-auto max-w-[210mm] space-y-4 bg-white p-6 sm:p-8 print:border-0 print:p-0 ${translated ? "print:hidden" : ""}`}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full border-b-2 border-ink pb-2 font-display text-2xl outline-none sm:text-3xl" />
+        {field("이번 주 우리 반 마음", mood, setMood)}
+        {field("이번 주 배운 감정 단어", wordsText, setWordsText, 1)}
+        {field("교실에서 한 활동", acts, setActs)}
+        {field("집에서 해 볼 마음 놀이", play, setPlay, 4)}
+        {field("선생님 한마디", note, setNote)}
+      </article>
+
     </div>
   );
 }

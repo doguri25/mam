@@ -297,7 +297,7 @@ export async function referralDraft(ai: AI, input: { alias: string; records: unk
   return { flow: String(out.flow ?? "").slice(0, 700), reasons: String(out.reasons ?? "").slice(0, 500), helps: String(out.helps ?? "").slice(0, 300) };
 }
 
-// ── 가정 소식지 번역: 다문화 가정에 보낼 같은 내용을 다른 언어로 ──
+// ── 가정 소식지 번역: 이주배경학생 가정에 보낼 같은 내용을 다른 언어로 ──
 export async function translateNotice(ai: AI, text: string, lang: Exclude<Lang, "ko">) {
   const system = `너는 초등학교 가정 안내문을 번역하는 도우미야. 받은 한국어 안내문을 ${langOf(lang).ai}로 자연스럽게 번역해.
 줄 나눔과 제목·목록 모양은 그대로 두고, 학부모가 읽기 쉬운 공손한 말로. 새 내용을 더하지 마.`;

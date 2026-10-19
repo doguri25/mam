@@ -90,14 +90,35 @@ async function spendDemoAi() {
   return true;
 }
 
+// 체험 전용 AI 키(Vercel 환경 변수 TRIAL_AI_KEY · TRIAL_AI_PROVIDER · TRIAL_AI_MODEL).
+// 있으면 체험 공간은 실제 반의 키를 빌리지 않고 이 키만 쓴다(하루 제한은 그대로).
+function trialKey(): { provider: Provider; key: string; model: string } | null {
+  const key = process.env.TRIAL_AI_KEY?.trim();
+  if (!key) return null;
+  const want = process.env.TRIAL_AI_PROVIDER?.trim() as Provider;
+  const provider = PROVIDER_IDS.includes(want) ? want : "upstage";
+  return { provider, key, model: process.env.TRIAL_AI_MODEL?.trim() || PROVIDERS[provider].model };
+}
+
+// 체험 화면에 보여 줄 AI 출처: 체험 전용 키 / 실제 반 키 빌려 씀 / 없음
+export async function trialAiSource(): Promise<"trial" | "class" | "none"> {
+  if (trialKey()) return "trial";
+  const s = await outOfSpace(() => getSettings());
+  return s.keys[s.provider] ? "class" : "none";
+}
+
 // 한 제공자의 키만(교과서 읽기 Document Parse·Gemini 음성 듣기)
 export async function rawKey(p: Provider) {
+  const tk = isDemo() ? trialKey() : null;
+  if (tk) return tk.provider === p && (await spendDemoAi()) ? tk.key : null;
   const box = (await keySettings()).keys[p];
   const key = box ? decrypt(box) : null;
   return key && (await spendDemoAi()) ? key : null;
 }
 
 export async function aiConfig(provider?: Provider) {
+  const tk = isDemo() ? trialKey() : null;
+  if (tk) return (!provider || provider === tk.provider) && (await spendDemoAi()) ? { provider: tk.provider, model: tk.model, key: tk.key } : null;
   const s = await keySettings();
   const p = provider ?? s.provider;
   const box = s.keys[p];

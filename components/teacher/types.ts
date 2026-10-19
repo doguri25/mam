@@ -34,7 +34,7 @@ export interface OverviewRaw {
   looks: Record<number, BuddyLook>;
   letters: Letter[];
   reflects: Reflect[];
-  trial: { aiUsed: number; aiCap: number } | null; // 심사용 체험 공간이면
+  trial: { aiUsed: number; aiCap: number; aiSource: "trial" | "class" | "none" | null } | null; // 심사용 체험 공간이면
   settings: {
     className: string;
     provider: Provider;

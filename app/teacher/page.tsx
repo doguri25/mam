@@ -220,7 +220,10 @@ export default function TeacherPage() {
           <h1 className="no-print mb-4 hidden font-display text-3xl lg:block">{current[1]} {current[2]}</h1>
           {data.trial ? (
             <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-3 text-sm">
-              <span>🧪 <b>심사용 체험 반</b>이에요. 가짜 학생 25명·최근 7일 기록이고 실제 반과는 따로예요. AI는 오늘 {data.trial.aiUsed}/{data.trial.aiCap}번 썼어요.</span>
+              <span>
+                🧪 <b>심사용 체험 반</b>이에요. 가짜 학생 25명·최근 7일 기록이고 실제 반과는 따로예요.{" "}
+                {data.trial.aiSource === "none" ? "AI 키가 없어 기본 질문으로 움직여요." : `AI(${data.trial.aiSource === "trial" ? "체험 전용 키" : "실제 반 키를 빌려 씀"})는 오늘 ${data.trial.aiUsed}/${data.trial.aiCap}번 썼어요.`}
+              </span>
               <Link href="/try" className="btn-sub min-h-9 px-3 text-sm">체험 안내 · 끝내기</Link>
             </div>
           ) : data.demo && (
