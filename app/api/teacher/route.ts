@@ -8,6 +8,7 @@ import {
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
+import { PRACTICE_SHEET } from "@/lib/demo";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
@@ -308,6 +309,24 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // 학생별 누적 기록: 처음부터 지금까지의 마음 기록·응원·메모·쪽지·돌아보기·활동지 피드백(교사 화면은 34일만 들고 있음)
+    if (body.action === "studentAll") {
+      const no = Number(body.no);
+      if (!Number.isInteger(no)) return bad("학생 번호가 필요해요.");
+      const [records, cheers, notes, sent, got, reflects, runs] = await Promise.all([
+        recordsOf(no), db().find<Cheer>("cheers", "no", "==", no), db().find<Note>("notes", "no", "==", no),
+        db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no),
+        db().find<Reflect>("reflects", "no", "==", no), db().all<SheetRun>("sheets"),
+      ]);
+      const sheets = runs.flatMap((r) => r.items.filter((x) => x.no === no).map((x) => ({ ...x, runId: r.id, date: r.createdAt.slice(0, 10) })));
+      const byDate = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return NextResponse.json({
+        records: records.map(lean).sort((a, b) => a.id.localeCompare(b.id)),
+        cheers: byDate(cheers), notes: byDate(notes), sent: byDate(sent), got: byDate(got), reflects: byDate(reflects),
+        sheets: sheets.sort((a, b) => b.date.localeCompare(a.date)),
+      });
+    }
+
     // 활동지 피드백 회차: 목록(최근 20회) · 학생에게 줄 말 고치기 · 회차 지우기. 만들기는 /api/teacher/sheet
     if (body.action === "sheets") {
       const runs = (await db().all<SheetRun>("sheets")).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 20);
@@ -370,6 +389,7 @@ async function handle(req: NextRequest) {
         // 연습 기록(demo 표시)만 지운다. 연습용 명단이면 명단·응원·메모·쪽지·돌아보기도 함께.
         const demoRecs = await db().find<MoodRecord>("records", "demo", "==", true);
         for (const r of demoRecs) await db().del("records", r.id);
+        await db().del("sheets", PRACTICE_SHEET);
         if (await rosterIsDemo()) {
           for (const col of ["cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
           await db().del("meta", "looks");
@@ -380,7 +400,7 @@ async function handle(req: NextRequest) {
         await touch("records");
       } else if (mode === "seed") await seedPractice();
       else {
-        for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
+        for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
         await db().del("meta", "looks");
         await saveRoster([]);
         await saveSettings({ ...settings, checks: {} });

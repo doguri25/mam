@@ -1,6 +1,6 @@
 "use client";
 // 교사 화면: 비밀번호 → 왼쪽 세로 메뉴(넓은 화면) / ☰ 서랍 메뉴(세로 태블릿·휴대폰)
-// 마음 지도 · 응원 한마디 · 공감 쪽지 · 상담 의견서 · 주간 리포트 · 가정 소식지 · 교과서 연결 · 활동지 피드백 · 학생 코드 · 설정 · 사용 설명서
+// 마음 지도 · 응원 한마디 · 공감 쪽지 · 상담 의견서 · 학생별 누적 기록 · 주간 리포트 · 가정 소식지 · 교과서 연결 · 활동지 피드백 · 학생 코드 · 설정 · 사용 설명서
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CheerTab from "@/components/teacher/CheerTab";
@@ -12,6 +12,7 @@ import ReferralTab from "@/components/teacher/ReferralTab";
 import MapTab from "@/components/teacher/MapTab";
 import ReportTab from "@/components/teacher/ReportTab";
 import SheetTab from "@/components/teacher/SheetTab";
+import StudentTab from "@/components/teacher/StudentTab";
 import RosterTab from "@/components/teacher/RosterTab";
 import SettingsTab from "@/components/teacher/SettingsTab";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
@@ -25,11 +26,11 @@ import type { MoodRecord } from "@/lib/shared";
 const NAV: { title: string; items: [Tab, string, string][] }[] = [
   { title: "오늘", items: [["map", "🗺️", "마음 지도"]] },
   { title: "아이 돌보기", items: [["cheer", "💌", "응원 한마디"], ["letters", "✉️", "공감 쪽지"], ["referral", "📝", "상담 의견서"]] },
-  { title: "기록·소통", items: [["report", "📄", "주간 리포트"], ["home", "🏠", "가정 소식지"]] },
+  { title: "기록·소통", items: [["student", "📒", "학생별 누적 기록"], ["report", "📄", "주간 리포트"], ["home", "🏠", "가정 소식지"]] },
   { title: "수업", items: [["lesson", "📚", "교과서 연결"], ["sheet", "🖍️", "활동지 피드백"]] },
   { title: "관리", items: [["roster", "🔑", "학생 코드·QR"], ["settings", "⚙️", "설정"], ["guide", "📘", "사용 설명서"]] },
 ];
-const TAB_IDS = ["map", "cheer", "letters", "referral", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
+const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
 // 교사 기기에 최근 기록을 저장해 두고, 다음에 열 때는 그 뒤에 바뀐 기록만 받는다(Firestore 읽기 줄이기). 잠그면 지운다.
@@ -246,6 +247,7 @@ export default function TeacherPage() {
           {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
           {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}
+          {tab === "student" && <StudentTab data={data} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
           {tab === "home" && <NewsletterTab data={data} />}
           {tab === "lesson" && <LessonTab data={data} reload={load} />}

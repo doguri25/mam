@@ -1,7 +1,7 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { today } from "./date.ts";
-import { demoExtras, demoLooks, demoRecords, demoStudents } from "./demo.ts";
+import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoSheetRun, demoStudents } from "./demo.ts";
 import { db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
@@ -270,6 +270,7 @@ export async function seedPractice() {
   const extra = demoExtras(date);
   await db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }]));
   await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
+  await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
   await saveSettings({ ...(await getSettings()), checks: {} });
   await db().set("meta", "practiceDay", { date });
   await touch("wipe");
