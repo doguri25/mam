@@ -1,7 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
 import { addDays } from "./date.ts";
 import { matchRisk } from "./rules.ts";
-import { BUDDY_ACCS, BUDDY_COLORS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type MoodRecord, type Slot, type Student } from "./shared.ts";
+import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type MoodRecord, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -102,7 +102,10 @@ export function demoLooks(): Record<number, BuddyLook> {
   const out: Record<number, BuddyLook> = {};
   for (let no = 1; no <= 25; no++) {
     if (rand() < 0.4) continue;
-    out[no] = { color: pick(BUDDY_COLORS), shape: pick(BUDDY_SHAPES), acc: pick(BUDDY_ACCS), name: "" };
+    out[no] = {
+      color: pick(BUDDY_COLORS), shape: pick(BUDDY_SHAPES), eyes: pick(BUDDY_EYES), cheek: pick(BUDDY_CHEEKS),
+      pattern: pick(BUDDY_PATTERNS), limbs: pick(BUDDY_LIMBS), acc: pick(BUDDY_ACCS), name: "",
+    };
   }
   return out;
 }

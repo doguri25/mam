@@ -1,5 +1,5 @@
 "use client";
-// 마음 친구 꾸미기: 몸 색 · 모양 · 꾸미개 · 이름. 고르는 대로 3D 친구가 바로 바뀐다.
+// 마음 친구 꾸미기: 몸 색 · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름. 고르는 대로 3D 친구가 바로 바뀐다(움직이지 않고).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -8,9 +8,22 @@ import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
 import { isLang, t, type Lang, type UIKey } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
-import { BUDDY_ACCS, BUDDY_COLORS, BUDDY_SHAPES, GROUPS, type BuddyLook, type MoodRecord } from "@/lib/shared";
+import {
+  BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, GROUPS, type BuddyLook, type MoodRecord,
+} from "@/lib/shared";
 
 type Me = { no: number; alias: string; look: BuddyLook; records: MoodRecord[] };
+type Part = "shape" | "eyes" | "cheek" | "pattern" | "limbs" | "acc";
+
+// 고르는 칸: 제목 · 고를 것 · 칸 수(넓은 화면)
+const PARTS: [Part, UIKey, readonly string[], string][] = [
+  ["shape", "buddyShape", BUDDY_SHAPES, "sm:grid-cols-3"],
+  ["eyes", "buddyEyes", BUDDY_EYES, "sm:grid-cols-3"],
+  ["cheek", "buddyCheek", BUDDY_CHEEKS, "sm:grid-cols-3"],
+  ["pattern", "buddyPattern", BUDDY_PATTERNS, "sm:grid-cols-3"],
+  ["limbs", "buddyLimbs", BUDDY_LIMBS, "sm:grid-cols-3"],
+  ["acc", "buddyAcc", BUDDY_ACCS, "sm:grid-cols-5"],
+];
 
 export default function BuddyPage() {
   const router = useRouter();
@@ -32,8 +45,7 @@ export default function BuddyPage() {
   // 미리보기 표정: 오늘 마지막으로 남긴 마음(없으면 기쁨)
   const emotion = me.records.at(-1)?.emotion ?? "기뻐요";
   function set(p: Partial<BuddyLook>) {
-    setLook({ ...look!, ...p });
-    setCheer((n) => n + 1); // 고를 때마다 한 바퀴 돌며 보여 준다
+    setLook({ ...look!, ...p }); // 고르는 동안에는 움직이지 않고 그대로 보여 준다
   }
 
   async function save() {
@@ -84,29 +96,19 @@ export default function BuddyPage() {
             </div>
           </div>
 
-          <div>
-            <h2 className="mb-2 font-bold">{tt("buddyShape")}</h2>
-            <div className="grid grid-cols-3 gap-2">
-              {BUDDY_SHAPES.map((s) => (
-                <button key={s} onClick={() => set({ shape: s })} aria-pressed={look.shape === s} className={chip(look.shape === s)}>
-                  <BuddyFace look={{ ...look, shape: s, acc: "none" }} emotion={emotion} size={64} />
-                  {tt(`shape_${s}` as UIKey)}
-                </button>
-              ))}
+          {PARTS.map(([part, title, options, cols]) => (
+            <div key={part}>
+              <h2 className="mb-2 font-bold">{tt(title)}</h2>
+              <div className={`grid grid-cols-3 gap-2 ${cols}`}>
+                {options.map((o) => (
+                  <button key={o} onClick={() => set({ [part]: o })} aria-pressed={look[part] === o} className={chip(look[part] === o)}>
+                    <BuddyFace look={{ ...look, [part]: o }} emotion={emotion} size={60} />
+                    {tt((o === "none" ? "acc_none" : `${part}_${o}`) as UIKey)}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-
-          <div>
-            <h2 className="mb-2 font-bold">{tt("buddyAcc")}</h2>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-              {BUDDY_ACCS.map((a) => (
-                <button key={a} onClick={() => set({ acc: a })} aria-pressed={look.acc === a} className={chip(look.acc === a)}>
-                  <BuddyFace look={{ ...look, acc: a }} emotion={emotion} size={56} />
-                  {tt(`acc_${a}` as UIKey)}
-                </button>
-              ))}
-            </div>
-          </div>
+          ))}
 
           <label className="block">
             <span className="font-bold">{tt("buddyName")}</span>

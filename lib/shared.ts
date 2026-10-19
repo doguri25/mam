@@ -140,23 +140,46 @@ export const PROVIDERS = {
 export type Provider = keyof typeof PROVIDERS;
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as Provider[];
 
-// 마음 친구 꾸미기: 몸 색(빈 값이면 감정 색을 따라감) · 모양 · 꾸미개 · 이름(학생 화면에만 보임)
+// 마음 친구 꾸미기: 몸 색(빈 값이면 감정 색을 따라감) · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름(학생 화면에만 보임)
 export const BUDDY_COLORS = ["", "#f6c445", "#ff9eb0", "#ffa45c", "#7cc88f", "#5cc8c0", "#7fb5f0", "#b79cf0", "#c9b8a6"] as const;
 export const BUDDY_SHAPES = ["round", "squish", "bean"] as const;
-export const BUDDY_ACCS = ["none", "sprout", "ribbon", "party", "crown", "glasses"] as const;
+export const BUDDY_EYES = ["dot", "sparkle", "big"] as const;
+export const BUDDY_CHEEKS = ["none", "blush", "freckle"] as const;
+export const BUDDY_PATTERNS = ["none", "spots", "belly"] as const;
+export const BUDDY_LIMBS = ["none", "arms", "both"] as const;
+export const BUDDY_ACCS = ["none", "sprout", "ribbon", "party", "crown", "glasses", "cat", "bunny", "flower", "headphones"] as const;
 export type BuddyShape = (typeof BUDDY_SHAPES)[number];
+export type BuddyEyes = (typeof BUDDY_EYES)[number];
+export type BuddyCheek = (typeof BUDDY_CHEEKS)[number];
+export type BuddyPattern = (typeof BUDDY_PATTERNS)[number];
+export type BuddyLimbs = (typeof BUDDY_LIMBS)[number];
 export type BuddyAcc = (typeof BUDDY_ACCS)[number];
-export interface BuddyLook { color: string; shape: BuddyShape; acc: BuddyAcc; name: string }
-export const DEFAULT_LOOK: BuddyLook = { color: "", shape: "round", acc: "none", name: "" };
+export interface BuddyLook {
+  color: string; shape: BuddyShape; eyes: BuddyEyes; cheek: BuddyCheek; pattern: BuddyPattern; limbs: BuddyLimbs; acc: BuddyAcc; name: string;
+}
+// 꾸미지 않은 친구도 밋밋하지 않게: 반짝 눈 · 발그레 볼 · 작은 팔
+export const DEFAULT_LOOK: BuddyLook = { color: "", shape: "round", eyes: "sparkle", cheek: "blush", pattern: "none", limbs: "arms", acc: "none", name: "" };
 const oneOf = <T extends string>(list: readonly T[], v: unknown, d: T): T => (list.includes(v as T) ? (v as T) : d);
+// 예전에 저장한 모습에 없는 항목은 기본값으로 채운다
 export function cleanLook(x: unknown): BuddyLook {
   const o = (x ?? {}) as Record<string, unknown>;
+  const d = DEFAULT_LOOK;
   return {
-    color: oneOf(BUDDY_COLORS, o.color, ""),
-    shape: oneOf(BUDDY_SHAPES, o.shape, "round"),
-    acc: oneOf(BUDDY_ACCS, o.acc, "none"),
+    color: oneOf(BUDDY_COLORS, o.color, d.color),
+    shape: oneOf(BUDDY_SHAPES, o.shape, d.shape),
+    eyes: oneOf(BUDDY_EYES, o.eyes, d.eyes),
+    cheek: oneOf(BUDDY_CHEEKS, o.cheek, d.cheek),
+    pattern: oneOf(BUDDY_PATTERNS, o.pattern, d.pattern),
+    limbs: oneOf(BUDDY_LIMBS, o.limbs, d.limbs),
+    acc: oneOf(BUDDY_ACCS, o.acc, d.acc),
     name: String(o.name ?? "").replace(/[<>{}]/g, "").trim().slice(0, 8),
   };
+}
+// 몸 색을 흰색 쪽으로 섞기(무늬·배)
+export function lighten(hex: string, k = 0.5) {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (shift: number) => Math.round(((n >> shift) & 255) + (255 - ((n >> shift) & 255)) * k);
+  return `#${[16, 8, 0].map((x) => ch(x).toString(16).padStart(2, "0")).join("")}`;
 }
 
 // 숨 고르기: 4초 들이쉬고 4초 내쉬기. 화면 글자와 3D 친구가 같은 값을 쓴다.

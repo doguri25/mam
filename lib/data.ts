@@ -1,7 +1,7 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, newCode, type Pin } from "./auth.ts";
 import { db } from "./db.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -106,7 +106,8 @@ export async function touch(kind: keyof Stamp) {
 
 // 학생마다 꾸민 마음 친구(번호 → 모습). 문서 하나에 모아 두어 교사 화면도 한 번에 읽는다.
 export async function getLooks(): Promise<Record<number, BuddyLook>> {
-  return (await db().get<{ items: Record<number, BuddyLook> }>("meta", "looks"))?.items ?? {};
+  const items = (await db().get<{ items: Record<number, BuddyLook> }>("meta", "looks"))?.items ?? {};
+  return Object.fromEntries(Object.entries(items).map(([no, l]) => [no, cleanLook(l)])); // 예전 모습엔 새 항목이 없을 수 있음
 }
 export async function saveLooks(items: Record<number, BuddyLook>) {
   await db().set("meta", "looks", { items });

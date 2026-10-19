@@ -8,12 +8,17 @@ import BuddyFace from "./BuddyFace";
 
 const Buddy = dynamic(() => import("./Buddy"), { ssr: false, loading: () => null });
 
+// 한 번만 재고 기억한다. 화면을 그릴 때마다 시험용 WebGL을 만들면 브라우저 한도(약 16개)를 넘어 진짜 3D 화면이 꺼진다.
+let canCache: boolean | undefined;
 function can3D() {
+  if (canCache !== undefined) return canCache;
   try {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
-    return !!document.createElement("canvas").getContext("webgl2");
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return (canCache = false);
+    const gl = document.createElement("canvas").getContext("webgl2");
+    gl?.getExtension("WEBGL_lose_context")?.loseContext(); // 시험용은 바로 돌려준다
+    return (canCache = !!gl);
   } catch {
-    return false;
+    return (canCache = false);
   }
 }
 const subscribe = () => () => {};
