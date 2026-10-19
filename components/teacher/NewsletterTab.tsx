@@ -58,27 +58,33 @@ export default function NewsletterTab({ data }: { data: Overview }) {
 
   return (
     <div className="space-y-4">
-      <div className="no-print flex flex-wrap items-center gap-2">
+      <div className="no-print relative flex flex-wrap items-center gap-2">
         <button onClick={() => window.print()} className="btn-main">🖨️ 인쇄·PDF 저장</button>
         <button onClick={() => navigator.clipboard?.writeText(translated || whole)} className="btn-sub">📋 글자 복사(알림장·문자용)</button>
-        <span className="text-sm text-soft">반 전체 이야기만 담겨요. 학생 이름·번호는 들어가지 않아요. 자동으로 보내지 않아요.</span>
+        <select value={lang} onChange={(e) => setLang(e.target.value as Exclude<Lang, "ko">)} className="field min-h-12 w-auto" aria-label="번역할 언어">
+          {LANGS.filter((l) => l.id !== "ko").map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+        </select>
+        {/* 설명은 단추에 커서를 올리거나(태블릿은 눌러 초점) 할 때만 말풍선으로. 단추 줄 왼쪽에 붙여 화면 밖으로 나가지 않게 */}
+        <span className="group">
+          <button onClick={translate} disabled={busy} aria-describedby="translate-tip" className="btn-sub">
+            {busy ? "번역하는 중…" : "🌐 이주배경학생 가정용 번역본"}
+          </button>
+          <span
+            id="translate-tip"
+            role="tooltip"
+            className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-96 max-w-full space-y-1 rounded-2xl border border-line bg-card p-3 text-sm leading-relaxed text-ink shadow-lg group-focus-within:block group-hover:block"
+          >
+            <span className="block">아래 한국어 소식지를 고친 뒤 언어를 고르고 누르면 AI가 번역본을 만들어 바로 아래에 보여 줘요. 번역본이 있으면 인쇄할 때 번역본만 나가요.</span>
+            {langs.length > 0 && (
+              <span className="block">이번 달 다른 언어로 기록한 학생: <b>{langs.map(([l, s]) => `${LANGS.find((x) => x.id === l)?.label ?? l} ${s.size}명`).join(", ")}</b></span>
+            )}
+            <span className="block text-xs text-soft">AI 번역은 틀릴 수 있어요. 중요한 안내는 학교 통역 지원과 함께 확인해 주세요.</span>
+          </span>
+        </span>
+        {translated && <button onClick={() => setTranslated("")} className="btn-sub">번역본 지우기</button>}
+        {err && <span className="text-sm text-alert">{err}</span>}
       </div>
-      <section className="no-print card space-y-3">
-        <h3 className="font-display text-xl">🌐 이주배경학생 가정용 번역본</h3>
-        <p className="text-sm text-soft">
-          아래 한국어 소식지를 고친 뒤 언어를 골라 만들면 바로 아래에 번역본이 나와요. 번역본이 있으면 인쇄할 때 번역본만 나가요.
-          {langs.length > 0 && <> 이번 달 다른 언어로 기록한 학생: <b className="text-ink">{langs.map(([l, s]) => `${LANGS.find((x) => x.id === l)?.label ?? l} ${s.size}명`).join(", ")}</b></>}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={lang} onChange={(e) => setLang(e.target.value as Exclude<Lang, "ko">)} className="field w-auto">
-            {LANGS.filter((l) => l.id !== "ko").map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-          </select>
-          <button onClick={translate} disabled={busy} className="btn-sub">{busy ? "번역하는 중…" : "AI로 번역본 만들기"}</button>
-          {translated && <button onClick={() => setTranslated("")} className="btn-sub">번역본 지우기</button>}
-          {err && <span className="text-sm text-alert">{err}</span>}
-        </div>
-        <p className="text-xs text-soft">AI 번역은 틀릴 수 있어요. 중요한 안내는 학교 통역 지원과 함께 확인해 주세요.</p>
-      </section>
+      <p className="no-print -mt-2 text-xs text-soft">반 전체 이야기만 담겨요. 학생 이름·번호는 들어가지 않아요. 자동으로 보내지 않아요.</p>
       {translated && (
         <article className="card mx-auto max-w-[210mm] whitespace-pre-wrap bg-white p-6 text-lg leading-relaxed sm:p-8 print:border-0 print:p-0">{translated}</article>
       )}
