@@ -28,3 +28,17 @@ test("꾸미기 칸마다 5개 언어 이름이 있다", () => {
     assert.ok(t(lang, k as Parameters<typeof t>[1]), `${k} ${lang}`);
   }
 });
+
+test("감정 단어 놀이: 정답이 모두 더 꼭 맞는 말이고, 한 판은 보기 3개 5문제", async () => {
+  const { MEANING, SITUATIONS, makeRound } = await import("./game.ts");
+  const { NUANCE_WORDS } = await import("./shared.ts");
+  for (const s of SITUATIONS) assert.ok(NUANCE_WORDS.includes(s.answer), s.answer);
+  for (const w of NUANCE_WORDS) assert.ok(MEANING[w], `뜻풀이 없음: ${w}`);
+  const round = makeRound(["설레요"], 7);
+  assert.equal(round.length, 5);
+  assert.equal(round[0].answer, "설레요"); // 반 감정 단어 문제가 먼저
+  for (const q of round) {
+    assert.equal(new Set(q.options).size, 3);
+    assert.ok(q.options.includes(q.answer));
+  }
+});

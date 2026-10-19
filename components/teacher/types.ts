@@ -1,5 +1,5 @@
 import type { Flag } from "@/lib/rules";
-import type { BuddyLook, Cheer, MoodRecord, Note, Provider, Rules, Student, VoiceMode } from "@/lib/shared";
+import type { BuddyLook, Cheer, Letter, MoodRecord, Note, Provider, Reflect, Rules, Student, VoiceMode } from "@/lib/shared";
 
 export interface Weekly {
   weekStart: string;
@@ -32,6 +32,9 @@ export interface OverviewRaw {
   lessons: { id: string; unit: string; words: string[]; activities: { title: string; how: string; minutes: number }[]; createdAt: string }[];
   weekly: Weekly | null;
   looks: Record<number, BuddyLook>;
+  letters: Letter[];
+  reflects: Reflect[];
+  trial: { aiUsed: number; aiCap: number } | null; // 심사용 체험 공간이면
   settings: {
     className: string;
     provider: Provider;

@@ -1,6 +1,8 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, newCode, type Pin } from "./auth.ts";
-import { db } from "./db.ts";
+import { today } from "./date.ts";
+import { demoExtras, demoLooks, demoRecords, demoStudents } from "./demo.ts";
+import { db, isDemo, outOfSpace } from "./db.ts";
 import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
@@ -72,12 +74,35 @@ export function parseRoster(text: string, old: Student[]): Student[] {
   return out;
 }
 
+// 체험 공간은 실제 반에 넣은 AI 키를 빌려 쓰되 하루 DEMO_AI_PER_DAY번까지만(키는 화면에 나가지 않는다)
+export const DEMO_AI_PER_DAY = 200;
+const keySettings = () => (isDemo() ? outOfSpace(() => getSettings()) : getSettings());
+
+export async function demoAiUsed() {
+  const u = await db().get<{ date: string; n: number }>("meta", "aiUsage");
+  return u?.date === today() ? u.n : 0;
+}
+async function spendDemoAi() {
+  if (!isDemo()) return true;
+  const n = await demoAiUsed();
+  if (n >= DEMO_AI_PER_DAY) return false;
+  await db().set("meta", "aiUsage", { date: today(), n: n + 1 });
+  return true;
+}
+
+// 한 제공자의 키만(교과서 읽기 Document Parse·Gemini 음성 듣기)
+export async function rawKey(p: Provider) {
+  const box = (await keySettings()).keys[p];
+  const key = box ? decrypt(box) : null;
+  return key && (await spendDemoAi()) ? key : null;
+}
+
 export async function aiConfig(provider?: Provider) {
-  const s = await getSettings();
+  const s = await keySettings();
   const p = provider ?? s.provider;
   const box = s.keys[p];
   const key = box ? decrypt(box) : null;
-  return key ? { provider: p, model: s.models[p], key } : null;
+  return key && (await spendDemoAi()) ? { provider: p, model: s.models[p], key } : null;
 }
 
 // ── 기록 읽기: 통째로 읽지 않고 필요한 만큼만(Firestore 읽기 횟수 = 돌려받은 문서 수) ──
@@ -127,4 +152,26 @@ export interface LessonItem {
 }
 export async function getLessons(): Promise<LessonItem[]> {
   return (await db().get<{ items: LessonItem[] }>("meta", "lessons"))?.items ?? [];
+}
+
+// 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
+export async function seedPractice() {
+  for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
+  const date = today();
+  const taken = new Set<string>();
+  await saveRoster(demoStudents(() => {
+    const c = newCode(taken);
+    taken.add(c);
+    return c;
+  }), true);
+  await saveLooks(demoLooks());
+  const now = Date.now();
+  await db().setMany("records", demoRecords(date).map((r) => [r.id, { ...r, updatedAt: now }]));
+  const extra = demoExtras(date);
+  await db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }]));
+  await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
+  await saveSettings({ ...(await getSettings()), checks: {} });
+  await db().set("meta", "practiceDay", { date });
+  await touch("wipe");
+  await touch("records");
 }

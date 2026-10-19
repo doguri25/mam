@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkPassword, isTeacher, makePin, teacherToken, validPin } from "./auth.ts";
+import { checkPassword, isTeacher, makePin, queueToken, readQueueToken, teacherToken, validPin } from "./auth.ts";
 
 test("바꾼 비밀번호는 해시로만 맞춰 보고, 바꾸기 전에는 처음 비밀번호", () => {
   const pin = makePin("246810", 1);
@@ -22,4 +22,15 @@ test("비밀번호를 바꾸면 예전 판의 표는 통하지 않음", () => {
   assert.equal(isTeacher(teacherToken(0), 1), false);
   assert.equal(isTeacher(teacherToken(1), 1), true);
   assert.equal(isTeacher("t:9999999999999.가짜", 0), false);
+  // 체험 공간 표와 실제 반 표는 서로 열 수 없다
+  assert.equal(isTeacher(teacherToken(0, true), 0, false), false);
+  assert.equal(isTeacher(teacherToken(0, false), 0, true), false);
+  assert.equal(isTeacher(teacherToken(0, true), 0, true), true);
+});
+
+test("끊김 대비 표는 그 학생·그날만, 고치면 무효", () => {
+  const tk = queueToken(3, "ABC234", "2026-10-21");
+  assert.deepEqual(readQueueToken(tk), { no: 3, code: "ABC234", date: "2026-10-21" });
+  assert.equal(readQueueToken(tk.replace("ABC234", "ZZZ999")), null);
+  assert.equal(readQueueToken(teacherToken(0)), null);
 });

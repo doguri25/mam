@@ -1,5 +1,6 @@
 // 서명한 쿠키로 학생·교사를 구분하고, 교사가 넣은 API 키는 암호화해서 저장한다
 import crypto from "node:crypto";
+import { isDemo } from "./db.ts";
 
 function secret() {
   const s = process.env.SESSION_SECRET;
@@ -27,15 +28,27 @@ export const STUDENT_COOKIE = "mb_s";
 export const TEACHER_COOKIE = "mb_t";
 export const TEACHER_HOURS = 8;
 
+export const DEMO_COOKIE = "mb_demo"; // 심사용 체험 중(이 쿠키가 있으면 요청 전체가 체험 공간에서 돈다)
+
 // 표 안의 v는 비밀번호 판(버전). 비밀번호를 바꾸면 v가 올라가 다른 기기의 예전 표는 무효가 된다.
-export function teacherToken(v = 0) {
-  return sign(`t:${Date.now() + TEACHER_HOURS * 3600_000}:${v}`);
+// 끝의 d는 체험 공간 표 — 체험 표로는 실제 반을, 실제 반 표로는 체험 공간을 열 수 없다.
+export function teacherToken(v = 0, demo = isDemo()) {
+  return sign(`t:${Date.now() + TEACHER_HOURS * 3600_000}:${v}${demo ? ":d" : ""}`);
 }
-export function isTeacher(cookie: string | undefined, v = 0) {
+export function isTeacher(cookie: string | undefined, v = 0, demo = isDemo()) {
   const x = unsign(cookie);
   if (!x?.startsWith("t:")) return false;
-  const [, exp, ver = "0"] = x.split(":");
-  return Number(exp) > Date.now() && Number(ver) === v;
+  const [, exp, ver = "0", d] = x.split(":");
+  return Number(exp) > Date.now() && Number(ver) === v && (d === "d") === demo;
+}
+
+// 와이파이가 끊겼을 때 기기에 잠시 담아 둔 기록을 나중에 보내는 표: 그 학생·그날 기록만 저장할 수 있다
+export const queueToken = (no: number, code: string, date: string) => sign(`q:${no}:${code}:${date}`);
+export function readQueueToken(token: unknown) {
+  const v = unsign(typeof token === "string" ? token : undefined);
+  if (!v?.startsWith("q:")) return null;
+  const [, no, code, date] = v.split(":");
+  return { no: Number(no), code, date };
 }
 
 // 선생님이 바꾼 비밀번호는 그대로 두지 않고 scrypt로 바꿔 저장한다. 없으면 TEACHER_PASSWORD(또는 1324).

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { rememberToken } from "@/lib/queue";
 
 export default function Join() {
   const router = useRouter();
@@ -11,8 +12,11 @@ export default function Join() {
 
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("c") ?? "";
-    api("student", "login", { code }).then(
-      () => router.replace("/me"),
+    api<{ no: number; qtoken: string }>("student", "login", { code }).then(
+      (r) => {
+        rememberToken(r.no, r.qtoken);
+        router.replace("/me");
+      },
       (e) => setError((e as Error).message),
     );
   }, [router]);

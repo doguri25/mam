@@ -1,7 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
-import { addDays } from "./date.ts";
+import { addDays, monday } from "./date.ts";
 import { matchRisk } from "./rules.ts";
-import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type Student } from "./shared.ts";
+import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -118,4 +118,29 @@ export function demoLooks(): Record<number, BuddyLook> {
     };
   }
   return out;
+}
+
+// 연습 반의 공감 쪽지(선생님 허락을 기다리는 것 포함)와 이번 주 돌아보기
+export function demoExtras(today: string): { letters: Letter[]; reflects: Reflect[] } {
+  const at = (d: number, hm: string) => `${addDays(today, d)}T${hm}:00+09:00`;
+  const L = (id: number, from: number, to: number, text: string, showName: boolean, status: Letter["status"], d: number): Letter => ({
+    id: `L${id}`, from, to, text, showName, status, createdAt: at(d, "12:10"), ...(status !== "wait" ? { checkedAt: at(d, "15:00") } : {}), demo: true,
+  });
+  const week = monday(today);
+  const R = (no: number, text: string, reply: string): Reflect => ({
+    id: `${no}_${week}`, no, weekStart: week, text, reply, createdAt: at(0, "14:30"), demo: true,
+  });
+  return {
+    letters: [
+      L(1, 5, 3, "수학 문제 어려웠지? 다음엔 같이 풀자!", true, "ok", -1),
+      L(2, 12, 17, "쉬는 시간에 같이 그림 그리자. 너 그림 진짜 멋져.", true, "wait", 0),
+      L(3, 8, 11, "피구할 때 속상했지? 다음엔 내가 공 줄게!", false, "wait", 0),
+      L(4, 2, 9, "베트남 이야기 또 들려줘. 재미있었어!", true, "ok", -2),
+    ],
+    reflects: [
+      R(1, "이번 주 나는 발표를 용기 내서 했다.", "용기 내서 발표한 너, 정말 멋졌어! 다음 주도 응원할게."),
+      R(6, "이번 주 나는 친구랑 사이좋게 지냈다.", "친구와 사이좋게 지낸 한 주였구나. 그 다정함이 반을 따뜻하게 해."),
+      R(14, "이번 주 나는 힘들었지만 잘 견뎠다.", "힘든 날에도 잘 견뎌 준 너에게 박수를 보내. 힘들 땐 선생님께 말해도 돼."),
+    ],
+  };
 }

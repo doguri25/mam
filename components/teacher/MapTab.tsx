@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
+import ReflectBox from "./ReflectBox";
 import Notes from "./Notes";
 import Timeline from "./Timeline";
 import Weather from "./Weather";
@@ -71,7 +72,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
         <Tile label={`${settings.rules.absentDays}일째 기록 없음`} value={absent.length} />
       </section>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+      <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <section className="card">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-display text-xl">오늘의 마음 칸 · {label(today)}</h2>
@@ -162,6 +163,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
               <button onClick={() => setOpen(null)} className="btn-sub min-h-9 px-3" aria-label="닫기" autoFocus>✕</button>
             </div>
             {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm">🟡 {r}</p>)}
+            <ReflectBox reflects={data.reflects} no={open} />
             <Timeline records={records.filter((r) => r.no === open)} today={today} />
             <div className="border-t border-line pt-3">
               <h3 className="mb-2 font-bold">📝 면담 메모</h3>

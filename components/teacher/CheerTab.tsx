@@ -2,6 +2,7 @@
 // 응원 한마디: 학생 기록 2주 → AI 초안 2개 → 선생님이 고쳐서 복사·저장 (학생에게 자동으로 보내지 않음)
 import { useState } from "react";
 import BuddyFace from "../BuddyFace";
+import ReflectBox from "./ReflectBox";
 import Timeline from "./Timeline";
 import Notes from "./Notes";
 import type { NameOf, Overview, Reload } from "./types";
@@ -41,10 +42,10 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[240px_1fr]">
+    <div className="grid gap-5 xl:grid-cols-[240px_1fr]">
       <aside className="card self-start p-3">
         <p className="mb-2 px-2 text-sm text-soft">학생 고르기 · 🟡 살펴볼 신호</p>
-        <div className="grid max-h-[60dvh] grid-cols-3 gap-1 overflow-y-auto lg:grid-cols-1">
+        <div className="grid max-h-[60dvh] grid-cols-3 gap-1 overflow-y-auto sm:grid-cols-5 xl:grid-cols-1">
           {data.students.map((x) => (
             <button
               key={x.no}
@@ -66,6 +67,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
               <BuddyFace look={data.looks[s.no]} emotion={data.records.filter((r) => r.no === s.no).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />
               {s.no}번 {nameOf(s.no)} · 최근 2주
             </h2>
+            <div className="mb-3"><ReflectBox reflects={data.reflects} no={s.no} /></div>
             <Timeline records={data.records.filter((r) => r.no === s.no)} today={data.today} />
           </section>
           <section className="card space-y-3">

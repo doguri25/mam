@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "카드나 한 문장으로 오늘의 마음을 남기고, 선생님이 변화를 살펴보는 사회정서교육 도구",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#fbf8f2" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#fbf8f2" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

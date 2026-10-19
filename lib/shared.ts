@@ -199,3 +199,21 @@ export function breathOf(ms: number) {
   const ease = (x: number) => 0.5 - Math.cos(Math.PI * x) / 2;
   return p < 0.5 ? ease(p * 2) : 1 - ease((p - 0.5) * 2); // 0(내쉼) ~ 1(들이쉼)
 }
+
+// 공감 쪽지: 친구에게 쓰고, 선생님이 읽고 허락한 것만 친구에게 간다(선생님은 언제나 보낸 사람을 안다)
+export interface Letter {
+  id: string; from: number; to: number; text: string; showName: boolean;
+  status: "wait" | "ok" | "no"; createdAt: string; checkedAt?: string; readAt?: string;
+  risk?: boolean; lang?: string; demo?: boolean;
+}
+
+// 한 주 돌아보기: 학생이 이번 주(월요일부터)를 돌아보며 쓴 한 줄과 마음 친구의 답
+export interface Reflect {
+  id: string; no: number; weekStart: string; text: string; reply: string; createdAt: string;
+  lang?: string; risk?: boolean; demo?: boolean;
+}
+
+// 마음 친구 성장: 서로 다른 감정 단어를 몇 개 써 봤는지에 따라 꾸미개가 열린다(기록 횟수가 아니라 새 단어로)
+export const ACC_UNLOCK: Record<BuddyAcc, number> = {
+  none: 0, sprout: 0, ribbon: 0, glasses: 1, flower: 2, cat: 3, party: 4, bunny: 5, headphones: 6, crown: 8,
+};

@@ -20,6 +20,18 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-tap-highlight-color: transparent;
+  /* 태블릿: 두 번 눌러 확대 지연을 없애고, 아이폰 노치·홈 막대를 피한다 */
+  touch-action: manipulation;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* 단추·카드를 오래 눌러도 글자 선택·확대 메뉴가 뜨지 않게(입력 칸은 그대로) */
+button,
+a,
+.chip {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 @layer components {
@@ -43,8 +55,9 @@ body {
   .chip-on {
     @apply border-leaf bg-leaf-soft;
   }
+  /* 16px보다 작은 입력 칸은 아이패드·아이폰이 화면을 확대해 버린다 */
   .field {
-    @apply w-full rounded-2xl border border-line bg-card px-4 py-3 outline-none focus:border-leaf;
+    @apply w-full rounded-2xl border border-line bg-card px-4 py-3 text-base outline-none focus:border-leaf;
   }
 }
 

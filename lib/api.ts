@@ -1,5 +1,6 @@
 // 화면에서 API를 부르는 작은 도우미
-export async function api<T = Record<string, unknown>>(who: "student" | "teacher", action: string, body: Record<string, unknown> = {}): Promise<T> {
+// status가 없는 오류 = 서버까지 가지 못함(와이파이 끊김 등)
+export async function api<T = Record<string, unknown>>(who: "student" | "teacher" | "try", action: string, body: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch(`/api/${who}`, {
     method: "POST",
     headers: { "content-type": "application/json" },

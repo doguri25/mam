@@ -77,7 +77,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
             </div>
             <button onClick={() => window.print()} className="btn-sub">🖨️ QR 카드 인쇄</button>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 print:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 print:grid-cols-4">
             {data.students.map((s) => (
               <div key={s.no} className="card flex flex-col items-center gap-1 p-3 text-center">
                 <p className="text-sm">{s.no}번 <b>{names.name(s.no, s.alias)}</b></p>

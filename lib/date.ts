@@ -25,3 +25,9 @@ export function weekday(date: string) {
 export function label(date: string) {
   return `${Number(date.slice(5, 7))}월 ${Number(date.slice(8))}일 (${weekday(date)})`;
 }
+
+// 그 주 월요일(학교 한 주의 시작)
+export function monday(date: string) {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay(); // 0=일
+  return addDays(date, day === 0 ? -6 : 1 - day);
+}

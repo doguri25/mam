@@ -3,7 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { leaks } from "./rules.ts";
-import { SKIP, fallbackFor, type Lang } from "./i18n.ts";
+import { SKIP, fallbackFor, langOf, type Lang } from "./i18n.ts";
 import { EMOTION_NAMES, NUANCE, NUANCE_WORDS, REASON_NAMES, TONES, emotionOf, type MoodRecord, type Provider } from "./shared.ts";
 
 const BASE_URL: Record<Exclude<Provider, "claude">, string | undefined> = {
@@ -266,4 +266,41 @@ export async function weeklySummary(ai: AI, stats: unknown, lessonActivities: un
       title: String(a.title ?? "").slice(0, 30), why: String(a.why ?? "").slice(0, 120), how: String(a.how ?? "").slice(0, 160), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
     })),
   };
+}
+
+// ── 한 주 돌아보기: 학생이 쓴 한 줄에 마음 친구가 짧게 답한다(학생이 고른 언어로) ──
+const REFLECT_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구」야. 학생이 이번 주를 돌아보며 쓴 한 줄과 이번 주 감정 기록을 받아,
+학생에게 1~2문장으로 다정하게 답해. 규칙:
+- 학생이 쓴 내용을 구체적으로 알아주고 칭찬해. 평가·충고·훈계·약속은 하지 마.
+- 힘들었다고 하면 그 마음을 알아주고, 필요하면 선생님께 이야기해도 된다고 덧붙여.
+- 이름·번호·횟수·「기록」이라는 말은 쓰지 마. 3학년이 읽을 쉬운 말로, 반말로 따뜻하게.
+- reply는 반드시 지정한 언어(lang)로 써.`;
+export async function reflectReply(ai: AI, input: { lang: Lang; text: string; week: { emotion: string; word?: string }[] }) {
+  const out = await callJSON(ai, REFLECT_SYSTEM, JSON.stringify({ ...input, lang: langOf(input.lang).ai }), "reflect", obj({ reply: { type: "string" } }));
+  const reply = String(out.reply ?? "").trim().slice(0, 160);
+  if (!reply || leaks(reply)) throw new Error("답이 알맞지 않아요");
+  return reply;
+}
+
+// ── 상담 연계 의견서 초안: 최근 2주 기록만 보고 관찰한 사실을 정리한다(진단하지 않음) ──
+export interface Referral { flow: string; reasons: string; helps: string }
+const REFERRAL_SYSTEM = `너는 초등학교 담임 선생님이 Wee클래스·상담교사에게 보낼 「학생 관찰 의견」 초안을 돕는 도우미야.
+학생 가명과 최근 2주 마음 기록(학생이 스스로 고른 감정·크기·까닭·한 문장, 마음 다스리기 도구 사용)과 살펴보기 신호를 받아 세 칸을 써.
+- flow: 2주 동안 관찰된 정서 흐름 3~5문장(날짜·아침/하교 전 변화를 근거로, 사실 위주)
+- reasons: 학생이 스스로 말한 까닭·상황 요약 2~3문장(학생이 쓴 말은 따옴표로)
+- helps: 도움이 된 것으로 보이는 것(마음 다스리기 도구·좋았던 날의 까닭 등) 1~2문장
+규칙: 진단명·병명·성격 단정(예: 우울증, ADHD, 불안장애, 공격적인 아이) 절대 쓰지 마. 추측은 「~로 보임」처럼 조심스럽게.
+학생은 가명으로만 부르고, 가족에 관한 추측은 쓰지 마. 높임말(~함, ~보임 같은 개조식 말투)로 간결하게. 한국어로.`;
+export async function referralDraft(ai: AI, input: { alias: string; records: unknown[]; signals: string[] }): Promise<Referral> {
+  const schema = obj({ flow: { type: "string" }, reasons: { type: "string" }, helps: { type: "string" } });
+  const out = await callJSON(ai, REFERRAL_SYSTEM, JSON.stringify(input), "referral", schema);
+  return { flow: String(out.flow ?? "").slice(0, 700), reasons: String(out.reasons ?? "").slice(0, 500), helps: String(out.helps ?? "").slice(0, 300) };
+}
+
+// ── 가정 소식지 번역: 다문화 가정에 보낼 같은 내용을 다른 언어로 ──
+export async function translateNotice(ai: AI, text: string, lang: Exclude<Lang, "ko">) {
+  const system = `너는 초등학교 가정 안내문을 번역하는 도우미야. 받은 한국어 안내문을 ${langOf(lang).ai}로 자연스럽게 번역해.
+줄 나눔과 제목·목록 모양은 그대로 두고, 학부모가 읽기 쉬운 공손한 말로. 새 내용을 더하지 마.`;
+  const out = await callJSON(ai, system, text.slice(0, 4000), "translate", obj({ text: { type: "string" } }));
+  return String(out.text ?? "").slice(0, 6000);
 }

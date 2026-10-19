@@ -9,10 +9,10 @@ import { api } from "@/lib/api";
 import { isLang, t, type Lang, type UIKey } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
 import {
-  BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, GROUPS, type BuddyLook, type MoodRecord,
+  ACC_UNLOCK, BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, GROUPS, type BuddyAcc, type BuddyLook, type MoodRecord,
 } from "@/lib/shared";
 
-type Me = { no: number; alias: string; look: BuddyLook; records: MoodRecord[] };
+type Me = { no: number; alias: string; look: BuddyLook; records: MoodRecord[]; words: string[] };
 type Part = "shape" | "eyes" | "cheek" | "pattern" | "limbs" | "acc";
 
 // 고르는 칸: 제목 · 고를 것 · 칸 수(넓은 화면)
@@ -35,7 +35,7 @@ export default function BuddyPage() {
   const [err, setErr] = useState("");
   const [langRaw] = useLocal(`mb_lang_${me?.no ?? 0}`);
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
-  const tt = (k: UIKey) => t(lang, k);
+  const tt = (k: UIKey, vars?: Record<string, string | number>) => t(lang, k, vars);
 
   useEffect(() => {
     api<Me>("student", "me").then((m) => { setMe(m); setLook(m.look); }, () => router.replace("/"));
@@ -98,14 +98,25 @@ export default function BuddyPage() {
 
           {PARTS.map(([part, title, options, cols]) => (
             <div key={part}>
-              <h2 className="mb-2 font-bold">{tt(title)}</h2>
+              <h2 className="mb-2 font-bold">
+                {tt(title)}
+                {part === "acc" && <span className="ml-2 text-sm font-normal text-soft">🌱 {tt("growWords", { n: me.words.length })}</span>}
+              </h2>
               <div className={`grid grid-cols-3 gap-2 ${cols}`}>
-                {options.map((o) => (
-                  <button key={o} onClick={() => set({ [part]: o })} aria-pressed={look[part] === o} className={chip(look[part] === o)}>
-                    <BuddyFace look={{ ...look, [part]: o }} emotion={emotion} size={60} />
-                    {tt((o === "none" ? "acc_none" : `${part}_${o}`) as UIKey)}
-                  </button>
-                ))}
+                {options.map((o) => {
+                  // 마음 친구 성장: 꾸미개는 써 본 감정 단어 수만큼 열린다(지금 쓰고 있는 것은 그대로)
+                  const need = part === "acc" ? ACC_UNLOCK[o as BuddyAcc] : 0;
+                  const locked = need > me.words.length && me.look.acc !== o;
+                  return (
+                    <button key={o} onClick={() => !locked && set({ [part]: o })} aria-pressed={look[part] === o} aria-disabled={locked} className={`${chip(look[part] === o)} relative ${locked ? "opacity-60" : ""}`}>
+                      <BuddyFace look={{ ...look, [part]: o }} emotion={emotion} size={60} className={locked ? "grayscale" : undefined} />
+                      {tt((o === "none" ? "acc_none" : `${part}_${o}`) as UIKey)}
+                      {locked && (
+                        <span className="text-[11px] font-normal leading-tight text-soft">🔒 {tt("lockedHint", { n: need })}</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}

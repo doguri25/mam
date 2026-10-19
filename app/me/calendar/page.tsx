@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { isLang, t, w, type Lang } from "@/lib/i18n";
+import { WEEKDAYS, isLang, t, w, type Lang } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
 import { label } from "@/lib/date";
 import { EmotionArt } from "@/components/Art";
@@ -17,10 +17,7 @@ function shift(month: string, n: number) {
   return d.toISOString().slice(0, 7);
 }
 
-const WEEK: Record<Lang, string[]> = {
-  ko: [..."일월화수목금토"], en: [..."SMTWTFS"], zh: [..."日一二三四五六"], vi: ["CN", "T2", "T3", "T4", "T5", "T6", "T7"], ja: [..."日月火水木金土"],
-};
-const weekRow = (l: Lang) => WEEK[l];
+const weekRow = (l: Lang) => WEEKDAYS[l];
 
 export default function Calendar() {
   const router = useRouter();

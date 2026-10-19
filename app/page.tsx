@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
+import { rememberToken } from "@/lib/queue";
 
 export default function Home() {
   const router = useRouter();
@@ -21,7 +22,8 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
-      await api("student", "login", { code });
+      const r = await api<{ no: number; qtoken: string }>("student", "login", { code });
+      rememberToken(r.no, r.qtoken); // 와이파이가 끊겨도 이 학생 기록을 나중에 보낼 수 있게
       router.replace("/me");
     } catch (err) {
       setError((err as Error).message);
@@ -53,7 +55,10 @@ export default function Home() {
         </button>
       </form>
       <p className="text-sm text-soft">코드를 잊어버렸다면 선생님께 물어봐요.</p>
-      <Link href="/teacher" className="text-sm text-soft underline underline-offset-4">선생님 화면</Link>
+      <div className="flex gap-4 text-sm text-soft">
+        <Link href="/teacher" className="underline underline-offset-4">선생님 화면</Link>
+        <Link href="/try" className="underline underline-offset-4">처음이세요? 체험해 보기</Link>
+      </div>
     </main>
   );
 }

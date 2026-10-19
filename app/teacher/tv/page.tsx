@@ -8,11 +8,11 @@ import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import type { Weather } from "@/lib/rules";
-import { DEFAULT_LOOK, GROUPS, type Group } from "@/lib/shared";
+import { DEFAULT_LOOK, GROUPS, NUANCE, groupOf, type Group } from "@/lib/shared";
 
 type Data = {
   date: string; slot: "am" | "pm" | "day"; now: "am" | "pm"; className: string; students: number;
-  n: number; groups: Record<Group, number>; words: [string, number][]; weather: Weather;
+  n: number; groups: Record<Group, number>; words: [string, number][]; weather: Weather; monthWords: [string, number][];
 };
 
 const WEATHER: Record<Weather, { icon: string; name: string; line: string; bg: string; heavy?: boolean }> = {
@@ -34,6 +34,7 @@ export default function ClassTV() {
   const [data, setData] = useState<Data | null>(null);
   const [slot, setSlot] = useState<"am" | "pm" | "day" | null>(null);
   const [locked, setLocked] = useState(false);
+  const [view, setView] = useState<"weather" | "words">("weather");
 
   const load = useCallback(async () => {
     if (document.visibilityState !== "visible") return;
@@ -88,12 +89,37 @@ export default function ClassTV() {
               </button>
             ))}
           </div>
+          <div role="group" aria-label="보기" className="flex rounded-2xl border border-line bg-card p-1">
+            {([["weather", "🌤️ 날씨"], ["words", "📖 단어 사전"]] as const).map(([id, name]) => (
+              <button key={id} onClick={() => setView(id)} aria-pressed={view === id} className={`rounded-xl px-3 py-2 text-sm font-bold lg:text-base ${view === id ? "bg-leaf text-white" : "text-soft"}`}>{name}</button>
+            ))}
+          </div>
           <button onClick={() => document.documentElement.requestFullscreen?.()} className="btn-sub min-h-10 px-3 text-sm">⛶ 전체 화면</button>
           <Link href="/teacher" className="btn-sub min-h-10 px-3 text-sm">선생님 화면</Link>
         </div>
       </header>
 
-      {!enough ? (
+      {view === "words" ? (
+        <section className="flex flex-1 flex-col items-center justify-center gap-[clamp(0.75rem,3vh,2rem)] text-center">
+          <p className="font-display text-[clamp(1.5rem,4.5vh,3rem)]">📖 우리 반이 요즘 쓴 감정 단어</p>
+          {data.monthWords.length ? (
+            <p className="flex max-w-6xl flex-wrap items-baseline justify-center gap-x-[clamp(0.75rem,2.5vw,2rem)] gap-y-2">
+              {data.monthWords.map(([word, k]) => {
+                const max = data.monthWords[0][1];
+                const parent = Object.keys(NUANCE).find((e) => NUANCE[e].includes(word));
+                return (
+                  <span key={word} className="font-display leading-tight" style={{ fontSize: `clamp(1.25rem, ${2.4 + (k / max) * 5}vh, ${1.5 + (k / max) * 3}rem)`, color: parent ? GROUPS[groupOf(parent)].color : undefined }}>
+                    {word}
+                  </span>
+                );
+              })}
+            </p>
+          ) : (
+            <p className="text-[clamp(1.25rem,3vh,2rem)] text-soft">감정 카드에서 「더 꼭 맞는 말」을 골라 보면 여기에 모여요!</p>
+          )}
+          <p className="text-[clamp(1rem,2.4vh,1.5rem)] text-soft">최근 30일 · 많이 쓴 말일수록 크게 · 이름 없이 우리 반 전체</p>
+        </section>
+      ) : !enough ? (
         <section className="grid flex-1 place-items-center text-center">
           <div className="space-y-4">
             <BuddyLazy emotion="기뻐요" size={260} className="mx-auto size-56 lg:size-[300px]" />

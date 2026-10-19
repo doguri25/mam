@@ -1,17 +1,17 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, type NextRequest } from "next/server";
-import { cheer, ping, weeklySummary } from "@/lib/ai";
-import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherToken, validPin } from "@/lib/auth";
+import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
+import { DEMO_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherToken, validPin } from "@/lib/auth";
 import {
-  aiConfig, allRecords, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
-  rosterIsDemo, saveLooks, savePin, saveRoster, saveSettings, touch,
+  DEMO_AI_PER_DAY, aiConfig, allRecords, demoAiUsed, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
-import { addDays, slotNow, today } from "@/lib/date";
-import { db } from "@/lib/db";
-import { demoLooks, demoRecords, demoStudents } from "@/lib/demo";
+import { addDays, monday, slotNow, today } from "@/lib/date";
+import { db, inSpace, isDemo } from "@/lib/db";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
-import { PROVIDER_IDS, type Cheer, type MoodRecord, type Note, type Provider, type Rules } from "@/lib/shared";
+import { isLang } from "@/lib/i18n";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type Rules } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const strList = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, 60) : null);
@@ -27,6 +27,14 @@ function withTeacherCookie(v: number) {
 }
 
 export async function POST(req: NextRequest) {
+  const run = () => handle(req);
+  return req.cookies.get(DEMO_COOKIE)?.value === "1" ? inSpace("demo", run) : run();
+}
+
+// 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
+const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush"]);
+
+async function handle(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   try {
     if (body.action === "logout") {
@@ -42,6 +50,8 @@ export async function POST(req: NextRequest) {
       return withTeacherCookie(pin?.v ?? 0);
     }
     if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, pin?.v ?? 0)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
+
+    if (isDemo() && DEMO_BLOCKED.has(body.action)) return bad("체험에서는 쓸 수 없는 기능이에요.", 403);
 
     // 비밀번호 바꾸기: 지금 비밀번호를 확인하고, 바꾼 기기만 계속 열려 있게 새 표를 준다
     if (body.action === "changePin") {
@@ -73,9 +83,10 @@ export async function POST(req: NextRequest) {
       // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
       const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
       const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from)) : recordsFrom(from);
-      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks] = await Promise.all([
+      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks, letters, reflects, aiUsed] = await Promise.all([
         getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
         getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
+        db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)), isDemo() ? demoAiUsed() : 0,
       ]);
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
@@ -96,6 +107,9 @@ export async function POST(req: NextRequest) {
         // 마음 친구 이름은 학생이 실명을 쓸 수 있어 선생님 화면에 보내지 않는다
         looks: Object.fromEntries(Object.entries(looks).map(([no, l]) => [no, { ...l, name: "" }])),
         weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
+        letters: newest(letters).slice(0, 150),
+        reflects, // 이번 주·지난주 한 주 돌아보기
+        trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY } : null,
         settings: publicSettings(settings),
       });
     }
@@ -107,9 +121,53 @@ export async function POST(req: NextRequest) {
       const todays = (await recordsFrom(date)).filter((r) => r.date === date && (!which || r.slot === which));
       // 「하루 전체」면 학생마다 가장 나중 기록 하나만 센다
       const latest = which ? todays : [...new Map(todays.sort((a, b) => a.slot.localeCompare(b.slot)).map((r) => [r.no, r])).values()];
+      // 단어 사전 보기: 최근 30일 우리 반 감정 단어(이름 없이 횟수만)
+      const month: Record<string, number> = {};
+      for (const r of await recordsFrom(addDays(date, -29))) if (r.word) month[r.word] = (month[r.word] ?? 0) + 1;
       return NextResponse.json({
         date, slot: which ?? "day", now: slotNow(), className: settings.className, students: (await getRoster()).length, ...classWeather(latest),
+        monthWords: Object.entries(month).sort((a, b) => b[1] - a[1]).slice(0, 30),
       });
+    }
+
+    // ── 공감 쪽지 검토: 허락(필요하면 살짝 고쳐서)하거나 돌려보내기 ──
+    if (body.action === "letterCheck") {
+      const l = await db().get<Letter>("letters", String(body.id));
+      if (!l || !["ok", "no"].includes(body.status)) return bad("쪽지를 찾지 못했어요.", 404);
+      const text = typeof body.text === "string" && body.text.trim().length >= 2 ? body.text.trim().slice(0, 120) : l.text;
+      await db().set("letters", l.id, { ...l, text, status: body.status, checkedAt: new Date().toISOString() });
+      await touch("other");
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── 상담 연계 의견서 초안: 최근 2주 기록(가명)으로 관찰 사실만 ──
+    if (body.action === "referral") {
+      const no = Number(body.no);
+      const s = (await getRoster()).find((x) => x.no === no);
+      if (!s) return bad("학생을 찾지 못했어요.", 404);
+      const ai = await aiConfig();
+      if (!ai) return bad(isDemo() ? "오늘 체험용 AI 사용량을 다 썼어요." : "AI 키가 있어야 초안을 만들 수 있어요. 「설정」에서 넣어 주세요.");
+      const date = today();
+      const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13)).sort((a, b) => a.id.localeCompare(b.id));
+      const signals = watchFlags(await recordsFrom(addDays(date, -13)), date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
+      const draft = await referralDraft(ai, {
+        alias: s.alias, signals,
+        records: recs.map((r) => ({
+          date: r.date, slot: r.slot === "am" ? "아침" : "하교 전", emotion: r.emotion, word: r.word, intensity: r.intensity, reason: r.reason,
+          said: r.summaryKo || r.summary || undefined, answer: r.answer || undefined, risk: r.risk || undefined,
+          calm: r.calm?.map((c) => `${CALM_KO[c.tool]}→${FELT_KO[c.felt]}`),
+        })),
+      });
+      return NextResponse.json({ draft, from: addDays(date, -13), to: date, records: recs.length });
+    }
+
+    // ── 가정 소식지 번역(다문화 가정용) ──
+    if (body.action === "translate") {
+      const lang = body.lang;
+      if (!isLang(lang) || lang === "ko" || typeof body.text !== "string" || !body.text.trim()) return bad("번역할 언어와 내용을 확인해 주세요.");
+      const ai = await aiConfig();
+      if (!ai) return bad(isDemo() ? "오늘 체험용 AI 사용량을 다 썼어요." : "AI 키가 있어야 번역할 수 있어요.");
+      return NextResponse.json({ text: await translateNotice(ai, body.text, lang) });
     }
 
     // 기록 내보내기(전체). 화면에서 CSV로 만든다.
@@ -155,7 +213,7 @@ export async function POST(req: NextRequest) {
       for (const p of PROVIDER_IDS) {
         const m = body.models?.[p];
         if (typeof m === "string" && m.trim()) next.models[p] = m.trim().slice(0, 80);
-        const k = body.keys?.[p];
+        const k = isDemo() ? undefined : body.keys?.[p]; // 체험에서는 키를 바꾸지 않는다
         if (k === "") delete next.keys[p]; // 빈 글자 = 지우기, 안 보내면 그대로
         else if (typeof k === "string" && k.trim()) next.keys[p] = encrypt(k.trim());
       }
@@ -275,39 +333,29 @@ export async function POST(req: NextRequest) {
 
     // 시연 데이터 만들기 / 연습 데이터만 지우기 / 모두 지우기
     if (body.action === "demo") {
-      const mode = body.mode;
+      // 체험 공간에서는 지우지 않고 언제나 처음 판으로 되돌린다(여러 사람이 함께 쓰는 공간이라)
+      const mode = isDemo() ? "seed" : body.mode;
       if (mode === "clearDemo") {
-        // 연습 기록(demo 표시)만 지운다. 연습용 명단이면 명단·응원·메모도 함께.
+        // 연습 기록(demo 표시)만 지운다. 연습용 명단이면 명단·응원·메모·쪽지·돌아보기도 함께.
         const demoRecs = await db().find<MoodRecord>("records", "demo", "==", true);
         for (const r of demoRecs) await db().del("records", r.id);
         if (await rosterIsDemo()) {
-          await db().clear("cheers");
-          await db().clear("notes");
+          for (const col of ["cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
           await db().del("meta", "looks");
           await saveRoster([]);
         }
-      } else {
-        await db().clear("records");
-        await db().clear("cheers");
-        await db().clear("notes");
+        await saveSettings({ ...settings, checks: {} });
+        await touch("wipe");
+        await touch("records");
+      } else if (mode === "seed") await seedPractice();
+      else {
+        for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
         await db().del("meta", "looks");
-        if (mode === "seed") {
-          await saveLooks(demoLooks());
-          const taken = new Set<string>();
-          await saveRoster(demoStudents(() => {
-            const c = newCode(taken);
-            taken.add(c);
-            return c;
-          }), true);
-          const now = Date.now();
-          for (const r of demoRecords(today())) await db().set("records", r.id, { ...r, updatedAt: now });
-        } else {
-          await saveRoster([]);
-        }
+        await saveRoster([]);
+        await saveSettings({ ...settings, checks: {} });
+        await touch("wipe");
+        await touch("records");
       }
-      await saveSettings({ ...settings, checks: {} });
-      await touch("wipe"); // 기록을 지웠으니 교사 기기에 저장해 둔 기록도 버리게
-      await touch("records");
       return NextResponse.json({ ok: true });
     }
 

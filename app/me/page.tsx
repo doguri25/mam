@@ -1,8 +1,11 @@
 "use client";
 // 오늘의 마음: 고르기(카드/말) → 살펴보기 → 되묻기 한 번 → 저장. 학생이 고른 언어로 보여 준다(기록은 한국어 감정 이름).
+// 학생은 주로 태블릿: 가로면 오른쪽에 마음 친구·「더 해 보기」, 세로면 위에 마음 친구 띠·아래에 「더 해 보기」. 단추는 손가락 크기(48px 이상).
+// 와이파이가 끊기면 기록을 이 기기에 담아 두었다가 연결되면 보낸다(lib/queue).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { flushQueue, queueRecord } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
@@ -11,12 +14,13 @@ import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
 import { CHEER, LANGS, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
-import { groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
+import { ACC_UNLOCK, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
 
 type Me = {
   no: number; alias: string; className: string; vocab: string[]; voiceMode: VoiceMode; slot: Slot; today: string;
   records: MoodRecord[]; flowers: { date: string; emotion: string }[]; look: BuddyLook;
+  words: string[]; unread: number; reflected: boolean; demo: boolean;
 };
 type Step = "choose" | "card" | "voice" | "confirm" | "ask" | "done";
 type Tone = { tone: string | null; toneWhy: string; toneBy: string | null; voice: VoiceFeatures | null };
@@ -50,6 +54,9 @@ export default function MePage() {
   const [note, setNote] = useState<UIKey | string>("");
   const [cheer, setCheer] = useState(0); // 저장하면 마음 친구가 한 번 인사
   const [calm, setCalm] = useState<"off" | "offer" | "open">("off"); // 마음 다스리기 도구 상자
+  const [unlocked, setUnlocked] = useState(false); // 새 감정 단어로 꾸미개가 열렸나
+  const [offline, setOffline] = useState(false); // 이번 기록을 기기에 담아 뒀나
+  const [flushed, setFlushed] = useState(0);
   const [readAloud, setReadAloud] = useLocal("mb_read");
   const [langRaw, setLang] = useLocal(`mb_lang_${me?.no ?? 0}`); // 같은 태블릿을 돌려 써도 학생마다 따로
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
@@ -70,6 +77,14 @@ export default function MePage() {
   useEffect(() => {
     if (step === "ask") speak(qa.question, false, lang);
   }, [step, qa.question, lang]);
+
+  // 담아 둔 기록이 있으면 들어올 때와 연결이 돌아올 때 보낸다
+  useEffect(() => {
+    const send = () => flushQueue().then((n) => n && setFlushed(n), () => {});
+    send();
+    window.addEventListener("online", send);
+    return () => window.removeEventListener("online", send);
+  }, []);
 
   if (!me) return <main className="grid min-h-dvh place-items-center text-soft">…</main>;
 
@@ -109,6 +124,8 @@ export default function MePage() {
       if (q.skip) return save("", q, toTone(r));
       setStep("ask");
     } catch (e) {
+      // 와이파이가 끊겼으면 되묻기 없이 바로 기기에 담는다
+      if (!(e as { status?: number }).status) return save("", { question: "", options: [], aiRisk: false, skip: false }, tone);
       setNote((e as Error).message);
     }
     setBusy("");
@@ -139,13 +156,25 @@ export default function MePage() {
   async function save(ans: string, q = qa, tn = tone) {
     answerSpeech.stop();
     setBusy("saving");
+    const payload = { ...pick, slot, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn };
     try {
-      const { record } = await api<{ record: MoodRecord }>("student", "save", {
-        record: { ...pick, slot, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn },
-      });
+      let record: MoodRecord;
+      try {
+        record = (await api<{ record: MoodRecord }>("student", "save", { record: payload })).record;
+        setOffline(false);
+      } catch (e) {
+        // 서버까지 못 갔으면(와이파이 끊김) 이 기기에 담아 두고, 화면은 저장된 것처럼 이어 간다
+        if ((e as { status?: number }).status || !queueRecord(me!.no, payload)) throw e;
+        record = { ...payload, id: `${me!.no}_${me!.today}_${slot}`, no: me!.no, date: me!.today, createdAt: "" } as unknown as MoodRecord;
+        setOffline(true);
+      }
       const today = me!.today;
+      // 마음 친구 성장: 처음 써 본 감정 단어로 꾸미개가 새로 열렸는지
+      const words = record.word && !me!.words.includes(record.word) ? [...me!.words, record.word] : me!.words;
+      setUnlocked(words.length > me!.words.length && Object.values(ACC_UNLOCK).includes(words.length));
       setMe({
         ...me!,
+        words,
         records: [...me!.records.filter((r) => r.slot !== slot), record],
         flowers: [...me!.flowers.filter((f) => f.date !== today), { date: today, emotion: record.emotion }],
       });
@@ -185,21 +214,36 @@ export default function MePage() {
     : pick.emotion ? tt("picked", { emotion: shown })
     : tt("hello", { alias: me.alias });
 
+  const friday = new Date(`${me.today}T00:00:00Z`).getUTCDay() >= 5 || new Date(`${me.today}T00:00:00Z`).getUTCDay() === 0;
+  const tiles: { href?: string; onClick?: () => void; icon: string; label: string; badge?: string }[] = [
+    { href: "/me/week", icon: "🗓️", label: tt("tileWeek"), badge: friday && !me.reflected ? "!" : undefined },
+    { href: "/me/game", icon: "🎲", label: tt("tileGame") },
+    { href: "/me/words", icon: "📖", label: tt("tileWords") },
+    { href: "/me/letters", icon: "💌", label: tt("tileLetters"), badge: me.unread ? tt("unreadBadge", { n: me.unread }) : undefined },
+    { href: "/me/buddy", icon: "🎨", label: tt("buddyEdit").replace("🎨 ", "") },
+    { onClick: () => setCalm("open"), icon: "🧰", label: tt("calmOpen").replace("🧰 ", "") },
+    { href: "/me/calendar", icon: "📅", label: tt("calendar").replace(/^📅\s*/, "") },
+  ];
+  const tileClass = "chip relative flex min-h-24 flex-col items-center justify-center gap-1 p-2 text-center text-sm font-bold leading-tight hover:border-leaf";
+
   return (
-    <main className="mx-auto max-w-5xl px-4 py-5 sm:px-6" lang={lang}>
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm text-soft">{me.className} · {me.no}</p>
-          <h1 className="font-display text-3xl">{tt("title", { alias: me.alias })}</h1>
+    <main className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5" lang={lang}>
+      {me.demo && (
+        <p className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-2 text-sm">
+          🧪 체험용 반이에요(가짜 학생·기록). <Link href="/try" className="font-bold underline">체험 안내로</Link>
+        </p>
+      )}
+      {flushed > 0 && <p className="mb-3 rounded-2xl bg-leaf-soft px-4 py-2 text-sm">📶 {tt("offlineSent", { n: flushed })}</p>}
+      <header className="mb-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-soft">{me.className} · {me.no}</p>
+            <h1 className="truncate font-display text-2xl sm:text-3xl">{tt("title", { alias: me.alias })}</h1>
+          </div>
+          <button onClick={nextFriend} className="btn-sub min-h-12 shrink-0 px-4">{tt("next")}</button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1 rounded-2xl border border-line bg-card px-2 text-sm">
-            <span aria-hidden>🌐</span>
-            <select value={lang} onChange={(e) => setLang(e.target.value === "ko" ? "" : e.target.value)} className="h-10 bg-transparent font-bold outline-none" aria-label="Language">
-              {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-            </select>
-          </label>
-          <div role="group" aria-label={tt("lang")} className="flex rounded-2xl border border-line bg-card p-1">
+          <div role="group" aria-label="☀️ / 🌇" className="flex rounded-2xl border border-line bg-card p-1">
             {(["am", "pm"] as Slot[]).map((s) => (
               <button
                 key={s}
@@ -208,25 +252,30 @@ export default function MePage() {
                   setSlot(s);
                   if (step === "done") reset();
                 }}
-                className={`rounded-xl px-3 py-2 text-sm font-bold ${slot === s ? "bg-leaf text-white" : "text-soft"}`}
+                className={`min-h-11 rounded-xl px-4 text-base font-bold ${slot === s ? "bg-leaf text-white" : "text-soft"}`}
               >
                 {s === "am" ? "☀️" : "🌇"} {slotName(s)}
               </button>
             ))}
           </div>
+          <label className="flex min-h-12 items-center gap-1 rounded-2xl border border-line bg-card px-3 text-base">
+            <span aria-hidden>🌐</span>
+            <select value={lang} onChange={(e) => setLang(e.target.value === "ko" ? "" : e.target.value)} className="h-11 bg-transparent font-bold outline-none" aria-label="Language">
+              {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+            </select>
+          </label>
           <button
             onClick={() => setReadAloud(readAloud === "1" ? "" : "1")}
             aria-pressed={readAloud === "1"}
-            className={`btn-sub min-h-10 px-3 text-sm ${readAloud === "1" ? "border-leaf bg-leaf-soft" : ""}`}
+            className={`btn-sub min-h-12 px-4 text-base ${readAloud === "1" ? "border-leaf bg-leaf-soft" : ""}`}
           >
             {readAloud === "1" ? tt("readOn") : tt("readOff")}
           </button>
-          <button onClick={nextFriend} className="btn-sub min-h-10 px-3 text-sm">{tt("next")}</button>
         </div>
       </header>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_300px] lg:grid-rows-[auto_1fr]">
-        <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px] lg:grid-rows-[auto_auto_1fr] lg:gap-5">
+        <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-3 lg:row-start-1 lg:self-start">
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{tt(busy)}</p>
           ) : calm === "open" ? (
@@ -341,6 +390,8 @@ export default function MePage() {
           ) : (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="rounded-full bg-leaf-soft px-4 py-1 text-sm font-bold text-leaf">{tt("saved")}</p>
+              {offline && <p className="rounded-2xl bg-[#fff8e1] p-3 text-sm">📶 {tt("offlineSaved")}</p>}
+              {unlocked && <Link href="/me/buddy" className="rounded-2xl bg-sun/30 px-4 py-2 font-bold">{tt("newUnlock")}</Link>}
               <h2 className="font-display text-3xl">{tt("thanks", { alias: me.alias })}</h2>
               {pick.emotion && <EmotionArt name={pick.emotion} size={110} />}
               <p className="text-lg">
@@ -358,27 +409,42 @@ export default function MePage() {
                 </div>
               )}
               <div className="mt-2 flex flex-wrap justify-center gap-3">
-                <Link href="/me/calendar" className="btn-sub">{tt("calendar")}</Link>
-                <button onClick={nextFriend} className="btn-main">{tt("next")}</button>
+                <Link href="/me/calendar" className="btn-sub min-h-12">{tt("calendar")}</Link>
+                <button onClick={nextFriend} className="btn-main min-h-12 px-8">{tt("next")}</button>
               </div>
             </div>
           )}
         </section>
 
-        {/* 마음 친구: 태블릿 세로·휴대폰에서는 맨 위 가로 띠, 넓은 화면에서는 오른쪽 위 */}
-        <aside className="card order-first flex items-center gap-4 p-3 lg:sticky lg:top-5 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-3 lg:self-start lg:p-5 lg:text-center">
-          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} look={me.look} cheer={cheer} size={220} className="size-24 shrink-0 sm:size-28 lg:size-[220px]" />
+        {/* 마음 친구: 세로 태블릿·휴대폰에서는 맨 위 가로 띠, 가로(넓은) 화면에서는 오른쪽 위 */}
+        <aside className="card order-first flex items-center gap-4 p-3 lg:sticky lg:top-4 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-2 lg:self-start lg:p-4 lg:text-center">
+          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} look={me.look} cheer={cheer} size={170} className="size-24 shrink-0 sm:size-32 lg:size-[170px]" />
           <div>
             <p className="text-xs text-soft lg:text-sm">{me.look.name || tt("buddy")}</p>
             <p className="font-display text-lg sm:text-xl" style={{ color: pick.emotion ? EMOTION_COLOR[pick.emotion] : undefined }}>{buddyLine}</p>
-            <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm lg:justify-center">
-              <Link href="/me/buddy" className="text-leaf underline underline-offset-4">{tt("buddyEdit")}</Link>
-              <button onClick={() => setCalm("open")} className="text-leaf underline underline-offset-4">{tt("calmOpen")}</button>
-            </span>
           </div>
         </aside>
 
-        <aside className="card space-y-3 self-start lg:col-start-2 lg:row-start-2">
+        {/* 더 해 보기: 세로 태블릿에서는 기록 아래 4칸, 가로에서는 오른쪽 2칸 */}
+        <nav aria-label={tt("hubMore")} className="card p-3 lg:col-start-2 lg:row-start-2 lg:p-4">
+          <p className="mb-2 font-bold">{tt("hubMore")}</p>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-2">
+            {tiles.map((x) =>
+              x.href ? (
+                <Link key={x.label} href={x.href} className={tileClass}>
+                  <span className="text-3xl" aria-hidden>{x.icon}</span>{x.label}
+                  {x.badge && <span className="absolute -right-1 -top-1 rounded-full bg-alert px-2 text-xs text-white">{x.badge}</span>}
+                </Link>
+              ) : (
+                <button key={x.label} onClick={x.onClick} className={tileClass}>
+                  <span className="text-3xl" aria-hidden>{x.icon}</span>{x.label}
+                </button>
+              ),
+            )}
+          </div>
+        </nav>
+
+        <aside className="card space-y-3 self-start lg:col-start-2 lg:row-start-3">
           <div className="space-y-1 text-left text-sm">
             <p className="font-bold">{tt("todayRec")}</p>
             {(["am", "pm"] as Slot[]).map((s) => {
@@ -399,7 +465,6 @@ export default function MePage() {
             ) : (
               <p className="text-soft">{tt("gardenEmpty")}</p>
             )}
-            <Link href="/me/calendar" className="mt-2 inline-block text-leaf underline underline-offset-4">{tt("calendarLink")}</Link>
           </div>
         </aside>
       </div>
