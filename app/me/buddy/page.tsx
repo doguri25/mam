@@ -1,5 +1,5 @@
 "use client";
-// 마음 친구 꾸미기: 몸 색 · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름. 고르는 대로 3D 친구가 바로 바뀐다(움직이지 않고).
+// 마음 친구 꾸미기: 몸 색 · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름. 고르는 대로 마음 친구가 바로 바뀐다(인사는 저장할 때만).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -73,7 +73,7 @@ export default function BuddyPage() {
       </div>
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         <section className="card flex flex-col items-center gap-2 self-start lg:sticky lg:top-5">
-          <BuddyLazy emotion={emotion} look={look} cheer={cheer} size={280} className="size-56 sm:size-[280px]" />
+          <BuddyLazy emotion={emotion} look={look} cheer={cheer} size={280} className="size-56 sm:size-[280px]" scene />
           <p className="font-display text-2xl text-leaf">{saved ? tt("buddySaved") : look.name || tt("buddy")}</p>
         </section>
 

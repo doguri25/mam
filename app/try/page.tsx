@@ -32,7 +32,7 @@ export default function TryPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-4xl flex-col gap-6 px-5 py-8">
       <header className="flex flex-col items-center gap-3 text-center">
-        <BuddyLazy emotion="기뻐요" size={160} className="size-36 sm:size-40" />
+        <BuddyLazy emotion="기뻐요" size={160} className="size-36 sm:size-40" scene />
         <p className="rounded-full bg-sun/30 px-4 py-1 text-sm font-bold">🧪 심사·둘러보기용 체험</p>
         <h1 className="font-display text-4xl sm:text-5xl">마음빛 길잡이 체험하기</h1>
         <p className="max-w-xl text-lg text-soft">

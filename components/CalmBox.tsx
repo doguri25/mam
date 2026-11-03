@@ -28,7 +28,7 @@ function Rhythm({ mode, look, emotion, lang, onDone, onStop }: Common & { mode: 
   const beat = finished ? undefined : ms;
   return (
     <div className="flex flex-col items-center gap-4 py-2 text-center">
-      <BuddyLazy emotion={emotion} look={look} breath={mode === "breathe" ? beat : undefined} squeeze={mode === "squeeze" ? beat : undefined} size={260} className="size-56 sm:size-[260px]" />
+      <BuddyLazy emotion={emotion} look={look} breath={mode === "breathe" ? beat : undefined} squeeze={mode === "squeeze" ? beat : undefined} size={260} className="size-56 sm:size-[260px]" scene />
       <p className="font-display text-3xl text-leaf" aria-live="polite">{line}</p>
       {!finished && <p className="text-soft">{t(lang, "breatheCount", { n: Math.floor(ms / BREATH_MS) + 1 })}</p>}
       <button onClick={finished ? onDone : onStop} className={finished ? "btn-main px-8" : "btn-sub"}>{finished ? t(lang, "nextBtn") : t(lang, "breatheNo")}</button>
@@ -58,7 +58,7 @@ function Senses({ look, emotion, lang, onDone, onStop }: Common & { onDone: () =
           <button onClick={onStop} className="btn-sub">{t(lang, "breatheNo")}</button>
         </div>
       </div>
-      <BuddyLazy emotion={emotion} look={look} cheer={i} size={200} className="mx-auto size-40 sm:size-[200px]" />
+      <BuddyLazy emotion={emotion} look={look} cheer={i} size={200} className="mx-auto size-40 sm:size-[200px]" scene />
     </div>
   );
 }
@@ -137,7 +137,7 @@ export default function CalmBox({ look, emotion, lang, onFelt, onClose }: Common
   if (phase === "felt" || phase === "thanks")
     return (
       <div className="flex flex-col items-center gap-4 py-4 text-center">
-        <BuddyLazy emotion={emotion} look={look} cheer={cheer} size={180} className="size-40 sm:size-[180px]" />
+        <BuddyLazy emotion={emotion} look={look} cheer={cheer} size={180} className="size-40 sm:size-[180px]" scene />
         <h2 className="font-display text-3xl">{phase === "felt" ? tt("feltAsk") : tt("feltThanks")}</h2>
         {phase === "felt" ? (
           <div className="grid w-full max-w-xl gap-2 sm:grid-cols-3">

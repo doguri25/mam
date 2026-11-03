@@ -96,7 +96,7 @@ export default function WeekPage() {
             </>
           )}
         </div>
-        <BuddyLazy emotion={last} look={me.look} cheer={cheer} size={220} className="mx-auto size-40 md:size-[220px]" />
+        <BuddyLazy emotion={last} look={me.look} cheer={cheer} size={220} className="mx-auto size-40 md:size-[220px]" scene />
       </section>
     </StudentFrame>
   );

@@ -45,7 +45,7 @@ export default function GamePage() {
     <StudentFrame title={tt("tileGame")} lang={lang} wide>
       {done ? (
         <section className="card flex flex-col items-center gap-4 text-center">
-          <BuddyLazy emotion="뿌듯해요" look={me.look} cheer={cheer} size={200} className="size-40 sm:size-[200px]" />
+          <BuddyLazy emotion="뿌듯해요" look={me.look} cheer={cheer} size={200} className="size-40 sm:size-[200px]" scene />
           <h2 className="font-display text-3xl">{tt("gameEnd")}</h2>
           <ul className="grid w-full max-w-2xl gap-2 text-left sm:grid-cols-2">
             {qs.map((x) => (
@@ -99,7 +99,7 @@ export default function GamePage() {
               ) : null}
             </div>
           </div>
-          <BuddyLazy emotion={right ? q.answer && parentOf(q.answer) : undefined} look={me.look} cheer={cheer} size={200} className="mx-auto size-36 md:size-[200px]" />
+          <BuddyLazy emotion={right ? q.answer && parentOf(q.answer) : undefined} look={me.look} cheer={cheer} size={200} className="mx-auto size-36 md:size-[200px]" scene />
         </section>
       )}
     </StudentFrame>
