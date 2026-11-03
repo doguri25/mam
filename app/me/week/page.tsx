@@ -28,7 +28,7 @@ export default function WeekPage() {
 
   if (!me || !week) return <Loading />;
   const days = Array.from({ length: 7 }, (_, i) => addDays(week.weekStart, i)).filter((d) => d <= week.today);
-  const last = week.records.at(-1)?.emotion;
+  const last = week.records.at(-1)?.word || week.records.at(-1)?.emotion;
 
   async function send() {
     setBusy(true);

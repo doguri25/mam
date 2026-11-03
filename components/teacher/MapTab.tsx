@@ -93,7 +93,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
                 >
                   <span className="flex justify-between gap-1 text-soft">
                     <span className="flex min-w-0 items-center gap-1">
-                      <BuddyFace look={data.looks[s.no]} emotion={(pm ?? am)?.emotion} size={22} className="shrink-0" />
+                      <BuddyFace look={data.looks[s.no]} emotion={(pm ?? am)?.word || (pm ?? am)?.emotion} size={22} className="shrink-0" />
                       <span className="truncate">{s.no} <b className="text-ink">{nameOf(s.no)}</b></span>
                     </span>
                     {(flagged || alerted) && <span aria-label="살펴보기 신호">{alerted ? "🔴" : "🟡"}</span>}

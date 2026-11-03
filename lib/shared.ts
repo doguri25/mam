@@ -150,9 +150,9 @@ export const PROVIDERS = {
 export type Provider = keyof typeof PROVIDERS;
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as Provider[];
 
-// 마음 친구 꾸미기: 몸 색(빈 값이면 감정 색을 따라감) · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름(학생 화면에만 보임)
+// 마음 친구 꾸미기: 몸 색(빈 값이면 감정 색을 따라감) · 모양(9가지) · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름(학생 화면에만 보임)
 export const BUDDY_COLORS = ["", "#f6c445", "#ff9eb0", "#ffa45c", "#7cc88f", "#5cc8c0", "#7fb5f0", "#b79cf0", "#c9b8a6"] as const;
-export const BUDDY_SHAPES = ["round", "squish", "bean"] as const;
+export const BUDDY_SHAPES = ["round", "squish", "bean", "drop", "cloud", "star", "mochi", "heart", "egg"] as const;
 export const BUDDY_EYES = ["dot", "sparkle", "big"] as const;
 export const BUDDY_CHEEKS = ["none", "blush", "freckle"] as const;
 export const BUDDY_PATTERNS = ["none", "spots", "belly"] as const;

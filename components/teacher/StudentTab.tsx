@@ -78,7 +78,7 @@ function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: numbe
   return (
     <div className="space-y-4">
       <section className="card flex flex-wrap items-center gap-4">
-        <BuddyFace look={data.looks[no]} emotion={rs.at(-1)?.emotion} size={56} />
+        <BuddyFace look={data.looks[no]} emotion={rs.at(-1)?.word || rs.at(-1)?.emotion} size={56} />
         <div className="min-w-[12rem] flex-1">
           <h2 className="font-display text-2xl">{no}번 {nameOf(no)} · 누적 기록</h2>
           <p className="text-sm text-soft">{first ? `${label(first)} ~ ${label(last!)} · ${days}일 기록` : "아직 마음 기록이 없어요."}</p>

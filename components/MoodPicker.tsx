@@ -1,5 +1,6 @@
 "use client";
 // 감정 그림카드 12장 → (더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개. 처음엔 아무것도 골라 두지 않는다.
+// stepwise: 한 화면에 질문 하나씩, 누르면 바로 다음으로(초등학생용). 아니면 세 가지를 한 화면에(말로 한 뒤 고쳐 볼 때).
 import { useState } from "react";
 import { EmotionArt, EMOTION_COLOR, ReasonArt } from "./Art";
 import { t, w, type Lang } from "@/lib/i18n";
@@ -13,7 +14,122 @@ export interface Pick {
   word?: string;
 }
 
-export default function MoodPicker({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang }) {
+export default function MoodPicker({ value, onChange, vocab, lang, stepwise, onDone, onBack }: {
+  value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; stepwise?: boolean; onDone?: (v: Pick) => void; onBack?: () => void;
+}) {
+  if (stepwise) return <Steps value={value} onChange={onChange} vocab={vocab} lang={lang} onDone={onDone} onBack={onBack} />;
+  return <All value={value} onChange={onChange} vocab={vocab} lang={lang} />;
+}
+
+// 한 화면에 하나씩: ① 감정 카드 → (더 꼭 맞는 말) → ② 마음 크기 → ③ 까닭. 누르면 잠깐 뒤 다음 화면.
+function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; onDone?: (v: Pick) => void; onBack?: () => void }) {
+  const [stage, setStage] = useState(0);
+  const color = value.emotion ? EMOTION_COLOR[value.emotion] : "#f2b705";
+  const say = (ko: string) => speak(w(lang, ko), false, lang);
+  const go = (n: number, delay = 260) => setTimeout(() => setStage(n), delay);
+  const dots = [0, 1, 2, 3];
+  const back = () => (stage === 0 ? onBack?.() : setStage(stage === 2 && !NUANCE[value.emotion ?? ""] ? 0 : stage - 1));
+  const head = (title: string) => (
+    <div className="mb-4 flex items-center gap-3">
+      <button type="button" onClick={back} className="btn-sub min-h-12 shrink-0 px-4 text-xl" aria-label={t(lang, "goBack")}>←</button>
+      <h3 className="min-w-0 flex-1 font-display text-2xl leading-snug">{title}</h3>
+      <span className="flex shrink-0 gap-1.5" aria-label={`${stage + 1}/4`}>
+        {dots.map((d) => <i key={d} className={`size-2.5 rounded-full ${d <= stage ? "" : "bg-line"}`} style={d <= stage ? { background: color } : undefined} />)}
+      </span>
+    </div>
+  );
+
+  if (stage === 0)
+    return (
+      <section>
+        {head(t(lang, "q1").replace(/^①\s*/, ""))}
+        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
+          {EMOTIONS.map((e) => {
+            const on = value.emotion === e.name;
+            return (
+              <button key={e.name} type="button" aria-pressed={on}
+                onClick={() => { onChange({ ...value, emotion: e.name, word: undefined }); say(e.name); go(NUANCE[e.name] ? 1 : 2); }}
+                className={`chip flex min-h-28 flex-col items-center justify-center gap-1.5 py-3 ${on ? "chip-on" : ""}`}
+                style={on ? { borderColor: EMOTION_COLOR[e.name], background: `${EMOTION_COLOR[e.name]}1f` } : undefined}>
+                <EmotionArt name={e.name} size={64} />
+                <span className="text-base font-bold">{w(lang, e.name)}</span>
+                {lang !== "ko" && <span className="text-[11px] text-soft">{e.name}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+
+  if (stage === 1 && value.emotion)
+    return (
+      <section>
+        {head(t(lang, "nuance"))}
+        <p className="mb-4 flex items-center gap-2 text-soft"><EmotionArt name={value.emotion} size={36} /> {w(lang, value.emotion)} · {t(lang, "nuanceSkip")}</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(NUANCE[value.emotion] ?? []).map((word) => {
+            const on = value.word === word;
+            return (
+              <button key={word} type="button" aria-pressed={on}
+                onClick={() => { onChange({ ...value, word }); say(word); go(2, 650); }}
+                className="min-h-20 rounded-3xl border-[3px] px-4 py-4 font-display text-2xl transition active:scale-[0.97]"
+                style={{ borderColor: color, background: on ? color : "#fff", color: on ? "#fff" : undefined }}>
+                {w(lang, word)}
+                {lang !== "ko" && <span className="block text-xs font-normal opacity-80">{word}</span>}
+                {vocab.includes(word) && <span className="ml-1 text-base" title={t(lang, "learned")}>⭐</span>}
+              </button>
+            );
+          })}
+        </div>
+        <button type="button" onClick={() => { onChange({ ...value, word: undefined }); setStage(2); }} className="btn-sub mt-4 w-full min-h-14 text-lg">
+          {t(lang, "nuanceKeep")} →
+        </button>
+      </section>
+    );
+
+  if (stage === 2)
+    return (
+      <section>
+        {head(t(lang, "q2").replace(/^②\s*/, ""))}
+        <div className="grid grid-cols-5 gap-2">
+          {INTENSITY.map((label, i) => {
+            const on = value.intensity === i + 1;
+            return (
+              <button key={label} type="button" aria-pressed={on} aria-label={`${i + 1} ${w(lang, label)}`}
+                onClick={() => { onChange({ ...value, intensity: i + 1 }); say(label); go(3); }}
+                className={`chip flex min-h-36 flex-col items-center justify-end gap-2 pb-3 pt-4 ${on ? "chip-on" : ""}`}>
+                <span className="flex h-20 items-end gap-1">
+                  {[0, 1, 2, 3, 4].map((k) => <span key={k} className="w-2 rounded-full" style={{ height: 12 + k * 16, background: k <= i ? color : "#e8e2d6" }} />)}
+                </span>
+                <span className="text-sm font-bold sm:text-base">{w(lang, label)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+
+  return (
+    <section>
+      {head(t(lang, "q3").replace(/^③\s*/, ""))}
+      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-5">
+        {REASONS.map((r) => {
+          const on = value.reason === r.name;
+          return (
+            <button key={r.name} type="button" aria-pressed={on}
+              onClick={() => { const v = { ...value, reason: r.name }; onChange(v); say(r.name); setTimeout(() => onDone?.(v), 260); }}
+              className={`chip flex min-h-32 flex-col items-center justify-center gap-2 py-3 ${on ? "chip-on" : ""}`}>
+              <ReasonArt name={r.name} size={58} />
+              <span className="text-center text-base font-bold">{w(lang, r.name)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function All({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang }) {
   const [help, setHelp] = useState(false);
   const color = value.emotion ? EMOTION_COLOR[value.emotion] : "#f2b705";
   const say = (ko: string) => speak(w(lang, ko), false, lang);

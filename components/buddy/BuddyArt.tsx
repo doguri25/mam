@@ -5,11 +5,10 @@
 import { memo, useId, type ReactNode } from "react";
 import { GROUPS, type BuddyLook } from "@/lib/shared";
 import type { BrowKind, EyeKind, Expr, Fx, MouthKind, Pose } from "./expr";
-import { INK, SCENE, blob, bottomOf, cloudBumps, mix, paints } from "./paint";
+import { INK, SCENE, cloudBumps, mix, paints, shapeGeo, type Geo } from "./paint";
 import type { Group } from "@/lib/shared";
 
 export type Detail = "full" | "small" | "tiny";
-const BODY = { round: [60, 57], squish: [68, 49], bean: [51, 64] } as const;
 const MOUTH_DARK = "#6e2b2b";
 const TONGUE = "#ee8a86";
 const WATER = "#c4e8ff";
@@ -34,8 +33,8 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
   const lw = detail === "tiny" ? 4.6 : detail === "small" ? 3 : 2;
   const moodColor = GROUPS[mood].color;
   const pal = paints(look.color || moodColor);
-  const [rx, ry] = BODY[look.shape];
-  const bottom = bottomOf(ry);
+  const geo = shapeGeo(look.shape);
+  const { rx } = geo;
   const S = scene ? 0.74 : 1; // 장면 속에서는 조금 작게
   const G = scene ? 176 : 183; // 바닥선
   const fx = full ? pose.fx ?? expr.fx : detail === "small" ? (pose.fx ?? expr.fx).filter((f) => f === "tears" || f === "vein" || f === "sweat") : [];
@@ -67,7 +66,7 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
           <stop offset="1" stopColor={moodColor} stopOpacity="0" />
         </radialGradient>
         <clipPath id={`${id}body`}>
-          <path d={blob(rx, ry)} />
+          <path d={geo.d} />
         </clipPath>
         {full && (
           <>
@@ -91,8 +90,8 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
         {/* 바닥 그림자 */}
         <ellipse cx={n2(pose.x)} cy="2" rx={n2(rx * 0.86 * pose.shadow * pose.sx)} ry={n2(7 * pose.shadow)} fill={scene ? "#2d3b22" : INK} opacity={scene ? 0.3 : 0.16} filter={`url(#${id}soft)`} />
         <g filter={full ? `url(#${id}boil)` : undefined}>
-          <Character id={id} look={look} pal={pal} rx={rx} ry={ry} bottom={bottom} expr={expr} pose={pose} t={t} lw={lw} detail={detail} glow={!!look.color} fx={fx} />
-          {fx.length > 0 && <Effects fx={fx} pose={pose} rx={rx} ry={ry} bottom={bottom} t={t} lw={lw} />}
+          <Character id={id} look={look} pal={pal} geo={geo} expr={expr} pose={pose} t={t} lw={lw} detail={detail} glow={!!look.color} fx={fx} />
+          {fx.length > 0 && <Effects fx={fx} pose={pose} geo={geo} t={t} lw={lw} />}
         </g>
       </g>
     </svg>
@@ -114,17 +113,17 @@ const STILL = { ...LAYER, willChange: "transform" } as const;
 
 type Pal = ReturnType<typeof paints>;
 interface CharProps {
-  id: string; look: BuddyLook; pal: Pal; rx: number; ry: number; bottom: number; expr: Expr; pose: Pose; t: number; lw: number; detail: Detail; glow: boolean; fx: Fx[];
+  id: string; look: BuddyLook; pal: Pal; geo: Geo; expr: Expr; pose: Pose; t: number; lw: number; detail: Detail; glow: boolean; fx: Fx[];
 }
 
-function Character({ id, look, pal, rx, ry, bottom, expr, pose, t, lw, detail, glow, fx }: CharProps) {
-  const body = blob(rx, ry);
+function Character({ id, look, pal, geo, expr, pose, t, lw, detail, glow, fx }: CharProps) {
+  const { rx, ry, bottom, d: body } = geo;
   const full = detail === "full";
   const tiny = detail === "tiny";
   const eye = pose.eye ?? expr.eye;
   const sc = Math.min(rx, ry) / 57;
   const s = (look.eyes === "dot" ? 8 : look.eyes === "big" ? 11.4 : 10) * sc * (tiny ? 1.15 : 1);
-  const ex = rx * (look.shape === "squish" ? 0.31 : look.shape === "bean" ? 0.37 : 0.34);
+  const ex = rx * geo.eye;
   const ey = -ry * 0.08;
   const [lx, ly] = pose.look;
   const fX = lx * rx * 0.12, fY = ly * ry * 0.07; // 얼굴이 시선 쪽으로(고개 돌리는 2D 요령)
@@ -134,11 +133,12 @@ function Character({ id, look, pal, rx, ry, bottom, expr, pose, t, lw, detail, g
   const blush = pose.blush ?? expr.blush;
   const tint = expr.tint;
   const hasLimbs = look.limbs !== "none";
+  const armX = geo.half(ry * 0.12) * 0.94;
 
   return (
     <g transform={`translate(${n2(pose.x)} ${n2(pose.y)}) rotate(${n2(pose.rot)}) scale(${n2(pose.sx)} ${n2(pose.sy)}) translate(0 ${n2(-bottom)})`}>
       {glow && <ellipse cx="0" cy="0" rx={rx * 1.42} ry={ry * 1.42} fill={`url(#${id}aura)`} />}
-      <BackAcc acc={look.acc} pal={pal} rx={rx} ry={ry} t={t} lw={lw} />
+      <BackAcc acc={look.acc} pal={pal} geo={geo} t={t} lw={lw} />
       {look.limbs === "both" && [-1, 1].map((d) => (
         <g key={d} transform={`translate(${n2(d * rx * 0.42)} ${n2(bottom - 2 - (d < 0 ? pose.footL : pose.footR))})`}>
           <ellipse cx="0" cy="0" rx={16 * sc} ry={9 * sc} fill={pal.shade} stroke={INK} strokeWidth={lw} />
@@ -150,7 +150,7 @@ function Character({ id, look, pal, rx, ry, bottom, expr, pose, t, lw, detail, g
       <path d={body} fill={INK} transform={`translate(${n2(lw * 0.45)} ${n2(lw * 0.7)})`} />
       <path d={body} fill={pal.shade} />
       <g clipPath={`url(#${id}body)`}>
-        <path d={blob(rx * 0.93, ry * 0.9)} transform={`translate(${n2(-rx * 0.17)} ${n2(-ry * 0.19)})`} fill={`url(#${id}lit)`} />
+        <path d={geo.lit} transform={`translate(${n2(-rx * 0.17)} ${n2(-ry * 0.19)})`} fill={`url(#${id}lit)`} />
         {full && <path d={`M${n2(rx * 0.62)},${n2(-ry * 0.62)} Q${n2(rx * 0.92)},${n2(ry * 0.1)} ${n2(rx * 0.3)},${n2(ry * 0.68)}`} fill="none" stroke={pal.deep} strokeWidth="1.6" opacity="0.18" />}
         <ellipse cx={rx * 0.12} cy={ry * 1.0} rx={rx * 0.72} ry={ry * 0.22} fill={pal.bounce} opacity="0.45" />
         {look.pattern === "spots" && ([[-0.62, -0.42, 0.2], [0.66, -0.3, 0.16], [-0.5, 0.48, 0.15], [0.55, 0.5, 0.18], [0.05, -0.82, 0.13]] as const).map(([x, y, r], i) => (
@@ -193,8 +193,12 @@ function Character({ id, look, pal, rx, ry, bottom, expr, pose, t, lw, detail, g
       {/* 감정 빛: 화남은 위쪽이 붉게, 무서움은 파리하게(만화의 그늘 선), 슬픔은 푸르스름 */}
       {tint && (
         <g clipPath={`url(#${id}body)`}>
-          <rect x={-rx} y={-ry} width={rx * 2} height={ry * 1.1} fill={tint === "hot" ? "#ff5a3c" : tint === "warm" ? "#ffd27a" : tint === "pale" ? "#6f7fd6" : "#7aa0d8"}
-            opacity={tint === "hot" ? 0.22 : tint === "warm" ? 0.1 : tint === "pale" ? 0.2 : 0.12} style={{ mixBlendMode: "multiply" }} />
+          {tint === "blush" ? (
+            <ellipse cx="0" cy={ry * 0.12} rx={rx * 0.95} ry={ry * 0.42} fill="#ff6f8a" opacity="0.28" style={{ mixBlendMode: "multiply" }} />
+          ) : (
+            <rect x={-rx} y={-ry} width={rx * 2} height={ry * 1.1} fill={tint === "hot" ? "#ff5a3c" : tint === "warm" ? "#ffd27a" : tint === "pale" ? "#6f7fd6" : "#7aa0d8"}
+              opacity={tint === "hot" ? (fx.includes("boilUp") ? 0.32 : 0.22) : tint === "warm" ? 0.1 : tint === "pale" ? 0.2 : 0.12} style={{ mixBlendMode: "multiply" }} />
+          )}
           {fx.includes("gloom") && [-3, -1.5, 0, 1.5, 3].map((i) => (
             <path key={i} d={`M${n2(i * rx * 0.13)},${n2(-ry * 0.98)} L${n2(i * rx * 0.13)},${n2(-ry * (0.55 - Math.abs(i) * 0.04))}`} stroke="#4f4f9a" strokeWidth={lw * 0.7} opacity="0.55" />
           ))}
@@ -217,13 +221,13 @@ function Character({ id, look, pal, rx, ry, bottom, expr, pose, t, lw, detail, g
       </g>
       {fx.includes("vein") && <Vein x={rx * 0.5} y={-ry * 0.62} t={t} lw={lw} />}
 
-      <FrontAcc acc={look.acc} rx={rx} ry={ry} t={t} lw={lw} sc={sc} tiny={tiny} />
+      <FrontAcc acc={look.acc} geo={geo} t={t} lw={lw} sc={sc} tiny={tiny} />
 
       {hasLimbs && [-1, 1].map((side) => {
         const a = side < 0 ? pose.armL : pose.armR;
-        const fist = arms === "fists" || arms === "cover";
+        const fist = arms === "fists" || arms === "cover" || arms === "hips" || arms === "crossed";
         return (
-          <g key={side} transform={`translate(${n2(side * rx * 0.9)} ${n2(ry * 0.12)}) scale(${side} 1) rotate(${n2(-a)})`}>
+          <g key={side} transform={`translate(${n2(side * armX)} ${n2(ry * 0.12)}) scale(${side} 1) rotate(${n2(-a)})`}>
             <g transform="rotate(38)">
               <path d={`M${2 * sc},${-7 * sc} Q${16 * sc},${-11 * sc} ${(fist ? 19 : 22) * sc},${-1 * sc} Q${(fist ? 20 : 23) * sc},${9 * sc} ${10 * sc},${(fist ? 9 : 8) * sc} Q${1 * sc},${7 * sc} ${2 * sc},${-7 * sc}Z`} fill={`url(#${id}limb)`} stroke={INK} strokeWidth={lw * 0.95} strokeLinejoin="round" />
               {!tiny && <path d={`M${8 * sc},${-6 * sc} Q${14 * sc},${-7.5 * sc} ${18 * sc},${-4 * sc}`} fill="none" stroke={pal.hi} strokeWidth={1.4 * sc} strokeLinecap="round" opacity="0.7" />}
@@ -253,17 +257,48 @@ function Eye({ kind, style, s, side, blink, lx, ly, t, lw, skin, detail }: {
     );
   if (kind === "closed" || blink >= 0.75) return <path d={`M${-s * 0.85},${s * 0.12} Q0,${s * 0.42} ${s * 0.92},${s * 0.06}`} {...line} />;
   if (kind === "squeeze") return <path d={`M${s * 0.85},${-s * 0.75} L${-s * 0.7},0 L${s * 0.85},${s * 0.75}`} {...line} strokeWidth={lw * 1.3} />;
+  if (kind === "flat") return <path d={`M${-s * 0.85},${s * 0.05} L${s * 0.9},${s * 0.05}`} {...line} strokeWidth={lw * 1.4} />;
+  // 하트 눈(설렘)
+  if (kind === "heart") {
+    const k = s * (1.05 + 0.08 * Math.abs(Math.sin(t * 8)));
+    return (
+      <g>
+        <path d={`M0,${k * 0.75} C${-k * 1.25},${-k * 0.05} ${-k * 0.65},${-k * 0.95} 0,${-k * 0.35} C${k * 0.65},${-k * 0.95} ${k * 1.25},${-k * 0.05} 0,${k * 0.75}Z`} fill="#e8456b" stroke={INK} strokeWidth={lw * 0.8} strokeLinejoin="round" />
+        {detail !== "tiny" && <ellipse cx={-k * 0.36 * side} cy={-k * 0.32} rx={k * 0.18} ry={k * 0.13} fill="#ffffff" opacity="0.9" />}
+      </g>
+    );
+  }
+  // 멍한 눈: 흰자에 작은 점, 빛 없음
+  if (kind === "blank")
+    return (
+      <g>
+        <ellipse cx="0" cy="0" rx={s * 0.9} ry={s * 1.05} fill="#fffaf1" stroke={INK} strokeWidth={lw * 0.8} />
+        <circle cx={lx * s * 0.2} cy={ly * s * 0.2} r={s * 0.17} fill={INK} />
+      </g>
+    );
+  // 깜짝: 동그랗게 튀어나온 흰 눈, 아주 작은 눈동자
+  if (kind === "pop") {
+    const r = s * (1.25 + 0.06 * Math.sin(t * 29));
+    return (
+      <g>
+        <circle cx="0" cy={-s * 0.1} r={r} fill="#fffaf1" stroke={INK} strokeWidth={lw} />
+        <circle cx={lx * s * 0.2} cy={-s * 0.1 + ly * s * 0.2} r={s * 0.2} fill={INK} />
+      </g>
+    );
+  }
 
   const wide = kind === "wide";
-  const sclera = style === "big" || wide;
+  const moved = kind === "moved";
+  const sclera = style === "big" || wide || moved;
   const pr = wide ? s * 0.33 : style === "dot" ? s * 0.55 : s * 0.63;
   const pry = wide ? s * 0.36 : style === "dot" ? s * 0.62 : s * 0.86;
   const shaky = wide ? Math.sin(t * 31) * s * 0.06 : 0;
   const px = lx * s * 0.28 + shaky, py = ly * s * 0.25 + (kind === "down" ? s * 0.3 : 0);
   const half = blink >= 0.25;
   const lid = half ? ([0.05, 0.05] as [number, number]) : LIDS[kind];
-  const wet = kind === "teary" || kind === "sad" || kind === "frustrated";
+  const wet = kind === "teary" || kind === "sad" || kind === "frustrated" || moved;
   const shine = style !== "dot" || kind === "star" || wet;
+  const smiling = kind === "smiling";
   const cx = px - pr * 0.3 * side; // 빛은 늘 왼쪽 위에서
   return (
     <g>
@@ -283,6 +318,14 @@ function Eye({ kind, style, s, side, blink, lx, ly, t, lw, skin, detail }: {
       {shine && detail === "full" && <circle cx={px + pr * 0.32 * side} cy={py + pry * 0.42} r={pr * 0.17} fill="#ffffff" opacity="0.9" />}
       {wet && detail === "full" && <circle cx={px + Math.sin(t * 7) * pr * 0.2} cy={py + pry * 0.1} r={pr * 0.14} fill="#ffffff" opacity="0.85" />}
       {kind === "star" && detail === "full" && <path d={star4(s * 1.15, -s * 1.05, s * 0.32 * (0.7 + 0.3 * Math.abs(Math.sin(t * 5))))} fill="#fff3b0" stroke={INK} strokeWidth={lw * 0.4} />}
+      {moved && detail !== "tiny" && <path d={star4(px + pr * 0.25 * side, py + pry * 0.15, pr * 0.32 * (0.6 + 0.4 * Math.abs(Math.sin(t * 6))))} fill="#ffffff" />}
+      {/* 웃는 눈: 아래 눈꺼풀이 둥글게 올라와 눈웃음 */}
+      {smiling && (
+        <>
+          <path d={`M${-s * 1.3},${s * 1.6} L${s * 1.35},${s * 1.6} L${s * 1.35},${s * 0.42} Q0,${-s * 0.18} ${-s * 1.3},${s * 0.42}Z`} fill={skin} />
+          <path d={`M${-s * 0.85},${s * 0.4} Q0,${-s * 0.05} ${s * 0.9},${s * 0.4}`} fill="none" stroke={INK} strokeWidth={lw * 1.1} strokeLinecap="round" />
+        </>
+      )}
       {lid && (
         <>
           <path d={`M${-s * 1.3},${-s * 1.6} L${s * 1.35},${-s * 1.6} L${s * 1.35},${lid[1] * s} L${-s * 1.3},${lid[0] * s}Z`} fill={skin} />
@@ -354,6 +397,28 @@ function Mouth({ kind, m, open, t, lw }: { kind: MouthKind; m: number; open: num
           <path d={`M${-m * 0.78},${m * 0.17} L${m * 0.78},${m * 0.17} M${-m * 0.35},${-m * 0.12} V${m * 0.46} M0,${-m * 0.13} V${m * 0.47} M${m * 0.35},${-m * 0.12} V${m * 0.46}`} fill="none" stroke={INK} strokeWidth={lw * 0.6} />
         </g>
       );
+    case "pant": // 헉헉: 벌린 입에 혀
+      return (
+        <g>
+          <path d={`M${-m * 0.55},${-m * 0.05} Q0,${m * (0.9 + Math.abs(Math.sin(t * 6)) * 0.15)} ${m * 0.55},${-m * 0.05} Q0,${m * 0.1} ${-m * 0.55},${-m * 0.05}Z`} {...fillD} />
+          <path d={`M${-m * 0.22},${m * 0.35} Q${-m * 0.24},${m * 0.95} 0,${m * 0.95} Q${m * 0.24},${m * 0.95} ${m * 0.22},${m * 0.35}Z`} fill={TONGUE} stroke={INK} strokeWidth={lw * 0.6} />
+        </g>
+      );
+    case "nervous": // 긴장해 꾹 다문 지그재그 입
+      return <path d={`M${-m * 0.7},${m * 0.15} l${m * 0.23},${-m * 0.18} l${m * 0.23},${m * 0.18} l${m * 0.23},${-m * 0.18} l${m * 0.23},${m * 0.18} l${m * 0.23},${-m * 0.18}`} {...line} />;
+    case "wail": { // 엉엉: 크게 벌린 우는 입
+      const w2 = 1 + Math.abs(Math.sin(t * 5)) * 0.12;
+      return (
+        <g>
+          <path d={`M${-m * 0.75},${m * 0.75 * w2} Q${-m * 0.65},${-m * 0.25} 0,${-m * 0.2} Q${m * 0.65},${-m * 0.25} ${m * 0.75},${m * 0.75 * w2} Q0,${m * 0.55} ${-m * 0.75},${m * 0.75 * w2}Z`} {...fillD} />
+          <path d={`M${-m * 0.4},${m * 0.62} Q0,${m * 0.4} ${m * 0.4},${m * 0.62}`} fill={TONGUE} />
+        </g>
+      );
+    }
+    case "quiver": { // 감동해 떨리는 웃음
+      const q = Math.sin(t * 14) * m * 0.06;
+      return <path d={`M${-m * 0.75},${-m * 0.05} Q${-m * 0.38},${m * 0.42 + q} 0,${m * 0.22} Q${m * 0.38},${m * 0.42 - q} ${m * 0.75},${-m * 0.05}`} {...line} />;
+    }
     case "yawn":
       if (open < 0.08) return <path d={`M${-m * 0.38},${m * 0.12} Q0,${m * 0.3} ${m * 0.38},${m * 0.12}`} {...line} />;
       return (
@@ -404,13 +469,16 @@ function Vein({ x, y, t, lw }: { x: number; y: number; t: number; lw: number }) 
 }
 
 // ── 꾸미개 ──
-function BackAcc({ acc, pal, rx, ry, t, lw }: { acc: BuddyLook["acc"]; pal: Pal; rx: number; ry: number; t: number; lw: number }) {
+function BackAcc({ acc, pal, geo, t, lw }: { acc: BuddyLook["acc"]; pal: Pal; geo: Geo; t: number; lw: number }) {
+  const { rx, ry, top } = geo;
   if (acc === "cat") {
     const tw = (t % 4.3) < 0.25 ? -8 : 0; // 가끔 귀를 쫑긋
+    const y = top + ry * 0.26;
+    const x = Math.min(rx * 0.5, geo.half(y) * 0.78);
     return (
       <g>
         {[-1, 1].map((d) => (
-          <g key={d} transform={`translate(${d * rx * 0.5} ${-ry * 0.74}) scale(${d} 1) rotate(${18 + (d > 0 ? tw : 0)})`}>
+          <g key={d} transform={`translate(${n2(d * x)} ${n2(y)}) scale(${d} 1) rotate(${18 + (d > 0 ? tw : 0)})`}>
             <path d="M-15,8 Q-6,-26 2,-30 Q10,-22 15,8Z" fill={pal.base} stroke={INK} strokeWidth={lw} strokeLinejoin="round" />
             <path d="M-8,4 Q-3,-16 2,-20 Q7,-13 9,4Z" fill="#ffb8c6" />
           </g>
@@ -420,10 +488,12 @@ function BackAcc({ acc, pal, rx, ry, t, lw }: { acc: BuddyLook["acc"]; pal: Pal;
   }
   if (acc === "bunny") {
     const flop = Math.sin(t * 1.3) * 4;
+    const y = top + ry * 0.2;
+    const x = Math.min(rx * 0.3, geo.half(y) * 0.6);
     return (
       <g>
         {[-1, 1].map((d) => (
-          <g key={d} transform={`translate(${d * rx * 0.3} ${-ry * 0.8}) rotate(${d * 12 + (d > 0 ? 18 + flop : 0)})`}>
+          <g key={d} transform={`translate(${n2(d * x)} ${n2(y)}) rotate(${d * 12 + (d > 0 ? 18 + flop : 0)})`}>
             <path d="M-10,6 Q-14,-30 -2,-48 Q12,-30 9,6Z" fill={pal.base} stroke={INK} strokeWidth={lw} strokeLinejoin="round" />
             <path d="M-4,0 Q-7,-26 -1,-38 Q6,-26 4,0Z" fill="#ffb8c6" />
           </g>
@@ -434,9 +504,10 @@ function BackAcc({ acc, pal, rx, ry, t, lw }: { acc: BuddyLook["acc"]; pal: Pal;
   return null;
 }
 
-function FrontAcc({ acc, rx, ry, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; rx: number; ry: number; t: number; lw: number; sc: number; tiny: boolean }) {
+function FrontAcc({ acc, geo, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; geo: Geo; t: number; lw: number; sc: number; tiny: boolean }) {
+  const { rx, ry } = geo;
   const st = { stroke: INK, strokeWidth: lw, strokeLinejoin: "round" as const };
-  const top = -ry * 0.98;
+  const top = geo.top + 1;
   if (acc === "sprout") {
     const sw = Math.sin(t * 1.8) * 4;
     return (
@@ -453,7 +524,7 @@ function FrontAcc({ acc, rx, ry, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; rx:
   }
   if (acc === "ribbon")
     return (
-      <g transform={`translate(${rx * 0.56} ${-ry * 0.78}) rotate(${-22 + Math.sin(t * 2) * 3})`}>
+      <g transform={`translate(${n2(Math.min(rx * 0.56, geo.half(top + ry * 0.24) * 0.85))} ${n2(top + ry * 0.24)}) rotate(${-22 + Math.sin(t * 2) * 3})`}>
         {[-1, 1].map((d) => (
           <g key={d} transform={`scale(${d} 1)`}>
             <path d="M0,0 Q10,-15 20,-9 Q24,0 20,9 Q10,15 0,0Z" fill="#ff7aa0" {...st} />
@@ -486,20 +557,22 @@ function FrontAcc({ acc, rx, ry, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; rx:
     );
   if (acc === "flower")
     return (
-      <g transform={`translate(${-rx * 0.56} ${-ry * 0.74}) rotate(${Math.sin(t * 1.6) * 6})`}>
+      <g transform={`translate(${n2(-Math.min(rx * 0.56, geo.half(top + ry * 0.28) * 0.85))} ${n2(top + ry * 0.28)}) rotate(${Math.sin(t * 1.6) * 6})`}>
         {[0, 72, 144, 216, 288].map((a) => (
           <ellipse key={a} cx="0" cy="-8.5" rx="6" ry="8.5" fill="#ff9dbb" {...st} strokeWidth={lw * 0.8} transform={`rotate(${a})`} />
         ))}
         <circle r="5.5" fill="#f6c445" {...st} strokeWidth={lw * 0.8} />
       </g>
     );
+  const hx = geo.half(-ry * 0.2) * 1.02;
   if (acc === "headphones")
     return (
       <g>
-        <path d={`M${-rx * 0.95},${-ry * 0.1} Q${-rx * 1.0},${-ry * 1.2} 0,${-ry * 1.16} Q${rx * 1.0},${-ry * 1.2} ${rx * 0.95},${-ry * 0.1}`} fill="none" stroke={INK} strokeWidth={lw * 3.2} strokeLinecap="round" />
-        <path d={`M${-rx * 0.95},${-ry * 0.1} Q${-rx * 1.0},${-ry * 1.2} 0,${-ry * 1.16} Q${rx * 1.0},${-ry * 1.2} ${rx * 0.95},${-ry * 0.1}`} fill="none" stroke="#6b7480" strokeWidth={lw * 1.8} strokeLinecap="round" />
+        {[INK, "#6b7480"].map((c, i) => (
+          <path key={c} d={`M${-hx},${-ry * 0.1} Q${-hx * 1.05},${top - ry * 0.2} 0,${top - ry * 0.16} Q${hx * 1.05},${top - ry * 0.2} ${hx},${-ry * 0.1}`} fill="none" stroke={c} strokeWidth={lw * (i ? 1.8 : 3.2)} strokeLinecap="round" />
+        ))}
         {[-1, 1].map((d) => (
-          <rect key={d} x={d * rx * 0.98 - 9 * sc} y={-ry * 0.32} width={18 * sc} height={26 * sc} rx={8 * sc} fill="#ff8a66" {...st} />
+          <rect key={d} x={d * hx - 9 * sc} y={-ry * 0.32} width={18 * sc} height={26 * sc} rx={8 * sc} fill="#ff8a66" {...st} />
         ))}
       </g>
     );
@@ -507,8 +580,9 @@ function FrontAcc({ acc, rx, ry, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; rx:
 }
 
 // ── 효과(몸 바깥): 반짝임·별·음표·하트·꽃잎·말줄임·zzz·땀·떨림·비구름·한숨·김·!? ──
-function Effects({ fx, pose, rx, ry, bottom, t, lw }: { fx: Fx[]; pose: Pose; rx: number; ry: number; bottom: number; t: number; lw: number }) {
-  const head = -(bottom + ry) * pose.sy + pose.y; // 정수리 높이
+function Effects({ fx, pose, geo, t, lw }: { fx: Fx[]; pose: Pose; geo: Geo; t: number; lw: number }) {
+  const { rx, ry, bottom } = geo;
+  const head = (geo.top - bottom) * pose.sy + pose.y; // 정수리 높이
   const X = pose.x;
   const out: ReactNode[] = [];
   const thin = { stroke: INK, strokeWidth: lw * 0.6, strokeLinejoin: "round" as const };
@@ -622,6 +696,155 @@ function Effects({ fx, pose, rx, ry, bottom, t, lw }: { fx: Fx[]; pose: Pose; rx
         </g>,
       );
     }
+  }
+  const mid = -bottom * pose.sy + pose.y; // 몸 가운데 높이
+  const faceY = mid + ry * 0.25 * pose.sy; // 입 높이
+  for (const f of fx) {
+    if (f === "medal") { // 뿌듯: 가슴에 금메달
+      const sw = Math.sin(t * 2.4) * 6;
+      out.push(
+        <g key="medal" transform={`translate(${n2(X + rx * 0.38)} ${n2(mid + ry * 0.3)}) rotate(${n2(sw)})`}>
+          <path d="M-5,-14 L-1,0 M5,-14 L1,0" stroke="#4f7fd8" strokeWidth={lw * 2} strokeLinecap="round" />
+          <circle cx="0" cy="5" r="7" fill="#f4c22b" {...thin} strokeWidth={lw * 0.8} />
+          <path d={star5(0, 5, 3.6)} fill="#fff1a8" />
+        </g>,
+      );
+    }
+    if (f === "flowers") // 행복: 머리 둘레에 꽃이 피었다 진다
+      ([[-rx * 1.0, head + ry * 0.45], [rx * 1.05, head + ry * 0.3], [-rx * 0.45, head - 8], [rx * 0.5, head - 12]] as const).forEach(([x, y], i) => {
+        const k = 0.35 + 0.65 * Math.abs(Math.sin(t * 1.4 + i * 1.3));
+        out.push(
+          <g key={`fl${i}`} transform={`translate(${n2(X + x)} ${n2(y)}) scale(${n2(k)}) rotate(${n2(t * 20 + i * 30)})`}>
+            {[0, 72, 144, 216, 288].map((a) => <ellipse key={a} cx="0" cy="-4.5" rx="3.2" ry="4.5" fill={["#ffb3c8", "#ffe07a", "#c9b6ff", "#ffffff"][i]} {...thin} strokeWidth={lw * 0.4} transform={`rotate(${a})`} />)}
+            <circle r="2.4" fill="#f6b73c" />
+          </g>,
+        );
+      });
+    if (f === "heartbeat") { // 설렘·조마조마: 가슴 옆 하트가 두근두근(두 번 뛰고 쉼)
+      const b = (t % 0.9) / 0.9;
+      const k = 1 + (b < 0.15 ? Math.sin((b / 0.15) * Math.PI) * 0.35 : b < 0.35 ? Math.sin(((b - 0.2) / 0.15) * Math.PI) * 0.25 : 0);
+      out.push(
+        <g key="hb" transform={`translate(${n2(X + rx * 0.95)} ${n2(mid - ry * 0.05)}) scale(${n2(k)})`}>
+          <path d="M0,6 C-12,-3 -8,-13 0,-7 C8,-13 12,-3 0,6Z" fill="#ff6f8f" {...thin} strokeWidth={lw * 0.7} />
+          <path d="M-12,-10 l-3,-3 M12,-10 l3,-3 M0,-14 v-4" stroke={INK} strokeWidth={lw * 0.5} strokeLinecap="round" opacity={k > 1.1 ? 0.8 : 0} />
+        </g>,
+      );
+    }
+    if (f === "speed") // 들뜸: 양옆 바람 줄
+      [-1, 1].forEach((d) => {
+        const j = (t * 12) % 2 < 1 ? 0 : 3;
+        out.push(<path key={`spd${d}`} d={`M${n2(X + d * (rx * 1.15 + j))},${n2(mid - 8)} h${d * 12} M${n2(X + d * (rx * 1.25 + j))},${n2(mid + 4)} h${d * 16} M${n2(X + d * (rx * 1.12 + j))},${n2(mid + 16)} h${d * 10}`} stroke={INK} strokeWidth={lw * 0.6} strokeLinecap="round" opacity="0.7" />);
+      });
+    if (f === "zap") // 짜릿: 작은 번개가 번쩍번쩍
+      ([[-rx * 1.0, head + ry * 0.3, -15], [rx * 1.0, head + ry * 0.15, 18], [rx * 0.2, head - 14, 5]] as const).forEach(([x, y, r], i) => {
+        if (Math.floor(t * 6 + i) % 3 === 0) return;
+        out.push(<path key={`zp${i}`} d="M2,-10 L-5,1 L0,1 L-3,10 L6,-2 L1,-2 L4,-10Z" fill="#ffe14a" {...thin} transform={`translate(${n2(X + x)} ${n2(y)}) rotate(${r})`} />);
+      });
+    if (f === "glowRing") { // 든든: 따뜻한 빛 테두리
+      const o = 0.35 + 0.25 * Math.sin(t * 2);
+      out.push(<ellipse key="gr" cx={X} cy={mid} rx={rx * 1.28 * pose.sx} ry={ry * 1.28 * pose.sy} fill="none" stroke="#ffcf6a" strokeWidth={lw * 2.2} opacity={o} strokeDasharray="10 6" />);
+    }
+    if (f === "warmth") // 따뜻함: 위로 피어오르는 아지랑이
+      [-1, 0, 1].forEach((d, i) => {
+        const p = (t * 0.6 + i / 3) % 1;
+        out.push(<path key={`wm${i}`} d={`M${n2(X + d * 18)},${n2(head + 2 - p * 26)} q-4,-5 0,-10 q4,-5 0,-10`} fill="none" stroke="#ff9c5a" strokeWidth={lw * 0.9} strokeLinecap="round" opacity={(1 - p) * 0.85} />);
+      });
+    if (f === "bubbles") // 홀가분: 비눗방울이 둥실
+      for (let i = 0; i < 5; i++) {
+        const p = (t * 0.3 + i / 5) % 1;
+        const x = X + (i - 2) * rx * 0.5 + Math.sin(p * 7 + i) * 6;
+        const r = 3 + (i % 3) * 1.6;
+        out.push(
+          <g key={`bb${i}`} opacity={1 - p * p}>
+            <circle cx={x} cy={head + ry * 0.7 - p * 70} r={r} fill="#dff3ff" fillOpacity="0.35" stroke="#7fb8e0" strokeWidth={lw * 0.5} />
+            <circle cx={x - r * 0.35} cy={head + ry * 0.7 - p * 70 - r * 0.35} r={r * 0.28} fill="#ffffff" />
+          </g>,
+        );
+      }
+    if (f === "daze") { // 멍: 머리 위 빙글빙글 동그라미
+      const a = t * 120;
+      out.push(
+        <g key="dz" transform={`translate(${n2(X)} ${n2(head - 10)})`}>
+          <ellipse rx="16" ry="5" fill="none" stroke={INK} strokeWidth={lw * 0.5} strokeDasharray="3 4" opacity="0.6" />
+          {[0, 120, 240].map((o) => { const r = ((a + o) * Math.PI) / 180; return <circle key={o} cx={n2(Math.cos(r) * 16)} cy={n2(Math.sin(r) * 5)} r="2.2" fill="#ffe27a" {...thin} strokeWidth={lw * 0.4} />; })}
+        </g>,
+      );
+    }
+    if (f === "sleepBubble") { // 졸림: 코풍선이 부풀었다 줄었다
+      const k = 0.5 + 0.5 * Math.abs(Math.sin(t * 1.1));
+      out.push(
+        <g key="sb" transform={`translate(${n2(X + rx * 0.18 + 7 * k)} ${n2(faceY - 4)})`}>
+          <circle r={7 * k} fill="#d6efff" fillOpacity="0.7" stroke="#6f9fc8" strokeWidth={lw * 0.5} />
+          <circle cx={-2.5 * k} cy={-2.5 * k} r={1.8 * k} fill="#ffffff" />
+        </g>,
+      );
+    }
+    if (f === "battery") { // 기운 없음: 머리 위 빈 건전지(빨간 칸이 깜빡)
+      out.push(
+        <g key="bt" transform={`translate(${n2(X + 4)} ${n2(head - 12)})`}>
+          <rect x="-13" y="-7" width="24" height="14" rx="3" fill="#fffaf1" {...thin} strokeWidth={lw * 0.7} />
+          <rect x="11" y="-3" width="3" height="6" rx="1" fill={INK} />
+          {Math.floor(t * 2) % 2 === 0 && <rect x="-10" y="-4" width="5" height="8" rx="1" fill="#e5483b" />}
+        </g>,
+      );
+    }
+    if (f === "questions") // 불안: 물음표가 동동
+      [-1, 1, 0].forEach((d, i) => {
+        const p = (t * 0.5 + i / 3) % 1;
+        out.push(<text key={`q${i}`} x={X + d * rx * 0.75} y={head + 4 - p * 22} fontSize={12 + i * 2} fontWeight="700" textAnchor="middle" fill="#6a76c8" stroke={INK} strokeWidth="0.4" opacity={1 - p * p} transform={`rotate(${d * 12} ${X + d * rx * 0.75} ${head - p * 22})`}>?</text>);
+      });
+    if (f === "tangle") { // 답답: 머리 위 엉킨 실타래
+      const j = Math.sin(t * 9) * 1.2;
+      out.push(<path key="tg" d="M-14,0 C-10,-12 6,-12 4,-2 C2,8 -12,6 -8,-4 C-4,-14 14,-10 12,0 C10,10 -4,10 -2,0 C0,-8 10,-6 14,2" fill="none" stroke={INK} strokeWidth={lw * 0.9} strokeLinecap="round" transform={`translate(${n2(X + rx * 0.2 + j)} ${n2(head - 12)})`} />);
+    }
+    if (f === "exclaim") { // 깜짝: 큰 느낌표 + 놀람 선
+      const s = (t % 2.2) / 2.2;
+      const k = s < 0.15 ? 0.6 + (s / 0.15) * 0.6 : 1.2 - Math.min(0.2, (s - 0.15) * 0.4);
+      out.push(
+        <g key="ex" transform={`translate(${n2(X + rx * 0.75)} ${n2(head - 6)}) scale(${n2(k)}) rotate(10)`} fill="#ffe14a" stroke={INK} strokeWidth={lw * 0.6}>
+          <path d="M-3.5,-18 L3.5,-18 L1.8,2 L-1.8,2Z" />
+          <circle cx="0" cy="8" r="3.2" />
+        </g>,
+      );
+      if (s < 0.4) [-50, -20, 20, 50].forEach((a) => out.push(<path key={`exl${a}`} d="M0,-8 v-9" stroke={INK} strokeWidth={lw * 0.7} strokeLinecap="round" transform={`translate(${n2(X)} ${n2(head + 6)}) rotate(${a}) translate(0 ${-ry * 0.5})`} />));
+    }
+    if (f === "chill") // 오싹: 양옆 차가운 지그재그 + 서리 점
+      [-1, 1].forEach((d) => {
+        const j = Math.sin(t * 38) * 1.2;
+        out.push(<path key={`ch${d}`} d={`M${n2(X + d * (rx * 1.1 + j))},${n2(mid - 18)} l${d * 4},5 l${-d * 4},5 l${d * 4},5 l${-d * 4},5 l${d * 4},5`} fill="none" stroke="#6fa8e6" strokeWidth={lw * 0.9} strokeLinecap="round" strokeLinejoin="round" />);
+        out.push(<path key={`chs${d}`} d={star4(X + d * rx * 0.9, head + 4, 3.5)} fill="#dff1ff" stroke="#6fa8e6" strokeWidth={lw * 0.4} />);
+      });
+    if (f === "leaf") { // 외로움: 잎 하나가 천천히 떨어짐
+      const p = (t * 0.18) % 1;
+      out.push(<path key="lf" d="M0,-5 Q6,0 0,6 Q-6,0 0,-5Z M0,-5 V6" fill="#c9965a" stroke={INK} strokeWidth={lw * 0.4} transform={`translate(${n2(X + rx * 1.1 - p * rx * 0.6 + Math.sin(p * 9) * 10)} ${n2(head - 20 + p * (bottom + ry + 20))}) rotate(${n2(Math.sin(p * 9) * 50)})`} />);
+    }
+    if (f === "thought") { // 그리움: 생각 구름 속 하트
+      const b = Math.sin(t * 2) * 1.5;
+      out.push(
+        <g key="th" transform={`translate(${n2(X + rx * 0.95)} ${n2(head - 10 + b)})`}>
+          <circle cx="-14" cy="20" r="2.4" fill="#fffaf1" {...thin} />
+          <circle cx="-9" cy="13" r="3.4" fill="#fffaf1" {...thin} />
+          <InkPuff bumps={cloudBumps(30, 13, 4)} fill="#fffaf1" lw={lw} />
+          <path d="M0,4 C-8,-2 -5,-9 0,-5 C5,-9 8,-2 0,4Z" fill="#ff8fa8" stroke={INK} strokeWidth={lw * 0.4} transform="translate(0 -1)" />
+        </g>,
+      );
+    }
+    if (f === "earSteam") // 약 오름: 양옆으로 칙칙 김
+      [-1, 1].forEach((d, i) => {
+        const p = (t * 1.2 + i * 0.5) % 1;
+        out.push(
+          <g key={`es${d}`} transform={`translate(${n2(X + d * (rx * 0.95 + p * 22))} ${n2(mid - ry * 0.2 - p * 6)}) scale(${n2(0.5 + p * 0.6)})`} opacity={1 - p}>
+            <InkPuff bumps={cloudBumps(16, 8, 3 + i)} fill="#f4f1ec" lw={lw} />
+          </g>,
+        );
+      });
+    if (f === "boilUp") // 부글부글: 머리 위에서 거품이 끓어오름
+      for (let i = 0; i < 5; i++) {
+        const p = (t * 0.9 + i / 5) % 1;
+        const x = X + (i - 2) * 9 + Math.sin(p * 10 + i) * 2;
+        const r = 2 + (i % 2) * 1.5 + p * 2;
+        out.push(<circle key={`bu${i}`} cx={x} cy={head + 2 - p * 20} r={r} fill="#ffb09a" fillOpacity="0.55" stroke="#d6362a" strokeWidth={lw * 0.5} opacity={1 - p} />);
+      }
   }
   return <g>{out}</g>;
 }

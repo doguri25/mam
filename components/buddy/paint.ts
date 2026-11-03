@@ -1,5 +1,5 @@
 // 손그림 느낌을 내는 작은 도우미: 물감 섞기, 둥근 몸 윤곽(부드러운 곡선), 장면 팔레트
-import type { Group } from "@/lib/shared";
+import type { BuddyShape, Group } from "@/lib/shared";
 
 const rgb = (h: string) => {
   const n = parseInt(h.slice(1), 16);
@@ -42,21 +42,57 @@ export function smooth(pts: [number, number][]) {
   return `${d}Z`;
 }
 
-// 마음 친구 몸: 가운데가 (0,0)인 말랑한 방울. 아래는 바닥에 앉은 듯 살짝 납작, 위는 둥글게.
-export function blob(rx: number, ry: number) {
-  const pts: [number, number][] = [];
-  const N = 30;
-  for (let i = 0; i < N; i++) {
-    const a = (i / N) * Math.PI * 2;
-    const c = Math.cos(a), s = Math.sin(a);
-    const full = 1 + 0.035 * Math.pow(Math.abs(c), 3); // 옆구리가 살짝 통통
-    let y = s * ry;
-    if (y > 0) y *= 1 - 0.13 * Math.pow(s, 4); // 엉덩이는 납작
-    pts.push([c * rx * full, y]);
-  }
-  return smooth(pts);
+// 마음 친구 몸 모양 9가지. 가운데가 (0,0)이고, 아래는 바닥에 앉은 듯 살짝 납작하다.
+type Pts = [number, number][];
+const ring = (n: number, f: (a: number, c: number, s: number) => [number, number]): Pts =>
+  Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return f(a, Math.cos(a), Math.sin(a)); });
+const sit = (y: number, ry: number, k = 0.13) => (y > 0 ? y * (1 - k * Math.pow(y / ry, 4)) : y); // 엉덩이는 납작
+const SHAPES: Record<BuddyShape, { rx: number; ry: number; eye: number; pts: (rx: number, ry: number) => Pts }> = {
+  // 동글이: 옆구리가 살짝 통통한 방울
+  round: { rx: 60, ry: 57, eye: 0.34, pts: (rx, ry) => ring(30, (_, c, s) => [c * rx * (1 + 0.035 * Math.abs(c) ** 3), sit(s * ry, ry)]) },
+  squish: { rx: 68, ry: 49, eye: 0.31, pts: (rx, ry) => ring(30, (_, c, s) => [c * rx * (1 + 0.035 * Math.abs(c) ** 3), sit(s * ry, ry)]) },
+  bean: { rx: 51, ry: 64, eye: 0.37, pts: (rx, ry) => ring(30, (_, c, s) => [c * rx * (1 + 0.035 * Math.abs(c) ** 3), sit(s * ry, ry)]) },
+  // 물방울이: 위가 뾰족하게 솟은 물방울
+  drop: { rx: 56, ry: 60, eye: 0.36, pts: (rx, ry) => ring(40, (_, c, s) => { const k = Math.max(0, -s); return [c * rx * (1 - 0.8 * k ** 2.4), sit(s * ry * (1 + 0.22 * k ** 3), ry)]; }) },
+  // 구름이: 몽글몽글 일곱 봉우리
+  cloud: { rx: 64, ry: 52, eye: 0.32, pts: (rx, ry) => ring(70, (a, c, s) => { const r = 1 + 0.1 * Math.abs(Math.sin(3.5 * (a + Math.PI / 2))); return [c * rx * r, sit(s * ry * r, ry, 0.2)]; }) },
+  // 별님이: 끝이 둥근 통통한 별(아래 두 뿔이 발)
+  star: { rx: 64, ry: 62, eye: 0.29, pts: (rx, ry) => ring(80, (a, c, s) => { const r = 1 - 0.28 * (1 - Math.cos(5 * (a + Math.PI / 2))) / 2; return [c * rx * r, s * ry * r]; }) },
+  // 찹쌀이: 모서리가 둥근 네모 떡
+  mochi: { rx: 60, ry: 52, eye: 0.33, pts: (rx, ry) => ring(48, (_, c, s) => [Math.sign(c) * Math.abs(c) ** 0.62 * rx, sit(Math.sign(s) * Math.abs(s) ** 0.62 * ry, ry, 0.06)]) },
+  // 하트: 아래 끝을 뭉툭하게 해 앉을 수 있게
+  heart: {
+    rx: 64, ry: 58, eye: 0.33, pts: (rx, ry) => ring(60, (a) => {
+      const x = 16 * Math.sin(a) ** 3, h = -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a));
+      let y = ((h - 2.5) / 14.5) * ry;
+      if (y > 0.72 * ry) y = 0.72 * ry + (y - 0.72 * ry) * 0.35;
+      return [(x / 16) * rx, y];
+    }),
+  },
+  // 알콩이: 위가 좁고 아래가 넉넉한 알
+  egg: { rx: 53, ry: 63, eye: 0.36, pts: (rx, ry) => ring(36, (_, c, s) => [c * rx * (s < 0 ? 1 + 0.17 * s : 1 + 0.04 * s), sit(s * ry, ry)]) },
+};
+
+export interface Geo { rx: number; ry: number; eye: number; d: string; lit: string; top: number; bottom: number; half: (y: number) => number }
+const geoCache = new Map<BuddyShape, Geo>();
+export function shapeGeo(shape: BuddyShape): Geo {
+  const hit = geoCache.get(shape);
+  if (hit) return hit;
+  const sh = SHAPES[shape] ?? SHAPES.round;
+  const pts = sh.pts(sh.rx, sh.ry);
+  const ys = pts.map((p) => p[1]);
+  const geo: Geo = {
+    rx: sh.rx, ry: sh.ry, eye: sh.eye,
+    d: smooth(pts),
+    lit: smooth(sh.pts(sh.rx * 0.93, sh.ry * 0.9)), // 밝은 면(셀 경계)
+    top: Math.min(...ys),
+    bottom: Math.max(...ys),
+    // 그 높이에서 몸의 반 너비(귀·팔 자리)
+    half: (y) => Math.max(8, ...pts.filter((p) => Math.abs(p[1] - y) < sh.ry * 0.14).map((p) => Math.abs(p[0]))),
+  };
+  geoCache.set(shape, geo);
+  return geo;
 }
-export const bottomOf = (ry: number) => ry * 0.87;
 
 // 몽글몽글 구름(동그라미 여럿): 가운데가 솟은 뭉게구름
 export function cloudBumps(w: number, h: number, seed: number): [number, number, number][] {

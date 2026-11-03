@@ -23,13 +23,14 @@ import { useLocal, useNames } from "@/lib/local";
 import { absentStudents, watchFlags } from "@/lib/rules";
 import type { MoodRecord } from "@/lib/shared";
 
-// 메뉴 묶음: [탭, 그림, 이름]
-const NAV: { title: string; items: [Tab, string, string][] }[] = [
-  { title: "오늘", items: [["map", "🗺️", "마음 지도"]] },
-  { title: "아이 돌보기", items: [["cheer", "💌", "응원 한마디"], ["letters", "✉️", "공감 쪽지"], ["referral", "📝", "상담 의견서"]] },
-  { title: "기록·소통", items: [["student", "📒", "학생별 누적 기록"], ["sel", "🧭", "학급 역량 진단"], ["report", "📄", "주간 리포트"], ["home", "🏠", "가정 소식지"]] },
-  { title: "수업", items: [["lesson", "📚", "교과서 연결"], ["sheet", "🖍️", "활동지 피드백"]] },
-  { title: "관리", items: [["roster", "🔑", "학생 코드·QR"], ["settings", "⚙️", "설정"], ["guide", "📘", "사용 설명서"]] },
+// 메뉴: [탭, 그림, 이름]. 날마다·주마다 쓰는 것만 늘 보이고, 가끔 쓰는 것은 「더 보기」 안에(기능은 그대로).
+const MAIN: [Tab, string, string][] = [
+  ["map", "🗺️", "마음 지도"], ["cheer", "💌", "응원 한마디"], ["letters", "✉️", "공감 쪽지"],
+  ["student", "📒", "학생별 누적 기록"], ["sel", "🧭", "학급 역량 진단"], ["report", "📄", "주간 리포트"],
+];
+const MORE: [Tab, string, string][] = [
+  ["referral", "📝", "상담 의견서"], ["home", "🏠", "가정 소식지"], ["lesson", "📚", "교과서 연결"], ["sheet", "🖍️", "활동지 피드백"],
+  ["roster", "🔑", "학생 코드·QR"], ["settings", "⚙️", "설정"], ["guide", "📘", "사용 설명서"],
 ];
 const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
 type Tab = (typeof TAB_IDS)[number];
@@ -63,6 +64,7 @@ export default function TeacherPage() {
   const [tabRaw, setTabRaw] = useLocal("mb_tab"); // 다시 열어도 보던 메뉴 그대로
   const tab: Tab = (TAB_IDS as readonly string[]).includes(tabRaw) ? (tabRaw as Tab) : "map";
   const [drawer, setDrawer] = useState(false);
+  const [moreRaw, setMore] = useLocal("mb_more"); // 「더 보기」를 펼쳐 둔 채로 기억
   const setTab = (t: Tab) => {
     setTabRaw(t === "map" ? "" : t);
     setDrawer(false);
@@ -158,7 +160,21 @@ export default function TeacherPage() {
     map: data.records.filter((r) => r.risk && !r.riskChecked).length,
     letters: data.letters.filter((l) => l.status === "wait").length,
   };
-  const current = NAV.flatMap((g) => g.items).find(([id]) => id === tab)!;
+  const current = [...MAIN, ...MORE].find(([id]) => id === tab)!;
+  const moreOpen = moreRaw === "1" || MORE.some(([id]) => id === tab);
+  const item = ([id, icon, name]: [Tab, string, string]) => (
+    <li key={id}>
+      <button
+        onClick={() => setTab(id)}
+        aria-current={tab === id ? "page" : undefined}
+        className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left font-bold ${tab === id ? "bg-leaf text-white" : "text-ink hover:bg-paper"}`}
+      >
+        <span aria-hidden>{icon}</span>
+        <span className="flex-1">{name}</span>
+        {!!badge[id] && <span className={`rounded-full px-2 text-xs ${tab === id ? "bg-white text-leaf" : "bg-alert text-white"}`}>{badge[id]}</span>}
+      </button>
+    </li>
+  );
 
   const menu = (
     <nav aria-label="선생님 메뉴" className="flex h-full flex-col gap-4 overflow-y-auto p-4">
@@ -168,33 +184,20 @@ export default function TeacherPage() {
         {data.trial && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">🧪 심사용 체험</p>}
         {!data.trial && basePrefix(data) && basePrefix(data) !== "maeumbit_" && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">이 컴퓨터 연습 공간</p>}
       </div>
-      {NAV.map((g) => (
-        <div key={g.title}>
-          <p className="mb-1 px-2 text-xs font-bold text-soft">{g.title}</p>
-          <ul className="space-y-1">
-            {g.items.map(([id, icon, name]) => (
-              <li key={id}>
-                <button
-                  onClick={() => setTab(id)}
-                  aria-current={tab === id ? "page" : undefined}
-                  className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left font-bold ${tab === id ? "bg-leaf text-white" : "text-ink hover:bg-paper"}`}
-                >
-                  <span aria-hidden>{icon}</span>
-                  <span className="flex-1">{name}</span>
-                  {!!badge[id] && <span className={`rounded-full px-2 text-xs ${tab === id ? "bg-white text-leaf" : "bg-alert text-white"}`}>{badge[id]}</span>}
-                </button>
-              </li>
-            ))}
-            {g.title === "오늘" && (
-              <li>
-                <a href="/teacher/tv" target="_blank" rel="noopener" className="flex min-h-11 items-center gap-3 rounded-xl px-3 font-bold hover:bg-paper">
-                  <span aria-hidden>📺</span><span className="flex-1">교실 화면</span><span aria-hidden className="text-xs text-soft">↗</span>
-                </a>
-              </li>
-            )}
-          </ul>
-        </div>
-      ))}
+      <ul className="space-y-1">
+        {MAIN.map(item)}
+        <li>
+          <a href="/teacher/tv" target="_blank" rel="noopener" className="flex min-h-11 items-center gap-3 rounded-xl px-3 font-bold hover:bg-paper">
+            <span aria-hidden>📺</span><span className="flex-1">교실 화면</span><span aria-hidden className="text-xs text-soft">↗</span>
+          </a>
+        </li>
+      </ul>
+      <div>
+        <button onClick={() => setMore(moreOpen ? "" : "1")} aria-expanded={moreOpen} className="flex min-h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-bold text-soft hover:bg-paper">
+          <span className="flex-1 text-left">더 보기 · 수업·관리</span><span aria-hidden>{moreOpen ? "▴" : "▾"}</span>
+        </button>
+        {moreOpen && <ul className="mt-1 space-y-1">{MORE.map(item)}</ul>}
+      </div>
       <div className="mt-auto space-y-2 border-t border-line pt-3">
         {names.raw.trim() && (
           <button onClick={() => names.setOn(!names.on)} aria-pressed={names.on} className={`btn-sub min-h-10 w-full text-sm ${names.on ? "border-leaf bg-leaf-soft" : ""}`}>
