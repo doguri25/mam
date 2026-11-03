@@ -2,7 +2,7 @@
 // 체험 선생님 표에는 공간 demo가 적혀 있고, 체험 학생은 코드로 체험 공간을 찾는다.
 import { NextResponse, type NextRequest } from "next/server";
 import { DEMO_COOKIE, STUDENT_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, teacherToken } from "@/lib/auth";
-import { getRoster, seedPractice } from "@/lib/data";
+import { PRACTICE_VERSION, getRoster, seedPractice } from "@/lib/data";
 import { today } from "@/lib/date";
 import { db, inSpace } from "@/lib/db";
 
@@ -20,8 +20,9 @@ export async function POST(req: NextRequest) {
   try {
     return await inSpace("demo", async () => {
       // 날짜가 지나면 처음 판으로(가짜 기록이 늘 「최근 7일」이 되게). 여러 사람이 함께 쓰는 공간이다.
-      const day = await db().get<{ date: string }>("meta", "practiceDay");
-      if (day?.date !== today() || body.action === "reset") await seedPractice();
+      // 새 버전을 올려 연습 데이터의 판이 바뀌었으면 그날 안에도 다시 만든다(예전 판에는 역량 진단 회차가 없음).
+      const day = await db().get<{ date: string; v?: number }>("meta", "practiceDay");
+      if (day?.date !== today() || day.v !== PRACTICE_VERSION || body.action === "reset") await seedPractice();
       const students = (await getRoster()).slice(0, 8).map((s) => ({ no: s.no, alias: s.alias, code: s.code }));
       const res = NextResponse.json({ students });
       res.cookies.delete(DEMO_COOKIE); // 예전 체험 표시는 더 쓰지 않음

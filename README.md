@@ -77,7 +77,7 @@ npm test           # 살펴볼 학생·위험 표현 규칙 테스트
 ## 심사용 체험 링크(/try)
 - 비밀번호·학생 코드 없이 가짜 반(가명 25명, 최근 7일)으로 들어간다. `mb_demo` 쿠키가 있는 요청은 `inSpace("demo")`(AsyncLocalStorage)로 돌아 모음 이름 앞에 `demo_`가 붙는다 → 실제 반과 저장 공간부터 따로.
 - 선생님 표에 공간 표시(`:d`)가 있어 체험 표로 실제 반을, 실제 반 표로 체험 공간을 열 수 없다(`lib/auth.test.ts`).
-- 체험에서는 비밀번호·AI 키 바꾸기와 휴대폰 알림을 막는다. AI는 하루 200번까지(`DEMO_AI_PER_DAY`). 날짜가 바뀌면 처음 판으로.
+- 체험에서는 비밀번호·AI 키 바꾸기와 휴대폰 알림을 막는다. AI는 하루 200번까지(`DEMO_AI_PER_DAY`). 날짜가 바뀌거나 연습 데이터의 판(`PRACTICE_VERSION`)이 바뀌면 처음 판으로(새 버전을 올린 날에도 역량 진단 회차 같은 새 연습 데이터가 바로 보이게).
 - 체험 전용 AI 키: Vercel 환경 변수 `TRIAL_AI_KEY`(필수)·`TRIAL_AI_PROVIDER`(upstage·claude·openai·gemini, 기본 upstage)·`TRIAL_AI_MODEL`(선택). 있으면 그 키만 쓰고, 없으면 실제 반에 넣은 키를 빌려 쓴다. 교과서 읽기(Document Parse)는 업스테이지 키일 때만.
 - 연습 데이터는 기록을 한꺼번에 저장(`setMany`)해 몇 초면 만들어진다.
 
@@ -138,6 +138,7 @@ npm test           # 살펴볼 학생·위험 표현 규칙 테스트
 ## 저장소
 
 - 고르는 순서: `MONGODB_URI`가 있으면 MongoDB Atlas(데이터베이스 이름 `MONGODB_DB`, 기본 `maeumbit`), 없고 `FIREBASE_SERVICE_ACCOUNT`가 있으면 Firestore(`maeumbit-gil`, 서울), 둘 다 없으면 `.data/db.json`.
+- PR 미리보기(Vercel Preview)는 실제와 같은 클러스터의 다른 데이터베이스를 쓴다: Preview에만 `MONGODB_DB=maeumbit_preview`. Preview에 `MONGODB_URI`를 넣어야 MongoDB로 돌고, 없으면 Firestore로 돈다. 미리보기에서 무엇을 눌러도 실제 반 기록·계정과 섞이지 않는다.
 - MongoDB Atlas 무료(M0)는 하루 읽기 한도가 없다(저장 512MB). Vercel에서 붙으려면 Atlas 「Network Access」에 `0.0.0.0/0`을 허용해야 한다(Vercel 서버 주소가 바뀌므로). 그래서 DB 사용자 비밀번호를 길고 무작위로 둔다.
 - Firestore에서 옮기기: `FIREBASE_SERVICE_ACCOUNT=… MONGODB_URI=… node scripts/copy-to-mongo.mjs maeumbit_` (같은 `SESSION_SECRET`이면 넣어 둔 AI 키도 그대로 풀린다).
 - Firestore 규칙은 브라우저 접근을 모두 막는다(`firestore.rules`). 읽기·쓰기는 서버의 관리자 SDK만.
