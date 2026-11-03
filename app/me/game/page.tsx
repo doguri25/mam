@@ -99,7 +99,7 @@ export default function GamePage() {
               ) : null}
             </div>
           </div>
-          <BuddyLazy emotion={right ? q.answer && parentOf(q.answer) : undefined} look={me.look} cheer={cheer} size={200} className="mx-auto size-36 md:size-[200px]" scene />
+          <BuddyLazy emotion={right ? q.answer : undefined} look={me.look} cheer={cheer} size={200} className="mx-auto size-36 md:size-[200px]" scene />
         </section>
       )}
     </StudentFrame>

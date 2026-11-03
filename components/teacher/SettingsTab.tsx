@@ -5,6 +5,7 @@ import PinCard from "./PinCard";
 import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
+import { useLocal } from "@/lib/local";
 import { PROVIDERS, PROVIDER_IDS, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
 
 const LINKS: Record<Provider, string> = {
@@ -25,6 +26,8 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(s.voiceMode);
   const [rules, setRules] = useState<Rules>(s.rules);
   const [msg, setMsg] = useState<Record<string, string>>({});
+  const [advRaw, setAdv] = useLocal("mb_adv"); // 자세한 설정(모델 이름·단어 목록·말투·규칙·연습 데이터)은 펼칠 때만
+  const adv = advRaw === "1";
   const say = (k: string, v: string) => setMsg((m) => ({ ...m, [k]: v }));
   const split = (t: string) => t.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
@@ -81,8 +84,8 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
 
   return (
     <div className="space-y-5">
+      <p className="text-sm text-soft">처음에는 <b>비밀번호 바꾸기 · AI 키 넣기 · 반 이름</b>만 하면 돼요. 나머지는 아래 「자세한 설정」에 있어요.</p>
       <PinCard pinSet={data.pinSet} />
-      <PushCard data={data} reload={reload} />
       <section className="card space-y-4">
         <div>
           <h2 className="font-display text-xl">AI 연결</h2>
@@ -109,10 +112,12 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
                   placeholder={s.keys[p] ? "바꿀 때만 새로 넣어요" : "키 붙여 넣기"}
                 />
               </label>
-              <label className="mt-2 block text-xs text-soft">
-                모델 이름
-                <input value={models[p]} onChange={(e) => setModels({ ...models, [p]: e.target.value })} className="field mt-1 py-2 font-mono text-sm" />
-              </label>
+              {adv && (
+                <label className="mt-2 block text-xs text-soft">
+                  모델 이름
+                  <input value={models[p]} onChange={(e) => setModels({ ...models, [p]: e.target.value })} className="field mt-1 py-2 font-mono text-sm" />
+                </label>
+              )}
               <div className="mt-3 flex items-center gap-2">
                 <button onClick={() => test(p)} disabled={!s.keys[p] && !keys[p]} className="btn-sub min-h-9 px-3 text-sm">연결 확인</button>
                 {s.keys[p] && (
@@ -130,22 +135,35 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
           <span className="font-bold">반 이름</span>
           <input value={className} onChange={(e) => setClassName(e.target.value)} className="field mt-1" />
         </label>
-        <label className="block">
+        {adv && <label className="block">
           <span className="font-bold">우리 반에서 배운 감정 단어</span>
           <span className="block text-xs text-soft">쉼표로 나눠요. 학생 도움판과 되묻기·응원 초안에 쓰여요.</span>
           <input value={vocab} onChange={(e) => setVocab(e.target.value)} className="field mt-1" />
-        </label>
-        <label className="block md:col-span-2">
+        </label>}
+        {adv && <label className="block md:col-span-2">
           <span className="font-bold">위험 표현 단어</span>
           <span className="block text-xs text-soft">학생 말에 이 글자가 들어 있으면 선생님 화면에만 빨간 알림이 떠요. AI 판단과 함께 두 겹으로 살펴요.</span>
           <textarea value={risk} onChange={(e) => setRisk(e.target.value)} rows={2} className="field mt-1 text-sm" />
-        </label>
+        </label>}
         <div className="flex items-center justify-end gap-3 md:col-span-2">
           <span className="text-sm">{msg.save}</span>
           <button onClick={() => save()} className="btn-main">설정 저장</button>
         </div>
       </section>
 
+      <section className="card space-y-3">
+        <h2 className="font-display text-xl">기록 내보내기 · 보관</h2>
+        <p className="text-sm text-soft">모든 기록을 엑셀에서 열 수 있는 CSV로 받아요(가명 기준, 녹음·목소리 숫자는 빠짐). 학년도가 끝나면 내보낸 뒤 「자세한 설정」의 「모두 지우기」로 지워 주세요.</p>
+        <button onClick={exportCsv} className="btn-sub">⬇️ 기록 CSV 내보내기</button>
+        <span className="ml-3 text-sm">{msg.export}</span>
+      </section>
+
+      <button onClick={() => setAdv(adv ? "" : "1")} aria-expanded={adv} className="btn-sub w-full">
+        {adv ? "▴ 자세한 설정 접기" : "▾ 자세한 설정 펼치기 (휴대폰 알림 · 단어 목록 · 말투 · 살펴볼 학생 규칙 · 연습 데이터)"}
+      </button>
+
+      {adv && <>
+      <PushCard data={data} reload={reload} />
       <section className="card space-y-3">
         <h2 className="font-display text-xl">🎙 말투(목소리 기운) 살피기</h2>
         <p className="text-sm text-soft">말하기로 남긴 기록에 「들떠 있음·차분함·가라앉음」 같은 목소리 기운을 더해요. 선생님 화면에만 보이고, 감정을 단정하는 데 쓰지 않아요.</p>
@@ -193,13 +211,6 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       </section>
 
       <section className="card space-y-3">
-        <h2 className="font-display text-xl">기록 내보내기 · 보관</h2>
-        <p className="text-sm text-soft">모든 기록을 엑셀에서 열 수 있는 CSV로 받아요(가명 기준, 녹음·목소리 숫자는 빠짐). 학년도가 끝나면 내보낸 뒤 아래 「모두 지우기」로 지워 주세요.</p>
-        <button onClick={exportCsv} className="btn-sub">⬇️ 기록 CSV 내보내기</button>
-        <span className="ml-3 text-sm">{msg.export}</span>
-      </section>
-
-      <section className="card space-y-3">
         <h2 className="font-display text-xl">연습용(시연) 데이터</h2>
         <p className="text-sm text-soft">
           저장 위치: <b>{data.storage === "local" ? "이 컴퓨터 파일(.data/db.json)" : `${data.storage === "mongo" ? "MongoDB Atlas" : "Firebase Firestore"} (${data.dataPrefix === "maeumbit_" ? "실제 반 공간" : `연습 공간 ${data.dataPrefix}`})`}</b>.
@@ -212,6 +223,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
           <span className="text-sm">{msg.demo}</span>
         </div>
       </section>
+      </>}
     </div>
   );
 }

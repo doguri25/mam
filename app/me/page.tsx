@@ -111,22 +111,23 @@ export default function MePage() {
   const toQa = (r: Analyzed) => ({ question: r.question, options: r.options, aiRisk: r.risk, skip: !!r.skipAsk });
   const toTone = (r: Analyzed): Tone => ({ tone: r.tone ?? null, toneWhy: r.toneWhy ?? "", toneBy: r.toneBy ?? null, voice: r.voice ?? null });
 
-  async function fromCard() {
+  async function fromCard(p: Pick = pick) {
+    setPick(p);
     setBusy("thinking");
     try {
       // 말하기에서 카드로 넘어온 경우 그 문장도 함께 보내 위험 표현을 놓치지 않게
-      const r = await api<Analyzed>("student", "analyze", { card: pick, lang, ...(method === "voice" && text ? { text, voice: tone.voice } : {}) });
+      const r = await api<Analyzed>("student", "analyze", { card: p, lang, ...(method === "voice" && text ? { text, voice: tone.voice } : {}) });
       const q = toQa(r);
       setQa(q);
       if (method === "voice") {
         setTone(toTone(r));
         if (lang !== "ko" && r.summary) setSummaryKo(r.summary);
       }
-      if (q.skip) return save("", q, toTone(r));
+      if (q.skip) return save("", q, toTone(r), p);
       setStep("ask");
     } catch (e) {
       // 와이파이가 끊겼으면 되묻기 없이 바로 기기에 담는다
-      if (!(e as { status?: number }).status) return save("", { question: "", options: [], aiRisk: false, skip: false }, tone);
+      if (!(e as { status?: number }).status) return save("", { question: "", options: [], aiRisk: false, skip: false }, tone, p);
       setNote((e as Error).message);
     }
     setBusy("");
@@ -154,10 +155,10 @@ export default function MePage() {
     setBusy("");
   }
 
-  async function save(ans: string, q = qa, tn = tone) {
+  async function save(ans: string, q = qa, tn = tone, p: Pick = pick) {
     answerSpeech.stop();
     setBusy("saving");
-    const payload = { ...pick, slot, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn };
+    const payload = { ...p, slot, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn };
     try {
       let record: MoodRecord;
       try {
@@ -259,19 +260,22 @@ export default function MePage() {
               </button>
             ))}
           </div>
-          <label className="flex min-h-12 items-center gap-1 rounded-2xl border border-line bg-card px-3 text-base">
-            <span aria-hidden>🌐</span>
-            <select value={lang} onChange={(e) => setLang(e.target.value === "ko" ? "" : e.target.value)} className="h-11 bg-transparent font-bold outline-none" aria-label="Language">
-              {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-            </select>
-          </label>
+          {/* 읽어 주기·언어는 그림 단추 하나씩으로 작게 */}
           <button
             onClick={() => setReadAloud(readAloud === "1" ? "" : "1")}
             aria-pressed={readAloud === "1"}
-            className={`btn-sub min-h-12 px-4 text-base ${readAloud === "1" ? "border-leaf bg-leaf-soft" : ""}`}
+            aria-label={readAloud === "1" ? tt("readOn") : tt("readOff")}
+            title={readAloud === "1" ? tt("readOn") : tt("readOff")}
+            className={`btn-sub min-h-12 px-3 text-xl ${readAloud === "1" ? "border-leaf bg-leaf-soft" : ""}`}
           >
-            {readAloud === "1" ? tt("readOn") : tt("readOff")}
+            {readAloud === "1" ? "🔊" : "🔈"}
           </button>
+          <label className="flex min-h-12 items-center gap-1 rounded-2xl border border-line bg-card px-2 text-base" title="Language">
+            <span aria-hidden className="text-xl">🌐</span>
+            <select value={lang} onChange={(e) => setLang(e.target.value === "ko" ? "" : e.target.value)} className="h-11 max-w-28 bg-transparent font-bold outline-none" aria-label="Language">
+              {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+            </select>
+          </label>
         </div>
       </header>
 
@@ -280,7 +284,7 @@ export default function MePage() {
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{tt(busy)}</p>
           ) : calm === "open" ? (
-            <CalmBox look={me.look} emotion={pick.emotion ?? done?.emotion} lang={lang} onFelt={sendCalm} onClose={() => setCalm("off")} />
+            <CalmBox look={me.look} emotion={pick.word ?? pick.emotion ?? done?.word ?? done?.emotion} lang={lang} onFelt={sendCalm} onClose={() => setCalm("off")} />
           ) : step === "choose" ? (
             <div className="space-y-5">
               <h2 className="font-display text-2xl">{tt("how", { slot: slotName(slot) })}<SayBtn lang={lang} text={`${tt("how", { slot: slotName(slot) })} ${tt("card")}, ${tt("voice")}`} /></h2>
@@ -319,17 +323,16 @@ export default function MePage() {
               ) : (
                 note && <p className="rounded-2xl bg-leaf-soft p-3">{msg(note)}</p>
               )}
-              <MoodPicker value={pick} onChange={setPick} vocab={me.vocab} lang={lang} />
-              <div className="flex justify-between gap-3 pt-2">
-                <button onClick={() => reset()} className="btn-sub">{tt("restart")}</button>
-                <button
-                  onClick={() => (step !== "confirm" ? fromCard() : qa.skip ? save("") : setStep("ask"))}
-                  disabled={!complete}
-                  className="btn-main px-8 text-lg"
-                >
-                  {step === "confirm" ? tt("yesNext") : complete ? tt("nextBtn") : tt("pick3")}
-                </button>
-              </div>
+              {/* 카드로 고를 때는 한 화면에 질문 하나씩(누르면 다음으로), 말로 한 뒤에는 세 가지를 한눈에 고쳐 보기 */}
+              <MoodPicker value={pick} onChange={setPick} vocab={me.vocab} lang={lang} stepwise={step === "card"} onDone={(v) => fromCard(v)} onBack={() => reset()} />
+              {step === "confirm" && (
+                <div className="flex justify-between gap-3 pt-2">
+                  <button onClick={() => reset()} className="btn-sub">{tt("restart")}</button>
+                  <button onClick={() => (qa.skip ? save("") : setStep("ask"))} disabled={!complete} className="btn-main px-8 text-lg">
+                    {complete ? tt("yesNext") : tt("pick3")}
+                  </button>
+                </div>
+              )}
             </div>
           ) : step === "voice" ? (
             <div className="space-y-5">
@@ -419,7 +422,7 @@ export default function MePage() {
 
         {/* 마음 친구: 세로 태블릿·휴대폰에서는 맨 위 가로 띠, 가로(넓은) 화면에서는 오른쪽 위 */}
         <aside className="card order-first flex items-center gap-4 p-3 lg:order-none lg:col-start-2 lg:row-start-1 lg:flex-col lg:gap-2 lg:self-start lg:p-4 lg:text-center">
-          <BuddyLazy emotion={pick.emotion} intensity={pick.intensity} look={me.look} cheer={cheer} size={170} className="size-24 shrink-0 sm:size-32 lg:size-[170px]" />
+          <BuddyLazy emotion={pick.word ?? pick.emotion} intensity={pick.intensity} look={me.look} cheer={cheer} size={170} className="size-24 shrink-0 sm:size-32 lg:size-[170px]" />
           <div>
             <p className="text-xs text-soft lg:text-sm">{me.look.name || tt("buddy")}</p>
             <p className="font-display text-lg sm:text-xl" style={{ color: pick.emotion ? EMOTION_COLOR[pick.emotion] : undefined }}>{buddyLine}</p>
