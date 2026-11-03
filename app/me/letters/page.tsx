@@ -1,6 +1,7 @@
 "use client";
 // 공감 쪽지: 친구에게 따뜻한 한마디를 쓰면 선생님이 먼저 읽고 전해 준다. 받은 쪽지·보낸 쪽지도 여기서 본다.
 import { useCallback, useEffect, useState } from "react";
+import Doodle from "@/components/Doodle";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
@@ -66,7 +67,7 @@ export default function LettersPage() {
         <section className="space-y-3">
           {box.inbox.length ? box.inbox.map((l) => (
             <article key={l.id} className={`card space-y-2 ${!l.read ? "border-sun bg-[#fff8e1]" : ""}`}>
-              <p className="text-sm font-bold text-soft">💌 {l.from ? tt("lettersFrom", { name: l.from }) : tt("lettersSecret")}</p>
+              <p className="flex items-center gap-1.5 text-sm font-bold text-soft"><Doodle name="letter" size={22} /> {l.from ? tt("lettersFrom", { name: l.from }) : tt("lettersSecret")}</p>
               <p className="text-2xl leading-relaxed">{l.text}</p>
             </article>
           )) : (

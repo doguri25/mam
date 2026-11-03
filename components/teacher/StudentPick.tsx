@@ -1,8 +1,9 @@
 "use client";
 // 응원 한마디·상담 의견서가 함께 쓰는 틀:
-// 위에는 여러 줄 학생 명단(🟡 살펴볼 학생 먼저, 가로 스크롤 없음), 아래는 왼쪽 「최근 기록」(화면에 고정, 칸 안에서만 스크롤) + 오른쪽 「작성 칸」.
+// 위에는 여러 줄 학생 명단(노란 점: 살펴볼 학생 먼저, 가로 스크롤 없음), 아래는 왼쪽 「최근 기록」(화면에 고정, 칸 안에서만 스크롤) + 오른쪽 「작성 칸」.
 // 넓은 화면(1280px 이상)은 좌우로 두고 왼쪽 칸이 화면에 고정된다. 그보다 좁으면(가로·세로 태블릿) 참고 칸을 위에 고정하고
 // 높이를 줄여(화면의 1/3쯤) 아래 작성 칸을 써 내려가는 동안에도 기록이 계속 보이게 한다.
+import Doodle from "../Doodle";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
 import Timeline from "./Timeline";
@@ -14,7 +15,7 @@ export function StudentStrip({ data, no, onPick, nameOf }: { data: Overview; no:
   const last = (n: number) => data.records.filter((r) => r.no === n).sort((a, b) => a.id.localeCompare(b.id)).at(-1);
   return (
     <div className="no-print card p-2">
-      <p className="px-2 pb-1 text-xs text-soft">학생 고르기 · 🟡 살펴볼 신호가 있는 학생이 앞에 와요</p>
+      <p className="px-2 pb-1 text-xs text-soft">학생 고르기 · <Doodle name="dotYellow" /> 살펴볼 신호가 있는 학생이 앞에 와요</p>
       {/* 가로 스크롤 없이 여러 줄로(25명이면 넓은 화면 두세 줄) */}
       <div className="flex flex-wrap gap-1.5" role="listbox" aria-label="학생">
         {order.map((s) => (
@@ -27,7 +28,7 @@ export function StudentStrip({ data, no, onPick, nameOf }: { data: Overview; no:
           >
             <BuddyFace look={data.looks[s.no]} emotion={last(s.no)?.word || last(s.no)?.emotion} size={22} />
             {s.no} {nameOf(s.no)}
-            {flagged.has(s.no) && <span aria-label="살펴볼 신호">🟡</span>}
+            {flagged.has(s.no) && <span aria-label="살펴볼 신호"><Doodle name="dotYellow" /></span>}
           </button>
         ))}
       </div>
@@ -47,7 +48,7 @@ export function RefPanel({ data, no, nameOf }: { data: Overview; no: number; nam
         <BuddyFace look={data.looks[no]} emotion={last?.word || last?.emotion} size={40} />
         {no}번 {nameOf(no)} · 최근 2주
       </h2>
-      {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm">🟡 {r}</p>)}
+      {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
       <ReflectBox reflects={data.reflects} no={no} />
       <Timeline records={data.records.filter((r) => r.no === no)} today={data.today} />
     </section>

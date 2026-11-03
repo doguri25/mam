@@ -36,7 +36,7 @@ export function useLocal(key: string): [string, (v: string) => void] {
   return [v, (next: string) => write(key, next)];
 }
 
-// 읽어 주기: 켜져 있을 때만 말한다(🔊 버튼은 force로 늘 말함)
+// 읽어 주기: 켜져 있을 때만 말한다(스피커 그림 단추는 force로 늘 말함)
 export function speak(text: string, force = false, lang: Lang = "ko") {
   if ((!force && read("mb_read") !== "1") || typeof speechSynthesis === "undefined") return;
   speechSynthesis.cancel();

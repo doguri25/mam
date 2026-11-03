@@ -4,10 +4,10 @@ import { DEFAULT_LOOK, type BuddyLook } from "@/lib/shared";
 import BuddyArt from "./buddy/BuddyArt";
 import { exprOf, moodOf, pose } from "./buddy/expr";
 
-export default function BuddyFace({ look = DEFAULT_LOOK, emotion, size = 40, className }: { look?: BuddyLook; emotion?: string; size?: number; className?: string }) {
+export default function BuddyFace({ look = DEFAULT_LOOK, emotion, size = 40, className, aura, label }: { look?: BuddyLook; emotion?: string; size?: number; className?: string; aura?: boolean; label?: string }) {
   const expr = exprOf(emotion);
   const p = { ...pose({ t: 0, expr, intensity: 3, cheer: null, hard: false }), x: 0, y: 0, rot: 0, sx: 1, sy: 1, shadow: 1, blink: 0 };
   return (
-    <BuddyArt look={look} mood={moodOf(emotion)} expr={expr} pose={p} t={0.4} boil={0} detail={size < 48 ? "tiny" : size < 110 ? "small" : "full"} size={size} className={className} />
+    <BuddyArt look={look} mood={moodOf(emotion)} expr={expr} pose={p} t={0.4} boil={0} detail={size < 48 ? "tiny" : size < 110 ? "small" : "full"} size={size} className={className} aura={aura} label={label} />
   );
 }

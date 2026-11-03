@@ -2,6 +2,7 @@
 // 가정 소식지: 이번 주 우리 반 마음(이름 없이 반 전체)·배운 감정 단어·교실 활동·집에서 해 볼 마음 놀이·선생님 한마디를
 // 한 장으로. 선생님이 고르고 고친 내용만 담고 자동으로 보내지 않는다. 이주배경학생 가정용 번역본도 만들 수 있다.
 import { useState } from "react";
+import Doodle from "../Doodle";
 import type { Overview } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
@@ -59,15 +60,15 @@ export default function NewsletterTab({ data }: { data: Overview }) {
   return (
     <div className="space-y-4">
       <div className="no-print relative flex flex-wrap items-center gap-2">
-        <button onClick={() => window.print()} className="btn-main">🖨️ 인쇄·PDF 저장</button>
-        <button onClick={() => navigator.clipboard?.writeText(translated || whole)} className="btn-sub">📋 글자 복사(알림장·문자용)</button>
+        <button onClick={() => window.print()} className="btn-main"><Doodle name="printer" /> 인쇄·PDF 저장</button>
+        <button onClick={() => navigator.clipboard?.writeText(translated || whole)} className="btn-sub"><Doodle name="clipboard" /> 글자 복사(알림장·문자용)</button>
         <select value={lang} onChange={(e) => setLang(e.target.value as Exclude<Lang, "ko">)} className="field min-h-12 w-auto" aria-label="번역할 언어">
           {LANGS.filter((l) => l.id !== "ko").map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
         </select>
         {/* 설명은 단추에 커서를 올리거나(태블릿은 눌러 초점) 할 때만 말풍선으로. 단추 줄 왼쪽에 붙여 화면 밖으로 나가지 않게 */}
         <span className="group">
           <button onClick={translate} disabled={busy} aria-describedby="translate-tip" className="btn-sub">
-            {busy ? "번역하는 중…" : "🌐 이주배경학생 가정용 번역본"}
+            {busy ? "번역하는 중…" : <><Doodle name="globe" /> 이주배경학생 가정용 번역본</>}
           </button>
           <span
             id="translate-tip"

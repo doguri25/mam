@@ -1,6 +1,7 @@
 "use client";
 // 이 기기에서 위험 표현 알림 받기(웹 푸시). 아이폰은 Safari에서 「홈 화면에 추가」한 앱에서만 된다(iOS 16.4+).
 import { useEffect, useState } from "react";
+import Doodle from "../Doodle";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 
@@ -66,7 +67,7 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
 
   return (
     <section className="card space-y-3">
-      <h2 className="font-display text-xl">📱 휴대폰으로 위험 표현 알림 받기</h2>
+      <h2 className="font-display text-xl"><Doodle name="phone" /> 휴대폰으로 위험 표현 알림 받기</h2>
       <p className="text-sm text-soft">
         학생 기록에 위험 표현이 들어오면 이 기기에 바로 알림이 떠요. 알림에는 <b>번호만</b> 담기고 이름·글은 담기지 않아요(알림은 구글·애플 서버를 거쳐요).
         지금 알림 받는 기기: <b>{devices}대</b>

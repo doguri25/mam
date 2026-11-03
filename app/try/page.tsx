@@ -2,8 +2,11 @@
 // 심사용 체험 입구: 비밀번호·학생 코드 없이 가짜 반으로 바로 들어가 선생님·학생·교실 TV를 모두 눌러 본다.
 import Link from "next/link";
 import { useState } from "react";
+import BuddyFace from "@/components/BuddyFace";
+import Doodle from "@/components/Doodle";
 import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
+import { DEFAULT_LOOK } from "@/lib/shared";
 
 type Kid = { no: number; alias: string; code: string };
 
@@ -33,7 +36,7 @@ export default function TryPage() {
     <main className="mx-auto flex min-h-dvh max-w-4xl flex-col gap-6 px-5 py-8">
       <header className="flex flex-col items-center gap-3 text-center">
         <BuddyLazy emotion="기뻐요" size={160} className="size-36 sm:size-40" scene />
-        <p className="rounded-full bg-sun/30 px-4 py-1 text-sm font-bold">🧪 심사·둘러보기용 체험</p>
+        <p className="rounded-full bg-sun/30 px-4 py-1 text-sm font-bold"><Doodle name="flask" /> 심사·둘러보기용 체험</p>
         <h1 className="font-display text-4xl sm:text-5xl">마음빛 길잡이 체험하기</h1>
         <p className="max-w-xl text-lg text-soft">
           비밀번호나 학생 코드 없이 <b className="text-ink">가짜 반(가명 25명, 최근 7일 기록)</b>으로 바로 들어가요.
@@ -51,17 +54,17 @@ export default function TryPage() {
         <>
           <section className="grid gap-4 md:grid-cols-3">
             <Link href="/teacher?try" className="card flex flex-col gap-2 hover:border-leaf">
-              <span className="text-4xl" aria-hidden>👩‍🏫</span>
+              <BuddyFace look={{ ...DEFAULT_LOOK, color: "#7cc88f", shape: "bean", eyes: "dot", acc: "glasses" }} emotion="기뻐요" size={60} aura={false} />
               <span className="font-display text-2xl">선생님으로 둘러보기</span>
               <span className="text-sm text-soft">마음 지도 · 응원 한마디 · 공감 쪽지 검토 · 상담 의견서 · 주간 리포트 · 가정 소식지</span>
             </Link>
             <a href="/teacher/tv" target="_blank" rel="noopener" className="card flex flex-col gap-2 hover:border-leaf">
-              <span className="text-4xl" aria-hidden>📺</span>
+              <Doodle name="tv" size={56} className="block" />
               <span className="font-display text-2xl">교실 TV 화면</span>
               <span className="text-sm text-soft">아침 조회 때 띄우는 「우리 반 마음 날씨」(이름 없이 숫자만)</span>
             </a>
             <div className="card flex flex-col gap-2">
-              <span className="text-4xl" aria-hidden>🧒</span>
+              <BuddyFace look={{ ...DEFAULT_LOOK, color: "#f6c445", acc: "sprout" }} emotion="신나요" size={60} aura={false} />
               <span className="font-display text-2xl">학생으로 해 보기</span>
               <span className="text-sm text-soft">태블릿으로 열면 실제 교실과 같아요. 학생을 골라 들어가요.</span>
             </div>

@@ -1,4 +1,5 @@
 // 학생 한 명의 최근 2주: 날마다 아침·하교 전 두 칸
+import Doodle from "../Doodle";
 import { EmotionArt, EMOTION_COLOR } from "../Art";
 import { addDays, label } from "@/lib/date";
 import { CALM_KO, FELT_KO, type MoodRecord } from "@/lib/shared";
@@ -18,16 +19,16 @@ function Cell({ r }: { r?: MoodRecord }) {
         {r.risk && <span className="ml-1 rounded bg-alert px-1.5 text-xs text-white">위험 표현</span>}
         {r.tone && (
           <span className="ml-1 rounded-full px-1.5 text-xs text-white" style={{ background: TONE_COLOR[r.tone] ?? "#888" }} title={r.toneWhy}>
-            🎙 {r.tone}{r.toneBy === "gemini" ? "·G" : ""}
+            <Doodle name="mic" /> {r.tone}{r.toneBy === "gemini" ? "·G" : ""}
           </span>
         )}
-        {r.lang && r.lang !== "ko" && <span className="ml-1 rounded-full bg-paper px-1.5 text-xs">🌐 {LANG_KO[r.lang] ?? r.lang}</span>}
+        {r.lang && r.lang !== "ko" && <span className="ml-1 rounded-full bg-paper px-1.5 text-xs"><Doodle name="globe" /> {LANG_KO[r.lang] ?? r.lang}</span>}
         {r.summaryKo && <span className="block text-sm">“{r.summaryKo}”</span>}
         {r.summary && <span className={`block text-sm ${r.summaryKo ? "text-soft" : ""}`}>{r.summaryKo ? `원문: ${r.summary}` : `“${r.summary}”`}</span>}
         {r.answer && <span className="block text-sm text-soft">↳ {r.question} — {r.answer}</span>}
         {r.calm?.map((c) => (
           <span key={c.at} className={`mr-1 mt-1 inline-block rounded-full px-2 py-0.5 text-xs ${c.felt === "better" ? "bg-leaf-soft text-leaf" : "bg-paper text-soft"}`}>
-            🧰 {CALM_KO[c.tool]} → {FELT_KO[c.felt]}
+            <Doodle name="calm" /> {CALM_KO[c.tool]} → {FELT_KO[c.felt]}
           </span>
         ))}
       </span>
@@ -43,8 +44,8 @@ export default function Timeline({ records, today, days = 14 }: { records: MoodR
       <thead className="text-soft">
         <tr>
           <th className="w-24 py-1 font-normal">날짜</th>
-          <th className="py-1 font-normal">☀️ 아침</th>
-          <th className="py-1 font-normal">🌇 하교 전</th>
+          <th className="py-1 font-normal"><Doodle name="sun" /> 아침</th>
+          <th className="py-1 font-normal"><Doodle name="sunset" /> 하교 전</th>
         </tr>
       </thead>
       <tbody>

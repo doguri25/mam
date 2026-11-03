@@ -1,6 +1,7 @@
 "use client";
 // 한 주 돌아보기: 이번 주(월요일부터) 내 마음 스티커를 보고 「이번 주 나는…」 한 줄을 쓰면 마음 친구가 답한다.
 import { useEffect, useState } from "react";
+import Doodle from "@/components/Doodle";
 import { EmotionArt } from "@/components/Art";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
@@ -58,7 +59,7 @@ export default function WeekPage() {
                   <p className="text-sm font-bold text-soft">{WEEKDAYS[lang][new Date(`${d}T00:00:00Z`).getUTCDay()]} {Number(d.slice(8))}</p>
                   {recs.length ? recs.map((r) => (
                     <span key={r.id} className="flex flex-col items-center">
-                      <EmotionArt name={r.emotion} size={48} />
+                      <EmotionArt name={r.word || r.emotion} size={48} />
                       <span className="text-center text-xs leading-tight">{w(lang, r.word || r.emotion)}</span>
                     </span>
                   )) : <span className="py-4 text-line">·</span>}
@@ -80,7 +81,7 @@ export default function WeekPage() {
                 <p className="text-sm font-bold text-leaf">{tt("weekReply")}</p>
                 <p className="mt-1 text-xl leading-relaxed">{week.reflect.reply}</p>
               </div>
-              <button onClick={() => { setText(""); setEditing(true); }} className="btn-sub">✏️ {tt("weekPrompt")}</button>
+              <button onClick={() => { setText(""); setEditing(true); }} className="btn-sub"><Doodle name="pencil" size={22} /> {tt("weekPrompt")}</button>
             </>
           ) : (
             <>

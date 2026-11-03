@@ -1,6 +1,7 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
 import { useState } from "react";
+import Doodle from "../Doodle";
 import PinCard from "./PinCard";
 import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
@@ -154,7 +155,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       <section className="card space-y-3">
         <h2 className="font-display text-xl">기록 내보내기 · 보관</h2>
         <p className="text-sm text-soft">모든 기록을 엑셀에서 열 수 있는 CSV로 받아요(가명 기준, 녹음·목소리 숫자는 빠짐). 학년도가 끝나면 내보낸 뒤 「자세한 설정」의 「모두 지우기」로 지워 주세요.</p>
-        <button onClick={exportCsv} className="btn-sub">⬇️ 기록 CSV 내보내기</button>
+        <button onClick={exportCsv} className="btn-sub"><Doodle name="download" /> 기록 CSV 내보내기</button>
         <span className="ml-3 text-sm">{msg.export}</span>
       </section>
 
@@ -165,7 +166,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       {adv && <>
       <PushCard data={data} reload={reload} />
       <section className="card space-y-3">
-        <h2 className="font-display text-xl">🎙 말투(목소리 기운) 살피기</h2>
+        <h2 className="font-display text-xl"><Doodle name="mic" /> 말투(목소리 기운) 살피기</h2>
         <p className="text-sm text-soft">말하기로 남긴 기록에 「들떠 있음·차분함·가라앉음」 같은 목소리 기운을 더해요. 선생님 화면에만 보이고, 감정을 단정하는 데 쓰지 않아요.</p>
         <div className="grid gap-2 md:grid-cols-3">
           {([

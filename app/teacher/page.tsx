@@ -3,6 +3,7 @@
 // 마음 지도 · 응원 한마디 · 공감 쪽지 · 상담 의견서 · 학생별 누적 기록 · 학급 역량 진단 · 주간 리포트 · 가정 소식지 · 교과서 연결 · 활동지 피드백 · 학생 코드 · 설정 · 사용 설명서
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Doodle, { type DoodleName } from "@/components/Doodle";
 import CheerTab from "@/components/teacher/CheerTab";
 import GuideTab from "@/components/teacher/GuideTab";
 import LessonTab from "@/components/teacher/LessonTab";
@@ -23,14 +24,13 @@ import { useLocal, useNames } from "@/lib/local";
 import { absentStudents, watchFlags } from "@/lib/rules";
 import type { MoodRecord } from "@/lib/shared";
 
-// 메뉴: [탭, 그림, 이름]. 날마다·주마다 쓰는 것만 늘 보이고, 가끔 쓰는 것은 「더 보기」 안에(기능은 그대로).
-const MAIN: [Tab, string, string][] = [
-  ["map", "🗺️", "마음 지도"], ["cheer", "💌", "응원 한마디"], ["letters", "✉️", "공감 쪽지"],
-  ["student", "📒", "학생별 누적 기록"], ["sel", "🧭", "학급 역량 진단"], ["report", "📄", "주간 리포트"],
-];
-const MORE: [Tab, string, string][] = [
-  ["referral", "📝", "상담 의견서"], ["home", "🏠", "가정 소식지"], ["lesson", "📚", "교과서 연결"], ["sheet", "🖍️", "활동지 피드백"],
-  ["roster", "🔑", "학생 코드·QR"], ["settings", "⚙️", "설정"], ["guide", "📘", "사용 설명서"],
+// 메뉴 묶음: [탭, 그림, 이름]. 세로 화면에서도 한눈에 다 보이게 모두 펼쳐 둔다.
+const NAV: { title: string; items: [Tab, DoodleName, string][] }[] = [
+  { title: "오늘", items: [["map", "map", "마음 지도"]] },
+  { title: "아이 돌보기", items: [["cheer", "letter", "응원 한마디"], ["letters", "envelope", "공감 쪽지"], ["referral", "memo", "상담 의견서"]] },
+  { title: "기록·소통", items: [["student", "notebook", "학생별 누적 기록"], ["sel", "compass", "학급 역량 진단"], ["report", "page", "주간 리포트"], ["home", "house", "가정 소식지"]] },
+  { title: "수업", items: [["lesson", "books", "교과서 연결"], ["sheet", "crayon", "활동지 피드백"]] },
+  { title: "관리", items: [["roster", "key", "학생 코드·QR"], ["settings", "gear", "설정"], ["guide", "book", "사용 설명서"]] },
 ];
 const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
 type Tab = (typeof TAB_IDS)[number];
@@ -64,7 +64,6 @@ export default function TeacherPage() {
   const [tabRaw, setTabRaw] = useLocal("mb_tab"); // 다시 열어도 보던 메뉴 그대로
   const tab: Tab = (TAB_IDS as readonly string[]).includes(tabRaw) ? (tabRaw as Tab) : "map";
   const [drawer, setDrawer] = useState(false);
-  const [moreRaw, setMore] = useLocal("mb_more"); // 「더 보기」를 펼쳐 둔 채로 기억
   const setTab = (t: Tab) => {
     setTabRaw(t === "map" ? "" : t);
     setDrawer(false);
@@ -160,44 +159,43 @@ export default function TeacherPage() {
     map: data.records.filter((r) => r.risk && !r.riskChecked).length,
     letters: data.letters.filter((l) => l.status === "wait").length,
   };
-  const current = [...MAIN, ...MORE].find(([id]) => id === tab)!;
-  const moreOpen = moreRaw === "1" || MORE.some(([id]) => id === tab);
-  const item = ([id, icon, name]: [Tab, string, string]) => (
-    <li key={id}>
-      <button
-        onClick={() => setTab(id)}
-        aria-current={tab === id ? "page" : undefined}
-        className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left font-bold ${tab === id ? "bg-leaf text-white" : "text-ink hover:bg-paper"}`}
-      >
-        <span aria-hidden>{icon}</span>
-        <span className="flex-1">{name}</span>
-        {!!badge[id] && <span className={`rounded-full px-2 text-xs ${tab === id ? "bg-white text-leaf" : "bg-alert text-white"}`}>{badge[id]}</span>}
-      </button>
-    </li>
-  );
+  const current = NAV.flatMap((g) => g.items).find(([id]) => id === tab)!;
 
   const menu = (
     <nav aria-label="선생님 메뉴" className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div>
         <p className="font-display text-xl text-leaf">마음빛 길잡이</p>
         <p className="text-sm text-soft">{data.settings.className} · {data.account}</p>
-        {data.trial && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">🧪 심사용 체험</p>}
+        {data.trial && <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-sun/30 px-2 py-0.5 text-xs"><Doodle name="flask" /> 심사용 체험</p>}
         {!data.trial && basePrefix(data) && basePrefix(data) !== "maeumbit_" && <p className="mt-1 inline-block rounded-full bg-sun/30 px-2 py-0.5 text-xs">이 컴퓨터 연습 공간</p>}
       </div>
-      <ul className="space-y-1">
-        {MAIN.map(item)}
-        <li>
-          <a href="/teacher/tv" target="_blank" rel="noopener" className="flex min-h-11 items-center gap-3 rounded-xl px-3 font-bold hover:bg-paper">
-            <span aria-hidden>📺</span><span className="flex-1">교실 화면</span><span aria-hidden className="text-xs text-soft">↗</span>
-          </a>
-        </li>
-      </ul>
-      <div>
-        <button onClick={() => setMore(moreOpen ? "" : "1")} aria-expanded={moreOpen} className="flex min-h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-bold text-soft hover:bg-paper">
-          <span className="flex-1 text-left">더 보기 · 수업·관리</span><span aria-hidden>{moreOpen ? "▴" : "▾"}</span>
-        </button>
-        {moreOpen && <ul className="mt-1 space-y-1">{MORE.map(item)}</ul>}
-      </div>
+      {NAV.map((g) => (
+        <div key={g.title}>
+          <p className="mb-1 px-2 text-xs font-bold text-soft">{g.title}</p>
+          <ul className="space-y-1">
+            {g.items.map(([id, icon, name]) => (
+              <li key={id}>
+                <button
+                  onClick={() => setTab(id)}
+                  aria-current={tab === id ? "page" : undefined}
+                  className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left font-bold ${tab === id ? "bg-leaf text-white" : "text-ink hover:bg-paper"}`}
+                >
+                  <Doodle name={icon} size={24} />
+                  <span className="flex-1">{name}</span>
+                  {!!badge[id] && <span className={`rounded-full px-2 text-xs ${tab === id ? "bg-white text-leaf" : "bg-alert text-white"}`}>{badge[id]}</span>}
+                </button>
+              </li>
+            ))}
+            {g.title === "오늘" && (
+              <li>
+                <a href="/teacher/tv" target="_blank" rel="noopener" className="flex min-h-11 items-center gap-3 rounded-xl px-3 font-bold hover:bg-paper">
+                  <Doodle name="tv" size={24} /><span className="flex-1">교실 화면</span><span aria-hidden className="text-xs text-soft">↗</span>
+                </a>
+              </li>
+            )}
+          </ul>
+        </div>
+      ))}
       <div className="mt-auto space-y-2 border-t border-line pt-3">
         {names.raw.trim() && (
           <button onClick={() => names.setOn(!names.on)} aria-pressed={names.on} className={`btn-sub min-h-10 w-full text-sm ${names.on ? "border-leaf bg-leaf-soft" : ""}`}>
@@ -206,7 +204,7 @@ export default function TeacherPage() {
         )}
         <div className="grid grid-cols-2 gap-2">
           <Link href="/" className="btn-sub min-h-10 px-2 text-sm">학생 화면</Link>
-          <button onClick={lock} className="btn-sub min-h-10 px-2 text-sm">🔒 잠그기</button>
+          <button onClick={lock} className="btn-sub min-h-10 px-2 text-sm"><Doodle name="lock" size={18} /> 잠그기</button>
         </div>
       </div>
     </nav>
@@ -228,22 +226,22 @@ export default function TeacherPage() {
           <button onClick={() => setDrawer(true)} className="btn-sub relative min-h-11 px-3 text-lg" aria-label="메뉴 열기">
             ☰{(badge.map || badge.letters) ? <span className="absolute -right-1 -top-1 size-3 rounded-full bg-alert" /> : null}
           </button>
-          <p className="min-w-0 flex-1 truncate font-display text-xl">{current[1]} {current[2]}</p>
-          <a href="/teacher/tv" target="_blank" rel="noopener" className="btn-sub min-h-11 px-3 text-sm" aria-label="교실 화면">📺</a>
+          <p className="flex min-w-0 flex-1 items-center gap-2 font-display text-xl"><Doodle name={current[1]} size={26} /><span className="truncate">{current[2]}</span></p>
+          <a href="/teacher/tv" target="_blank" rel="noopener" className="btn-sub min-h-11 px-3 text-sm" aria-label="교실 화면"><Doodle name="tv" size={24} /></a>
         </header>
         <main className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-6">
-          <h1 className="no-print mb-4 hidden font-display text-3xl lg:block">{current[1]} {current[2]}</h1>
+          <h1 className="no-print mb-4 hidden items-center gap-3 font-display text-3xl lg:flex"><Doodle name={current[1]} size={38} />{current[2]}</h1>
           {data.trial ? (
             <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-3 text-sm">
               <span>
-                🧪 <b>심사용 체험 반</b>이에요. 가짜 학생 25명·최근 7일 기록이고 실제 반과는 따로예요.{" "}
+                <Doodle name="flask" /> <b>심사용 체험 반</b>이에요. 가짜 학생 25명·최근 7일 기록이고 실제 반과는 따로예요.{" "}
                 {data.trial.aiSource === "none" ? "AI 키가 없어 기본 질문으로 움직여요." : `AI(${data.trial.aiSource === "trial" ? "체험 전용 키" : "실제 반 키를 빌려 씀"})는 오늘 ${data.trial.aiUsed}/${data.trial.aiCap}번 썼어요.`}
               </span>
               <Link href="/try" className="btn-sub min-h-9 px-3 text-sm">체험 안내 · 끝내기</Link>
             </div>
           ) : data.demo && (
             <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-3 text-sm">
-              <span>🧪 <b>연습용(시연) 데이터</b>가 들어 있어요. 가짜 학생·기록이라 실제 반 기록과 섞이지 않게, 실제로 시작할 때 지워 주세요.</span>
+              <span><Doodle name="flask" /> <b>연습용(시연) 데이터</b>가 들어 있어요. 가짜 학생·기록이라 실제 반 기록과 섞이지 않게, 실제로 시작할 때 지워 주세요.</span>
               <button onClick={clearDemo} className="btn-sub min-h-9 px-3 text-sm">연습 데이터 지우기</button>
             </div>
           )}
@@ -303,7 +301,7 @@ function Login({ onDone }: { onDone: () => Promise<void> }) {
   return (
     <main className="grid min-h-dvh place-items-center px-5 py-8">
       <form onSubmit={submit} className="card w-full max-w-sm space-y-4 text-center">
-        <p className="text-4xl">{signup ? "🏫" : "🔒"}</p>
+        <Doodle name={signup ? "school" : "lock"} size={56} className="mx-auto block" />
         <h1 className="font-display text-2xl">{signup ? "새 학급 만들기" : "선생님 관리 화면"}</h1>
         <label htmlFor="tname" className="block text-left">
           <span className="text-sm font-bold">이름</span>

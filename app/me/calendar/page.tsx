@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Doodle from "@/components/Doodle";
 import { api } from "@/lib/api";
 import { WEEKDAYS, isLang, t, w, type Lang } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
@@ -88,8 +89,8 @@ export default function Calendar() {
                 <span className="text-xs text-ink">{Number(date.slice(8))}</span>
                 {/* 아침·하교 전 두 얼굴을 나란히, 겹치지 않게 */}
                 <span className="flex h-5 items-center gap-px sm:h-7 sm:gap-1">
-                  {am && <EmotionArt name={am.emotion} size={20} className="sm:size-7" />}
-                  {pm && <EmotionArt name={pm.emotion} size={20} className="sm:size-7" />}
+                  {am && <EmotionArt name={am.word || am.emotion} size={20} className="sm:size-7" />}
+                  {pm && <EmotionArt name={pm.word || pm.emotion} size={20} className="sm:size-7" />}
                   {!am && !pm && <span className="text-line">·</span>}
                 </span>
               </button>
@@ -103,9 +104,9 @@ export default function Calendar() {
           {picked.length ? (
             picked.map((r) => (
               <div key={r.id} className="mt-3 flex items-start gap-3">
-                <EmotionArt name={r.emotion} size={44} />
+                <EmotionArt name={r.word || r.emotion} size={44} />
                 <p>
-                  {r.slot === "am" ? `☀️ ${w(lang, "아침")}` : `🌇 ${w(lang, "하교 전")}`} · <b>{w(lang, r.emotion)}</b>{r.word && <> · {w(lang, r.word)}</>} · {w(lang, r.reason)}
+                  <Doodle name={r.slot === "am" ? "sun" : "sunset"} /> {w(lang, r.slot === "am" ? "아침" : "하교 전")} · <b>{w(lang, r.emotion)}</b>{r.word && <> · {w(lang, r.word)}</>} · {w(lang, r.reason)}
                   {r.summary && <span className="block text-soft">“{r.summary}”</span>}
                 </p>
               </div>

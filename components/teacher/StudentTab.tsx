@@ -2,6 +2,7 @@
 // 학생별 누적 기록: 한 학생의 처음부터 지금까지 — 마음 기록 수·감정 흐름(전체·달마다)·써 본 감정 단어·까닭·마음 다스리기,
 // 활동지 피드백(사회정서 4대 역량), 한 주 돌아보기, 공감 쪽지, 응원·면담 메모, 날마다 기록. 상담·학부모 면담 전에 한 장으로 본다.
 import { useEffect, useState } from "react";
+import Doodle from "../Doodle";
 import BuddyFace from "../BuddyFace";
 import { StudentStrip } from "./StudentPick";
 import Timeline from "./Timeline";
@@ -83,7 +84,7 @@ function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: numbe
           <h2 className="font-display text-2xl">{no}번 {nameOf(no)} · 누적 기록</h2>
           <p className="text-sm text-soft">{first ? `${label(first)} ~ ${label(last!)} · ${days}일 기록` : "아직 마음 기록이 없어요."}</p>
         </div>
-        <button onClick={() => window.print()} className="no-print btn-sub">🖨️ 인쇄·PDF 저장</button>
+        <button onClick={() => window.print()} className="no-print btn-sub"><Doodle name="printer" /> 인쇄·PDF 저장</button>
       </section>
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6" aria-label="모아 보기">
@@ -153,7 +154,7 @@ function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: numbe
       </div>
 
       <section className="card space-y-3">
-        <h3 className="font-display text-xl">🖍️ 활동지 피드백 <span className="text-base text-soft">· 사회정서교육 4대 핵심역량</span></h3>
+        <h3 className="font-display text-xl"><Doodle name="crayon" /> 활동지 피드백 <span className="text-base text-soft">· 사회정서교육 4대 핵심역량</span></h3>
         {!all.sheets.length ? <p className="text-soft">아직 이 학생의 활동지 피드백이 없어요. 「활동지 피드백」에서 스캔한 활동지를 올려 보세요.</p> : (
           <>
             <ul className="grid gap-x-6 gap-y-2 md:grid-cols-2" aria-label="역량별로 잘 드러난 점">
@@ -174,15 +175,15 @@ function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: numbe
                 <li key={`${x.runId}-${x.no}`} className="space-y-1 py-3 text-sm">
                   <p><b>{label(x.date)} · {x.topic}</b></p>
                   <p className="flex flex-wrap gap-1">
-                    {x.strengths.map((p, i) => <span key={i} className="rounded-full bg-leaf-soft px-2 py-0.5 text-xs font-bold text-leaf">👍 {p.area}</span>)}
-                    {x.grow.map((p, i) => <span key={i} className="rounded-full bg-paper px-2 py-0.5 text-xs">🌱 {p.area}</span>)}
+                    {x.strengths.map((p, i) => <span key={i} className="rounded-full bg-leaf-soft px-2 py-0.5 text-xs font-bold text-leaf"><Doodle name="thumb" /> {p.area}</span>)}
+                    {x.grow.map((p, i) => <span key={i} className="rounded-full bg-paper px-2 py-0.5 text-xs"><Doodle name="sprout" /> {p.area}</span>)}
                   </p>
-                  <p>💬 {x.toStudent}</p>
-                  {x.check && <p className="font-bold text-alert">🚨 {x.check}</p>}
+                  <p><Doodle name="speech" /> {x.toStudent}</p>
+                  {x.check && <p className="font-bold text-alert"><Doodle name="siren" /> {x.check}</p>}
                   <details className="text-soft">
                     <summary className="cursor-pointer">읽은 내용·이렇게 쓴 이유</summary>
-                    <p className="mt-1">📖 {x.read}</p>
-                    <p className="mt-1">🧭 {x.why}</p>
+                    <p className="mt-1"><Doodle name="bookOpen" /> {x.read}</p>
+                    <p className="mt-1"><Doodle name="compass" /> {x.why}</p>
                   </details>
                 </li>
               ))}
@@ -215,13 +216,13 @@ function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: numbe
           )}
         </section>
         <section className="card space-y-2">
-          <h3 className="font-display text-xl">💌 전한 응원</h3>
+          <h3 className="font-display text-xl"><Doodle name="letter" /> 전한 응원</h3>
           {!all.cheers.length ? <p className="text-sm text-soft">아직 없어요.</p> : all.cheers.map((c) => (
             <p key={c.id} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0"><span className="text-xs text-soft">{c.createdAt.slice(0, 10)}</span><br />{c.text}</p>
           ))}
         </section>
         <section className="card space-y-2">
-          <h3 className="font-display text-xl">📝 면담 메모 <span className="text-sm text-soft">(선생님만)</span></h3>
+          <h3 className="font-display text-xl"><Doodle name="memo" /> 면담 메모 <span className="text-sm text-soft">(선생님만)</span></h3>
           {!all.notes.length ? <p className="text-sm text-soft">아직 없어요.</p> : all.notes.map((c) => (
             <p key={c.id} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0"><span className="text-xs text-soft">{c.createdAt.slice(0, 10)}</span><br />{c.text}</p>
           ))}

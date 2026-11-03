@@ -95,6 +95,8 @@ export const EXPR: Record<string, Expr> = {
 export const NEUTRAL: Expr = E("open", "soft", "smile", 0.4, [], "idle", "rest");
 
 const PARENT: Record<string, string> = Object.fromEntries(Object.entries(NUANCE).flatMap(([p, ws]) => ws.map((w) => [w, p])));
+// 더 꼭 맞는 말 → 큰 감정(큰 감정이면 그대로)
+export const parentOf = (emotion: string) => PARENT[emotion] ?? emotion;
 export function exprOf(emotion?: string): Expr {
   if (!emotion) return NEUTRAL;
   return EXPR[emotion] ?? EXPR[PARENT[emotion]] ?? EXPR[{ joy: "기뻐요", calm: "편안해요", sad: "슬퍼요", angry: "화나요", fear: "걱정돼요" }[groupOf(emotion)]];

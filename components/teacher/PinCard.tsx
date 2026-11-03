@@ -1,6 +1,7 @@
 "use client";
 // 선생님 비밀번호 바꾸기: 숫자 4~12자리. 바꾸면 다른 기기의 선생님 화면은 잠기고, 이 기기만 계속 열려 있다.
 import { useState } from "react";
+import Doodle from "../Doodle";
 import { api } from "@/lib/api";
 
 export default function PinCard({ pinSet }: { pinSet: boolean }) {
@@ -44,7 +45,7 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
 
   return (
     <section className="card space-y-3">
-      <h2 className="font-display text-xl">🔒 선생님 비밀번호 바꾸기</h2>
+      <h2 className="font-display text-xl"><Doodle name="lock" /> 선생님 비밀번호 바꾸기</h2>
       {!pinSet && (
         <p className="rounded-2xl bg-[#fff8e1] p-3 text-sm">아직 처음 비밀번호를 쓰고 있어요. 학생들이 모르는 숫자로 바꿔 주세요.</p>
       )}

@@ -1,6 +1,7 @@
 "use client";
 // 주간 리포트: A4 한 장으로 인쇄(브라우저 인쇄 → PDF 저장도 됨). 기본은 학생을 번호로만 표시.
 import { useState } from "react";
+import Doodle from "../Doodle";
 import { Bars, Legend } from "./Weather";
 import type { NameOf, Overview, Reload, Weekly } from "./types";
 import { api } from "@/lib/api";
@@ -46,7 +47,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
           <input type="checkbox" checked={onlyNo} onChange={(e) => setOnlyNo(e.target.checked)} className="size-4 accent-leaf" />
           학생은 번호로만 표시(밖으로 내보낼 때 권장)
         </label>
-        <button onClick={() => window.print()} className="btn-main">🖨️ A4로 인쇄·PDF 저장</button>
+        <button onClick={() => window.print()} className="btn-main"><Doodle name="printer" /> A4로 인쇄·PDF 저장</button>
       </div>
 
       <article className="card mx-auto max-w-[210mm] space-y-5 bg-white p-8 print:border-0 print:p-0">
@@ -67,7 +68,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
 
         <section className="rounded-2xl border-2 border-leaf/40 bg-leaf-soft/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-bold">✨ 이번 주 마음 요약 · 다음 주 활동 추천</h3>
+            <h3 className="font-bold"><Doodle name="sparkle" /> 이번 주 마음 요약 · 다음 주 활동 추천</h3>
             <button onClick={makeWeekly} disabled={busy} className="no-print btn-sub min-h-9 px-3 text-sm">{busy ? "만드는 중…" : weekly ? "다시 만들기" : "AI로 만들기"}</button>
           </div>
           {err && <p className="mt-1 text-sm text-alert">{err}</p>}
@@ -93,7 +94,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
           <h3 className="mb-2 font-bold">우리 반 감정 단어가 자라요</h3>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="rounded-xl border border-line px-3 py-1.5">이번 주 쓴 감정 단어 <b className="text-lg">{wordsNow.length}</b>가지</span>
-            <span className="rounded-xl border border-line px-3 py-1.5 text-soft">지난주 {wordsPrev}가지 {wordsNow.length > wordsPrev ? `→ ${wordsNow.length - wordsPrev}가지 늘었어요 🌱` : ""}</span>
+            <span className="rounded-xl border border-line px-3 py-1.5 text-soft">지난주 {wordsPrev}가지 {wordsNow.length > wordsPrev && <>→ {wordsNow.length - wordsPrev}가지 늘었어요 <Doodle name="sprout" /></>}</span>
           </div>
           {wordsNow.length > 0 && (
             <p className="mt-2 flex flex-wrap gap-1.5 text-sm">
@@ -105,7 +106,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
         </section>
 
         <section>
-          <h3 className="mb-2 font-bold">🧰 마음 다스리기 (힘들 때 써 본 도구)</h3>
+          <h3 className="mb-2 font-bold"><Doodle name="calm" /> 마음 다스리기 (힘들 때 써 본 도구)</h3>
           {Object.keys(calm).length ? (
             <p className="flex flex-wrap gap-2 text-sm">
               {Object.entries(calm).map(([tool, c]) => (

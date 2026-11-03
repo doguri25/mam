@@ -1,6 +1,7 @@
 "use client";
 // 응원 한마디: 위 학생 명단 → 왼쪽 최근 2주 기록(고정)을 보며 오른쪽에서 AI 초안을 고쳐 복사·저장 (학생에게 자동으로 보내지 않음)
 import { useState } from "react";
+import Doodle from "../Doodle";
 import Notes from "./Notes";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview, Reload } from "./types";
@@ -42,7 +43,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
     <div className="space-y-4">
       <StudentStrip data={data} no={no} nameOf={nameOf} onPick={(n) => { setNo(n); setDrafts([]); setText(""); setMsg(""); }} />
       {!s ? (
-        <div className="card text-soft">위에서 학생을 골라 주세요. 🟡 표시는 이번 주 먼저 살펴볼 학생이에요.</div>
+        <div className="card text-soft">위에서 학생을 골라 주세요. <Doodle name="dotYellow" /> 표시는 이번 주 먼저 살펴볼 학생이에요.</div>
       ) : (
         <TwoPane
           left={<RefPanel data={data} no={s.no} nameOf={nameOf} />}
@@ -50,9 +51,9 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
             <>
               <section className="card space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="font-display text-xl">💌 {s.no}번 {nameOf(s.no)}에게 응원 한마디</h2>
+                  <h2 className="font-display text-xl"><Doodle name="letter" /> {s.no}번 {nameOf(s.no)}에게 응원 한마디</h2>
                   <button onClick={draft} disabled={busy} className="btn-main">
-                    {busy ? "초안 만드는 중…" : drafts.length ? "다시 만들기" : "✨ AI 초안 만들기"}
+                    {busy ? "초안 만드는 중…" : drafts.length ? "다시 만들기" : <><Doodle name="sparkle" /> AI 초안 만들기</>}
                   </button>
                 </div>
                 <p className="text-xs text-soft">
@@ -64,14 +65,14 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                       <button key={i} onClick={() => setText(d)} className={`chip p-3 text-left text-sm ${text === d ? "chip-on" : ""}`}>
                         <b className="text-xs text-soft">{["마음 알아주기", "응원하기"][i] ?? `초안 ${i + 1}`}</b>
                         <span className="mt-1 block">{d}</span>
-                        {warns[i] && <span className="mt-1 block text-xs text-alert">⚠️ 아이에게 맞지 않을 수 있는 말: {warns[i]}</span>}
+                        {warns[i] && <span className="mt-1 block text-xs text-alert"><Doodle name="warning" /> 아이에게 맞지 않을 수 있는 말: {warns[i]}</span>}
                       </button>
                     ))}
                   </div>
                 )}
                 <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="field" placeholder="초안을 고르거나 최근 기록을 보며 직접 써 주세요." />
                 {leaks(text).length > 0 && (
-                  <p className="text-xs text-alert">⚠️ 「{leaks(text).join("」, 「")}」 — 선생님용 숫자·말은 아이에게 보내기 전에 고쳐 주세요.</p>
+                  <p className="text-xs text-alert"><Doodle name="warning" /> 「{leaks(text).join("」, 「")}」 — 선생님용 숫자·말은 아이에게 보내기 전에 고쳐 주세요.</p>
                 )}
                 {msg && <p className="text-sm">{msg}</p>}
                 <div className="flex justify-end">
@@ -89,7 +90,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                 </section>
               )}
               <section className="card">
-                <h2 className="mb-2 font-display text-xl">📝 면담 메모</h2>
+                <h2 className="mb-2 font-display text-xl"><Doodle name="memo" /> 면담 메모</h2>
                 <Notes no={s.no} notes={data.notes} reload={reload} />
               </section>
             </>
