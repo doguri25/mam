@@ -1,8 +1,9 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { today } from "./date.ts";
-import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoSheetRun, demoStudents } from "./demo.ts";
+import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoSelChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
+import type { SelCheck } from "./selcheck.ts";
 import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
@@ -253,6 +254,15 @@ export async function getLessons(): Promise<LessonItem[]> {
   return (await db().get<{ items: LessonItem[] }>("meta", "lessons"))?.items ?? [];
 }
 
+// 학급 사회·정서역량 진단 회차(학생 이름·번호 없음). 한 학급에 많아야 한 해 몇 번이라 문서 하나에 모은다(모음을 늘리지 않음).
+export async function getSelChecks(): Promise<SelCheck[]> {
+  const items = (await db().get<{ items: SelCheck[] }>("meta", "selChecks"))?.items ?? [];
+  return items.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+}
+export async function saveSelChecks(items: SelCheck[]) {
+  await db().set("meta", "selChecks", { items: items.slice(-80) });
+}
+
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
 export async function seedPractice() {
   for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
@@ -271,6 +281,7 @@ export async function seedPractice() {
   await db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }]));
   await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
   await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
+  await saveSelChecks([...(await getSelChecks()).filter((c) => !c.demo), ...demoSelChecks(date)]); // 역량 진단 연습 회차(실제 회차는 그대로)
   await saveSettings({ ...(await getSettings()), checks: {} });
   await db().set("meta", "practiceDay", { date });
   await touch("wipe");

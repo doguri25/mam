@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, accountName, aiConfig, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, accountName, aiConfig, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -12,6 +12,7 @@ import { PRACTICE_SHEET } from "@/lib/demo";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
+import { cleanCheck } from "@/lib/selcheck";
 import { CALM_KO, FELT_KO, PROVIDER_IDS, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type Rules, type SheetRun } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
@@ -344,6 +345,24 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // 학급 사회·정서역량 진단: 회차 목록 · 저장(새로 또는 메모 고치기) · 지우기
+    if (body.action === "selChecks") return NextResponse.json({ items: await getSelChecks() });
+    if (body.action === "selSave") {
+      const c = cleanCheck(body.check);
+      if (!c) return bad("20문항에 모두 답했는지, 날짜가 맞는지 확인해 주세요.");
+      const items = await getSelChecks();
+      const id = String(body.check?.id ?? "");
+      const old = items.find((x) => x.id === id);
+      const now = new Date().toISOString();
+      const saved = old ? { ...old, ...c, updatedAt: now } : { ...c, id: `sel${Date.now().toString(36)}`, createdAt: now };
+      await saveSelChecks(old ? items.map((x) => (x.id === id ? saved : x)) : [...items, saved]);
+      return NextResponse.json({ check: saved, items: await getSelChecks() });
+    }
+    if (body.action === "selDelete") {
+      await saveSelChecks((await getSelChecks()).filter((x) => x.id !== String(body.id)));
+      return NextResponse.json({ items: await getSelChecks() });
+    }
+
     // 이번 주 우리 반 마음 요약 + 다음 주 활동 추천(이름·번호 없이 모은 숫자만 AI로)
     if (body.action === "weekly") {
       const ai = await aiConfig();
@@ -390,6 +409,7 @@ async function handle(req: NextRequest) {
         const demoRecs = await db().find<MoodRecord>("records", "demo", "==", true);
         for (const r of demoRecs) await db().del("records", r.id);
         await db().del("sheets", PRACTICE_SHEET);
+        await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
         if (await rosterIsDemo()) {
           for (const col of ["cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
           await db().del("meta", "looks");
@@ -402,6 +422,7 @@ async function handle(req: NextRequest) {
       else {
         for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
         await db().del("meta", "looks");
+        await db().del("meta", "selChecks");
         await saveRoster([]);
         await saveSettings({ ...settings, checks: {} });
         await touch("wipe");

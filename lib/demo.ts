@@ -1,6 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
 import { addDays, monday } from "./date.ts";
 import { matchRisk } from "./rules.ts";
+import type { SelCheck } from "./selcheck.ts";
 import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type SheetItem, type SheetRun, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
@@ -190,4 +191,20 @@ export function demoSheetRun(today: string): SheetRun {
         "화난 감정과 까닭을 정확히 알아차리고, 자기 행동을 돌아보며 더 나은 방법을 스스로 찾은 점을 자기감정 인식·관리와 관계 인식·관리에 비추어 칭찬했어요. 화를 다스리는 구체적인 방법을 다음 걸음으로 제안했어요."),
     ],
   };
+}
+
+// 학급 사회·정서역량 진단 연습 회차 3번(약 두 달 동안 정서·공감이 오르고 책임 행동은 제자리인 반)
+export function demoSelChecks(today: string): SelCheck[] {
+  const C = (id: string, d: number, rater: string, answers: number[], memo: string): SelCheck => ({
+    id, date: addDays(today, d), school: "홍북초", group: "3학년 2반", rater, answers, memo,
+    createdAt: `${addDays(today, d)}T15:30:00+09:00`, demo: true,
+  });
+  return [
+    C("selp1", -63, "담임", [3, 2, 2, 3, 3, 3, 4, 2, 3, 3, 2, 3, 3, 4, 3, 2, 2, 3, 3, 3],
+      "학기 초. 속상한 까닭을 말로 하기 어려워하고, 모둠이 바뀌면 어색해함. 감정 단어 카드부터 시작."),
+    C("selp2", -35, "담임", [4, 3, 3, 3, 3, 4, 4, 2, 4, 3, 3, 4, 4, 4, 3, 3, 2, 3, 3, 3],
+      "감정 단어 놀이 뒤로 기분을 말하는 학생이 늘어남. 공감 쪽지 시작."),
+    C("selp3", -3, "담임", [4, 4, 4, 4, 4, 4, 4, 3, 5, 4, 4, 4, 4, 5, 4, 3, 3, 3, 3, 3],
+      "공감 쪽지가 자리 잡아 위로·축하가 자연스러움. 책임 행동은 제자리 — 행동 약속 만들기 해 볼 것."),
+  ];
 }

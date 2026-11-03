@@ -122,7 +122,7 @@ export default function ClassTV() {
       ) : !enough ? (
         <section className="grid flex-1 place-items-center text-center">
           <div className="space-y-4">
-            <BuddyLazy emotion="기뻐요" size={260} className="mx-auto size-56 lg:size-[300px]" />
+            <BuddyLazy emotion="기뻐요" size={260} className="mx-auto size-56 lg:size-[300px]" scene />
             <p className="font-display text-4xl lg:text-5xl">아직 마음을 남긴 친구가 적어요</p>
             <p className="text-2xl text-soft lg:text-3xl">마음을 남기면 우리 반 날씨가 나타나요! (지금 {data.n}명)</p>
           </div>
@@ -139,7 +139,7 @@ export default function ClassTV() {
               {w.heavy && <p className="text-[clamp(1rem,2.4vh,1.5rem)] text-soft">🧰 마음이 힘들면 마음 친구의 「마음 다스리기」를 해 봐요.</p>}
             </div>
             <div className="flex flex-col items-center gap-2">
-              <BuddyLazy emotion={FACE_OF[top]} intensity={3} size={300} className="size-[clamp(140px,30vh,320px)]" />
+              <BuddyLazy emotion={FACE_OF[top]} intensity={3} size={300} className="size-[clamp(140px,30vh,320px)]" scene />
               <p className="font-display text-[clamp(1.5rem,3.6vh,2.25rem)]">마음을 남긴 친구 <b className="text-leaf">{data.n}</b> / {data.students}명</p>
             </div>
           </section>

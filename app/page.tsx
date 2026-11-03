@@ -33,7 +33,7 @@ export default function Home() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-5 py-10 text-center">
-      <BuddyLazy size={180} />
+      <BuddyLazy size={180} scene />
       <div>
         <h1 className="font-display text-4xl text-leaf">마음빛 길잡이</h1>
         <p className="mt-2 text-soft">오늘 마음은 어때요? 내 코드를 넣거나 QR을 찍어 들어와요.</p>
