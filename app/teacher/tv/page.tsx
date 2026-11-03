@@ -3,6 +3,7 @@
 // 마음 친구 행렬은 누구 것인지 알 수 없게 꾸미지 않은 기본 모습으로, 감정 무리 순서로만 늘어선다.
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
@@ -15,19 +16,19 @@ type Data = {
   n: number; groups: Record<Group, number>; words: [string, number][]; weather: Weather; monthWords: [string, number][];
 };
 
-const WEATHER: Record<Weather, { icon: string; name: string; line: string; bg: string; heavy?: boolean }> = {
-  sunny: { icon: "☀️", name: "맑음", line: "기분 좋은 하루예요! 이 밝은 기운을 친구에게도 나눠 줘요.", bg: "from-[#fff3c4] to-[#ffe08a]" },
-  warm: { icon: "🌤️", name: "포근함", line: "마음이 차분하고 편안해요. 오늘도 천천히, 사이좋게!", bg: "from-[#e9f6ec] to-[#c9ebd2]" },
-  partly: { icon: "⛅", name: "구름 조금", line: "대부분 맑지만 구름 낀 마음도 있어요. 서로 살짝 챙겨 줘요.", bg: "from-[#eaf3ff] to-[#fff3c4]" },
-  rainbow: { icon: "🌈", name: "알록달록", line: "여러 가지 마음이 모였어요. 어떤 마음이든 다 괜찮아요.", bg: "from-[#fde7ef] via-[#fff3c4] to-[#e3f0ff]" },
-  cloudy: { icon: "☁️", name: "흐림", line: "마음이 무거운 친구들이 있어요. 오늘은 서로 조금 더 다정하게.", bg: "from-[#eef0f3] to-[#d9dee6]", heavy: true },
-  rain: { icon: "🌧️", name: "비", line: "슬픈 마음이 많은 날이에요. 따뜻한 말 한마디가 우산이 되어 줄 거예요.", bg: "from-[#e3edf9] to-[#c6d8f0]", heavy: true },
-  storm: { icon: "⛈️", name: "천둥번개", line: "속상하고 화난 마음이 많아요. 크게 숨 쉬고, 천천히 말해 봐요.", bg: "from-[#f3e6e6] to-[#dcc9d6]", heavy: true },
-  fog: { icon: "🌫️", name: "안개", line: "걱정되는 마음이 많아요. 함께 있으면 안개도 걷혀요.", bg: "from-[#efeaf7] to-[#ddd3ee]", heavy: true },
+const WEATHER: Record<Weather, { icon: DoodleName; name: string; line: string; bg: string; heavy?: boolean }> = {
+  sunny: { icon: "sun", name: "맑음", line: "기분 좋은 하루예요! 이 밝은 기운을 친구에게도 나눠 줘요.", bg: "from-[#fff3c4] to-[#ffe08a]" },
+  warm: { icon: "sunCloud", name: "포근함", line: "마음이 차분하고 편안해요. 오늘도 천천히, 사이좋게!", bg: "from-[#e9f6ec] to-[#c9ebd2]" },
+  partly: { icon: "partly", name: "구름 조금", line: "대부분 맑지만 구름 낀 마음도 있어요. 서로 살짝 챙겨 줘요.", bg: "from-[#eaf3ff] to-[#fff3c4]" },
+  rainbow: { icon: "rainbow", name: "알록달록", line: "여러 가지 마음이 모였어요. 어떤 마음이든 다 괜찮아요.", bg: "from-[#fde7ef] via-[#fff3c4] to-[#e3f0ff]" },
+  cloudy: { icon: "cloud", name: "흐림", line: "마음이 무거운 친구들이 있어요. 오늘은 서로 조금 더 다정하게.", bg: "from-[#eef0f3] to-[#d9dee6]", heavy: true },
+  rain: { icon: "rain", name: "비", line: "슬픈 마음이 많은 날이에요. 따뜻한 말 한마디가 우산이 되어 줄 거예요.", bg: "from-[#e3edf9] to-[#c6d8f0]", heavy: true },
+  storm: { icon: "storm", name: "천둥번개", line: "속상하고 화난 마음이 많아요. 크게 숨 쉬고, 천천히 말해 봐요.", bg: "from-[#f3e6e6] to-[#dcc9d6]", heavy: true },
+  fog: { icon: "fog", name: "안개", line: "걱정되는 마음이 많아요. 함께 있으면 안개도 걷혀요.", bg: "from-[#efeaf7] to-[#ddd3ee]", heavy: true },
 };
 const ORDER: Group[] = ["joy", "calm", "sad", "fear", "angry"];
 const FACE_OF: Record<Group, string> = { joy: "기뻐요", calm: "편안해요", sad: "슬퍼요", angry: "화나요", fear: "걱정돼요" };
-const SLOTS = [["am", "☀️ 아침"], ["pm", "🌇 하교 전"], ["day", "🗓️ 하루 전체"]] as const;
+const SLOTS = [["am", "sun", "아침"], ["pm", "sunset", "하교 전"], ["day", "calendar", "하루 전체"]] as const;
 const MIN = 3; // 이보다 적으면 누구 마음인지 짐작될 수 있어 숫자를 보이지 않는다
 
 export default function ClassTV() {
@@ -58,7 +59,7 @@ export default function ClassTV() {
     return (
       <main className="grid min-h-dvh place-items-center p-8 text-center">
         <div className="card space-y-4">
-          <p className="text-5xl">🔒</p>
+          <p className="text-5xl"><Doodle name="lock" /></p>
           <p className="font-display text-2xl">선생님 화면에서 비밀번호를 넣은 뒤 다시 열어 주세요.</p>
           <Link href="/teacher" className="btn-main">선생님 화면으로</Link>
         </div>
@@ -83,15 +84,15 @@ export default function ClassTV() {
         </div>
         <div className="flex flex-wrap items-center gap-2 opacity-80 hover:opacity-100">
           <div role="group" aria-label="시간" className="flex rounded-2xl border border-line bg-card p-1">
-            {SLOTS.map(([id, name]) => (
-              <button key={id} onClick={() => setSlot(id)} aria-pressed={shown === id} className={`rounded-xl px-3 py-2 text-sm font-bold lg:text-base ${shown === id ? "bg-leaf text-white" : "text-soft"}`}>
-                {name}
+            {SLOTS.map(([id, icon, name]) => (
+              <button key={id} onClick={() => setSlot(id)} aria-pressed={shown === id} className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold lg:text-base ${shown === id ? "bg-leaf text-white" : "text-soft"}`}>
+                <Doodle name={icon} size={22} />{name}
               </button>
             ))}
           </div>
           <div role="group" aria-label="보기" className="flex rounded-2xl border border-line bg-card p-1">
-            {([["weather", "🌤️ 날씨"], ["words", "📖 단어 사전"]] as const).map(([id, name]) => (
-              <button key={id} onClick={() => setView(id)} aria-pressed={view === id} className={`rounded-xl px-3 py-2 text-sm font-bold lg:text-base ${view === id ? "bg-leaf text-white" : "text-soft"}`}>{name}</button>
+            {([["weather", "sunCloud", "날씨"], ["words", "bookOpen", "단어 사전"]] as const).map(([id, icon, name]) => (
+              <button key={id} onClick={() => setView(id)} aria-pressed={view === id} className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold lg:text-base ${view === id ? "bg-leaf text-white" : "text-soft"}`}><Doodle name={icon} size={22} />{name}</button>
             ))}
           </div>
           <button onClick={() => document.documentElement.requestFullscreen?.()} className="btn-sub min-h-10 px-3 text-sm">⛶ 전체 화면</button>
@@ -101,7 +102,7 @@ export default function ClassTV() {
 
       {view === "words" ? (
         <section className="flex flex-1 flex-col items-center justify-center gap-[clamp(0.75rem,3vh,2rem)] text-center">
-          <p className="font-display text-[clamp(1.5rem,4.5vh,3rem)]">📖 우리 반이 요즘 쓴 감정 단어</p>
+          <p className="font-display text-[clamp(1.5rem,4.5vh,3rem)]"><Doodle name="bookOpen" /> 우리 반이 요즘 쓴 감정 단어</p>
           {data.monthWords.length ? (
             <p className="flex max-w-6xl flex-wrap items-baseline justify-center gap-x-[clamp(0.75rem,2.5vw,2rem)] gap-y-2">
               {data.monthWords.map(([word, k]) => {
@@ -132,11 +133,11 @@ export default function ClassTV() {
           <section className="grid min-h-0 flex-1 grid-cols-[1.3fr_1fr] items-center gap-[clamp(0.75rem,2vh,1.5rem)]">
             <div className="space-y-[clamp(0.5rem,1.6vh,1rem)] rounded-[2rem] bg-card/80 p-[clamp(1rem,3.5vh,2.5rem)] shadow-sm">
               <p className="flex items-center gap-4">
-                <span className="text-[clamp(4rem,14vh,10rem)] leading-none" aria-hidden>{w.icon}</span>
+                <span className="block size-[clamp(5rem,17vh,12rem)] leading-none"><Doodle name={w.icon} size="100%" className="block" wobble /></span>
                 <span className="font-display text-[clamp(3rem,8vh,6rem)] leading-none">{w.name}</span>
               </p>
               <p className="font-display text-[clamp(1.5rem,4.2vh,3rem)] leading-snug">{w.line}</p>
-              {w.heavy && <p className="text-[clamp(1rem,2.4vh,1.5rem)] text-soft">🧰 마음이 힘들면 마음 친구의 「마음 다스리기」를 해 봐요.</p>}
+              {w.heavy && <p className="text-[clamp(1rem,2.4vh,1.5rem)] text-soft"><Doodle name="calm" /> 마음이 힘들면 마음 친구의 「마음 다스리기」를 해 봐요.</p>}
             </div>
             <div className="flex flex-col items-center gap-2">
               <BuddyLazy emotion={FACE_OF[top]} intensity={3} size={300} className="size-[clamp(140px,30vh,320px)]" scene />

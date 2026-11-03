@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
@@ -27,9 +28,9 @@ const PARTS: [Part, UIKey, readonly string[], string][] = [
 
 // 고르는 칸 묶음(그림 단추): 색 · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름
 type Tab = "color" | Part | "name";
-const TABS: [Tab, string, UIKey][] = [
-  ["shape", "🫧", "buddyShape"], ["color", "🎨", "buddyColor"], ["eyes", "👀", "buddyEyes"], ["cheek", "☺️", "buddyCheek"],
-  ["pattern", "🔵", "buddyPattern"], ["limbs", "✋", "buddyLimbs"], ["acc", "🎀", "buddyAcc"], ["name", "📝", "tabName"],
+const TABS: [Tab, DoodleName, UIKey][] = [
+  ["shape", "bubble", "buddyShape"], ["color", "palette", "buddyColor"], ["eyes", "eyes", "buddyEyes"], ["cheek", "cheek", "buddyCheek"],
+  ["pattern", "spots", "buddyPattern"], ["limbs", "hand", "buddyLimbs"], ["acc", "ribbon", "buddyAcc"], ["name", "tag", "tabName"],
 ];
 
 export default function BuddyPage() {
@@ -86,8 +87,8 @@ export default function BuddyPage() {
     <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 sm:px-6" lang={lang}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <Link href="/me" className="btn-sub min-h-12 shrink-0 whitespace-nowrap px-4">← {tt("buddyBack")}</Link>
-        <h1 className="font-display text-xl sm:text-3xl">{tt("buddyEdit")}</h1>
-        <button onClick={random} className="btn-sub min-h-12 shrink-0 px-4">{tt("buddyRandom")}</button>
+        <h1 className="flex items-center gap-2 font-display text-xl sm:text-3xl"><Doodle name="palette" size={34} className="hidden shrink-0 sm:block" />{tt("buddyEdit")}</h1>
+        <button onClick={random} className="btn-sub min-h-12 shrink-0 px-4"><Doodle name="dice" size={24} />{tt("buddyRandom")}</button>
       </div>
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         <section className="card flex flex-col items-center gap-2 self-start lg:sticky lg:top-5">
@@ -101,7 +102,7 @@ export default function BuddyPage() {
             {TABS.map(([id, icon, key]) => (
               <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
                 className={`flex min-h-16 min-w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl border-2 px-2 text-xs font-bold ${tab === id ? "border-leaf bg-leaf-soft text-ink" : "border-line bg-card text-soft"}`}>
-                <span className="text-2xl" aria-hidden>{icon}</span>{tt(key)}
+                <Doodle name={icon} size={30} />{tt(key)}
               </button>
             ))}
           </div>
@@ -125,7 +126,7 @@ export default function BuddyPage() {
 
           {current && (
             <div>
-              {current[0] === "acc" && <p className="mb-2 text-sm text-soft">🌱 {tt("growWords", { n: me.words.length })}</p>}
+              {current[0] === "acc" && <p className="mb-2 flex items-center gap-1.5 text-sm text-soft"><Doodle name="sprout" size={22} /> {tt("growWords", { n: me.words.length })}</p>}
               <div className={`grid grid-cols-3 gap-2 ${current[3]}`}>
                 {current[2].map((o) => {
                   const part = current[0];
@@ -136,7 +137,7 @@ export default function BuddyPage() {
                     <button key={o} onClick={() => !locked && set({ [part]: o })} aria-pressed={look[part] === o} aria-disabled={locked} className={`${chip(look[part] === o)} relative ${locked ? "opacity-60" : ""}`}>
                       <BuddyFace look={{ ...look, [part]: o }} emotion={emotion} size={72} className={locked ? "grayscale" : undefined} />
                       {tt((o === "none" ? "acc_none" : `${part}_${o}`) as UIKey)}
-                      {locked && <span className="text-[11px] font-normal leading-tight text-soft">🔒 {tt("lockedHint", { n: need })}</span>}
+                      {locked && <span className="text-[11px] font-normal leading-tight text-soft"><Doodle name="lock" size={14} /> {tt("lockedHint", { n: need })}</span>}
                     </button>
                   );
                 })}

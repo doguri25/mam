@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Doodle, { type DoodleName } from "@/components/Doodle";
 import { flushQueue, queueRecord } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
@@ -32,8 +33,8 @@ const NO_TONE: Tone = { tone: null, toneWhy: "", toneBy: null, voice: null };
 
 function SayBtn({ text, lang }: { text: string; lang: Lang }) {
   return (
-    <button type="button" onClick={() => speak(text, true, lang)} className="ml-2 inline-grid size-8 place-items-center rounded-full bg-leaf-soft align-middle text-base" aria-label="🔊">
-      🔊
+    <button type="button" onClick={() => speak(text, true, lang)} className="ml-2 inline-grid size-9 place-items-center rounded-full bg-leaf-soft align-middle" aria-label={t(lang, "sayIt")}>
+      <Doodle name="speaker" size={22} />
     </button>
   );
 }
@@ -217,14 +218,14 @@ export default function MePage() {
     : tt("hello", { alias: me.alias });
 
   const friday = new Date(`${me.today}T00:00:00Z`).getUTCDay() >= 5 || new Date(`${me.today}T00:00:00Z`).getUTCDay() === 0;
-  const tiles: { href?: string; onClick?: () => void; icon: string; label: string; badge?: string }[] = [
-    { href: "/me/week", icon: "🗓️", label: tt("tileWeek"), badge: friday && !me.reflected ? "!" : undefined },
-    { href: "/me/game", icon: "🎲", label: tt("tileGame") },
-    { href: "/me/words", icon: "📖", label: tt("tileWords") },
-    { href: "/me/letters", icon: "💌", label: tt("tileLetters"), badge: me.unread ? tt("unreadBadge", { n: me.unread }) : undefined },
-    { href: "/me/buddy", icon: "🎨", label: tt("buddyEdit").replace("🎨 ", "") },
-    { onClick: () => setCalm("open"), icon: "🧰", label: tt("calmOpen").replace("🧰 ", "") },
-    { href: "/me/calendar", icon: "📅", label: tt("calendar").replace(/^📅\s*/, "") },
+  const tiles: { href?: string; onClick?: () => void; icon: DoodleName; label: string; badge?: string }[] = [
+    { href: "/me/week", icon: "memo", label: tt("tileWeek"), badge: friday && !me.reflected ? "!" : undefined },
+    { href: "/me/game", icon: "dice", label: tt("tileGame") },
+    { href: "/me/words", icon: "bookOpen", label: tt("tileWords") },
+    { href: "/me/letters", icon: "letter", label: tt("tileLetters"), badge: me.unread ? tt("unreadBadge", { n: me.unread }) : undefined },
+    { href: "/me/buddy", icon: "palette", label: tt("buddyEdit") },
+    { onClick: () => setCalm("open"), icon: "calm", label: tt("calmOpen") },
+    { href: "/me/calendar", icon: "calendar", label: tt("calendar") },
   ];
   const tileClass = "chip relative flex min-h-24 flex-col items-center justify-center gap-1 p-2 text-center text-sm font-bold leading-tight hover:border-leaf";
 
@@ -232,10 +233,10 @@ export default function MePage() {
     <main className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5" lang={lang}>
       {me.demo && (
         <p className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-2 text-sm">
-          🧪 체험용 반이에요(가짜 학생·기록). <Link href="/try" className="font-bold underline">체험 안내로</Link>
+          <span><Doodle name="flask" /> 체험용 반이에요(가짜 학생·기록).</span> <Link href="/try" className="font-bold underline">체험 안내로</Link>
         </p>
       )}
-      {flushed > 0 && <p className="mb-3 rounded-2xl bg-leaf-soft px-4 py-2 text-sm">📶 {tt("offlineSent", { n: flushed })}</p>}
+      {flushed > 0 && <p className="mb-3 rounded-2xl bg-leaf-soft px-4 py-2 text-sm"><Doodle name="signal" /> {tt("offlineSent", { n: flushed })}</p>}
       <header className="mb-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -245,7 +246,7 @@ export default function MePage() {
           <button onClick={nextFriend} className="btn-sub min-h-12 shrink-0 px-4">{tt("next")}</button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="group" aria-label="☀️ / 🌇" className="flex rounded-2xl border border-line bg-card p-1">
+          <div role="group" aria-label={`${slotName("am")} / ${slotName("pm")}`} className="flex rounded-2xl border border-line bg-card p-1">
             {(["am", "pm"] as Slot[]).map((s) => (
               <button
                 key={s}
@@ -254,9 +255,9 @@ export default function MePage() {
                   setSlot(s);
                   if (step === "done") reset();
                 }}
-                className={`min-h-11 rounded-xl px-4 text-base font-bold ${slot === s ? "bg-leaf text-white" : "text-soft"}`}
+                className={`flex min-h-11 items-center gap-1.5 rounded-xl px-4 text-base font-bold ${slot === s ? "bg-leaf text-white" : "text-soft"}`}
               >
-                {s === "am" ? "☀️" : "🌇"} {slotName(s)}
+                <Doodle name={s === "am" ? "sun" : "sunset"} size={24} /> {slotName(s)}
               </button>
             ))}
           </div>
@@ -266,12 +267,12 @@ export default function MePage() {
             aria-pressed={readAloud === "1"}
             aria-label={readAloud === "1" ? tt("readOn") : tt("readOff")}
             title={readAloud === "1" ? tt("readOn") : tt("readOff")}
-            className={`btn-sub min-h-12 px-3 text-xl ${readAloud === "1" ? "border-leaf bg-leaf-soft" : ""}`}
+            className={`btn-sub min-h-12 px-3 ${readAloud === "1" ? "border-leaf bg-leaf-soft" : ""}`}
           >
-            {readAloud === "1" ? "🔊" : "🔈"}
+            <Doodle name={readAloud === "1" ? "speaker" : "speakerOff"} size={28} />
           </button>
           <label className="flex min-h-12 items-center gap-1 rounded-2xl border border-line bg-card px-2 text-base" title="Language">
-            <span aria-hidden className="text-xl">🌐</span>
+            <Doodle name="globe" size={26} />
             <select value={lang} onChange={(e) => setLang(e.target.value === "ko" ? "" : e.target.value)} className="h-11 max-w-28 bg-transparent font-bold outline-none" aria-label="Language">
               {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
@@ -290,7 +291,7 @@ export default function MePage() {
               <h2 className="font-display text-2xl">{tt("how", { slot: slotName(slot) })}<SayBtn lang={lang} text={`${tt("how", { slot: slotName(slot) })} ${tt("card")}, ${tt("voice")}`} /></h2>
               {done && (
                 <p className="flex items-center gap-2 rounded-2xl bg-leaf-soft p-3 text-sm">
-                  <EmotionArt name={done.emotion} size={28} />
+                  <EmotionArt name={done.word || done.emotion} size={32} />
                   {tt("already", { slot: slotName(slot), emotion: w(lang, done.word || done.emotion) })}
                 </p>
               )}
@@ -305,7 +306,7 @@ export default function MePage() {
                   <span className="text-sm text-soft">{tt("cardSub")}</span>
                 </button>
                 <button onClick={() => { setMethod("voice"); setStep("voice"); say(tt("voice")); }} className="chip flex flex-col items-center gap-3 p-7 hover:border-leaf">
-                  <span className="grid size-[52px] place-items-center rounded-full bg-leaf text-2xl text-white">🎙️</span>
+                  <span className="grid size-[60px] place-items-center rounded-full bg-leaf-soft"><Doodle name="mic" size={42} /></span>
                   <span className="font-display text-2xl">{tt("voice")}</span>
                   <span className="text-sm text-soft">{tt("voiceSub")}</span>
                 </button>
@@ -340,10 +341,10 @@ export default function MePage() {
               {speech.supported && (
                 <button
                   onClick={speech.listening ? speech.stop : speech.start}
-                  className={`mx-auto grid size-28 place-items-center rounded-full text-5xl text-white shadow-lg ${speech.listening ? "animate-pulse bg-alert" : "bg-leaf"}`}
-                  aria-label={speech.listening ? "■" : "🎙️"}
+                  className={`mx-auto grid size-28 place-items-center rounded-full text-5xl text-white shadow-lg ${speech.listening ? "animate-pulse bg-alert" : "bg-leaf-soft ring-4 ring-leaf"}`}
+                  aria-label={speech.listening ? "■" : tt("voice")}
                 >
-                  {speech.listening ? "■" : "🎙️"}
+                  {speech.listening ? "■" : <Doodle name="mic" size={72} />}
                 </button>
               )}
               <p className="text-center text-sm text-soft">{speech.listening ? tt("listening") : speech.supported ? tt("micHint") : tt("typeHint")}</p>
@@ -380,8 +381,8 @@ export default function MePage() {
               <div className="flex gap-2">
                 <input value={answer} onChange={(e) => setAnswer(e.target.value.slice(0, 120))} className="field" placeholder={tt("ownAnswer")} />
                 {answerSpeech.supported && (
-                  <button onClick={answerSpeech.listening ? answerSpeech.stop : answerSpeech.start} className="btn-sub shrink-0" aria-label="🎙️">
-                    {answerSpeech.listening ? "■" : "🎙️"}
+                  <button onClick={answerSpeech.listening ? answerSpeech.stop : answerSpeech.start} className="btn-sub shrink-0" aria-label={tt("voice")}>
+                    {answerSpeech.listening ? "■" : <Doodle name="mic" size={26} />}
                   </button>
                 )}
               </div>
@@ -394,10 +395,10 @@ export default function MePage() {
           ) : (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="rounded-full bg-leaf-soft px-4 py-1 text-sm font-bold text-leaf">{tt("saved")}</p>
-              {offline && <p className="rounded-2xl bg-[#fff8e1] p-3 text-sm">📶 {tt("offlineSaved")}</p>}
-              {unlocked && <Link href="/me/buddy" className="rounded-2xl bg-sun/30 px-4 py-2 font-bold">{tt("newUnlock")}</Link>}
+              {offline && <p className="rounded-2xl bg-[#fff8e1] p-3 text-sm"><Doodle name="signal" /> {tt("offlineSaved")}</p>}
+              {unlocked && <Link href="/me/buddy" className="flex items-center gap-2 rounded-2xl bg-sun/30 px-4 py-2 font-bold"><Doodle name="gift" size={28} />{tt("newUnlock")}</Link>}
               <h2 className="font-display text-3xl">{tt("thanks", { alias: me.alias })}</h2>
-              {pick.emotion && <EmotionArt name={pick.emotion} size={110} />}
+              {pick.emotion && <EmotionArt name={pick.word || pick.emotion} size={110} />}
               <p className="text-lg">
                 {slotName(slot)} · <b>{w(lang, pick.emotion ?? "")}</b>
                 {pick.word && <> · <b style={{ color: EMOTION_COLOR[pick.emotion ?? ""] }}>{w(lang, pick.word)}</b></>} · {w(lang, pick.reason ?? "")}
@@ -407,13 +408,13 @@ export default function MePage() {
                 <div className="w-full max-w-md rounded-2xl bg-leaf-soft p-4">
                   <p className="font-display text-xl">{tt("calmAsk")}<SayBtn lang={lang} text={tt("calmAsk")} /></p>
                   <div className="mt-3 flex justify-center gap-2">
-                    <button onClick={() => setCalm("open")} className="btn-main">{tt("calmOpen")}</button>
+                    <button onClick={() => setCalm("open")} className="btn-main"><Doodle name="calm" size={26} />{tt("calmOpen")}</button>
                     <button onClick={() => setCalm("off")} className="btn-sub">{tt("calmLater")}</button>
                   </div>
                 </div>
               )}
               <div className="mt-2 flex flex-wrap justify-center gap-3">
-                <Link href="/me/calendar" className="btn-sub min-h-12">{tt("calendar")}</Link>
+                <Link href="/me/calendar" className="btn-sub min-h-12"><Doodle name="calendar" size={24} />{tt("calendar")}</Link>
                 <button onClick={nextFriend} className="btn-main min-h-12 px-8">{tt("next")}</button>
               </div>
             </div>
@@ -436,12 +437,12 @@ export default function MePage() {
             {tiles.map((x) =>
               x.href ? (
                 <Link key={x.label} href={x.href} className={tileClass}>
-                  <span className="text-3xl" aria-hidden>{x.icon}</span>{x.label}
+                  <Doodle name={x.icon} size={40} />{x.label}
                   {x.badge && <span className="absolute -right-1 -top-1 rounded-full bg-alert px-2 text-xs text-white">{x.badge}</span>}
                 </Link>
               ) : (
                 <button key={x.label} onClick={x.onClick} className={tileClass}>
-                  <span className="text-3xl" aria-hidden>{x.icon}</span>{x.label}
+                  <Doodle name={x.icon} size={40} />{x.label}
                 </button>
               ),
             )}
@@ -455,7 +456,7 @@ export default function MePage() {
               const r = me.records.find((x) => x.slot === s);
               return (
                 <p key={s} className="flex items-center gap-1.5 text-soft">
-                  {slotName(s)}: {r ? <><EmotionArt name={r.emotion} size={22} /> {w(lang, r.word || r.emotion)}</> : tt("notYet")}
+                  {slotName(s)}: {r ? <><EmotionArt name={r.word || r.emotion} size={24} /> {w(lang, r.word || r.emotion)}</> : tt("notYet")}
                 </p>
               );
             })}
@@ -463,7 +464,7 @@ export default function MePage() {
           <div className="border-t border-line pt-3 text-left text-sm">
             <p className="font-bold">{tt("garden")}</p>
             {me.flowers.length ? (
-              <div className="mt-1 flex flex-wrap" aria-label={`🌸 ${me.flowers.length}`}>
+              <div className="mt-1 flex flex-wrap" aria-label={`${tt("garden")} ${me.flowers.length}`}>
                 {me.flowers.map((f) => <Flower key={f.date} color={EMOTION_COLOR[f.emotion] ?? "#ffc23c"} size={26} />)}
               </div>
             ) : (

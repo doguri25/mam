@@ -2,6 +2,7 @@
 // 공감 쪽지 검토: 학생이 친구에게 쓴 쪽지는 선생님이 읽고 허락(필요하면 살짝 고쳐서)해야 친구에게 간다.
 // 선생님은 「이름 비공개」 쪽지도 보낸 학생을 알 수 있다.
 import { useState } from "react";
+import Doodle from "../Doodle";
 import type { NameOf, Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import type { Letter } from "@/lib/shared";
@@ -23,8 +24,8 @@ function Card({ l, nameOf, reload }: { l: Letter; nameOf: NameOf; reload: Reload
       <p className="flex flex-wrap items-center gap-2 text-sm">
         <b>{l.from}번 {nameOf(l.from)}</b> → <b>{l.to}번 {nameOf(l.to)}</b>
         <span className="rounded-full bg-paper px-2 py-0.5 text-xs">{l.showName ? "이름 공개" : "이름 비공개"}</span>
-        {l.lang && l.lang !== "ko" && <span className="rounded-full bg-paper px-2 py-0.5 text-xs">🌐 {l.lang}</span>}
-        {l.risk && <span className="rounded-full bg-alert px-2 py-0.5 text-xs text-white">⚠️ 걱정되는 말</span>}
+        {l.lang && l.lang !== "ko" && <span className="rounded-full bg-paper px-2 py-0.5 text-xs"><Doodle name="globe" /> {l.lang}</span>}
+        {l.risk && <span className="rounded-full bg-alert px-2 py-0.5 text-xs text-white"><Doodle name="warning" /> 걱정되는 말</span>}
         <span className="ml-auto text-xs text-soft">{when(l.createdAt)}</span>
       </p>
       {l.status === "wait" ? (

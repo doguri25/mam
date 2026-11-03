@@ -1,6 +1,7 @@
 "use client";
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useState } from "react";
+import Doodle from "../Doodle";
 import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
@@ -42,7 +43,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
     <div className="space-y-5">
       {alerts.length > 0 && (
         <section className="rounded-3xl border-2 border-alert bg-alert-soft p-5" role="alert">
-          <h2 className="font-display text-xl text-alert">⚠️ 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
+          <h2 className="font-display text-xl text-alert"><Doodle name="warning" /> 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
           <p className="mt-1 text-sm">
             학생 화면에는 아무 표시도 나가지 않았어요. 진단이 아닌 신호예요. 학교 위기관리 절차에 따라 Wee클래스·상담교사와 함께 살펴봐 주세요.
             (청소년상담 1388, 자살예방상담 109)
@@ -76,7 +77,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
         <section className="card">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-display text-xl">오늘의 마음 칸 · {label(today)}</h2>
-            <button onClick={() => window.print()} className="no-print btn-sub min-h-9 px-3 text-sm">🖨️ 인쇄</button>
+            <button onClick={() => window.print()} className="no-print btn-sub min-h-9 px-3 text-sm"><Doodle name="printer" /> 인쇄</button>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
             {students.map((s) => {
@@ -96,7 +97,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
                       <BuddyFace look={data.looks[s.no]} emotion={(pm ?? am)?.word || (pm ?? am)?.emotion} size={22} className="shrink-0" />
                       <span className="truncate">{s.no} <b className="text-ink">{nameOf(s.no)}</b></span>
                     </span>
-                    {(flagged || alerted) && <span aria-label="살펴보기 신호">{alerted ? "🔴" : "🟡"}</span>}
+                    {(flagged || alerted) && <span aria-label="살펴보기 신호"><Doodle name={alerted ? "dotRed" : "dotYellow"} /></span>}
                   </span>
                   <span className="mt-1.5 flex items-center gap-1">
                     {am ? <EmotionArt name={am.emotion} size={28} /> : <Empty />}
@@ -108,7 +109,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
               );
             })}
           </div>
-          <p className="mt-3 text-xs text-soft">빈 동그라미: 아직 기록 전 · 🟡 먼저 살펴볼 신호 · 🔴 위험 표현 · ↓ 하교 전에 마음이 가라앉음 · 점선: 기록 없음이 이어짐</p>
+          <p className="mt-3 text-xs text-soft">빈 동그라미: 아직 기록 전 · <Doodle name="dotYellow" /> 먼저 살펴볼 신호 · <Doodle name="dotRed" /> 위험 표현 · ↓ 하교 전에 마음이 가라앉음 · 점선: 기록 없음이 이어짐</p>
         </section>
 
         <div className="space-y-5 self-start">
@@ -162,14 +163,14 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
               </h2>
               <button onClick={() => setOpen(null)} className="btn-sub min-h-9 px-3" aria-label="닫기" autoFocus>✕</button>
             </div>
-            {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm">🟡 {r}</p>)}
+            {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
             <ReflectBox reflects={data.reflects} no={open} />
             <Timeline records={records.filter((r) => r.no === open)} today={today} />
             <div className="border-t border-line pt-3">
-              <h3 className="mb-2 font-bold">📝 면담 메모</h3>
+              <h3 className="mb-2 font-bold"><Doodle name="memo" /> 면담 메모</h3>
               <Notes no={open} notes={data.notes} reload={reload} />
             </div>
-            <button onClick={() => onCheer(open)} className="btn-main w-full">💌 응원 한마디 쓰기</button>
+            <button onClick={() => onCheer(open)} className="btn-main w-full"><Doodle name="letter" /> 응원 한마디 쓰기</button>
           </div>
         </div>
       )}

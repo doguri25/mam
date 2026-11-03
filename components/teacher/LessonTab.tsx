@@ -2,6 +2,7 @@
 // 교과서 연결: 도덕 교과서·학습지를 올리면 업스테이지 Document Parse가 글을 읽고, AI가 감정 단어·활동을 골라 준다.
 // 선생님이 고른 것만 반 감정 단어(도움판·되묻기·응원 초안)와 주간 활동 추천에 쓰인다.
 import { useState } from "react";
+import Doodle from "../Doodle";
 import { EmotionArt } from "../Art";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
@@ -72,7 +73,7 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
     <div className="space-y-5">
       <section className="card space-y-4">
         <div>
-          <h2 className="font-display text-2xl">📚 도덕 교과서·학습지 연결</h2>
+          <h2 className="font-display text-2xl"><Doodle name="books" /> 도덕 교과서·학습지 연결</h2>
           <p className="text-sm text-soft">
             그 주에 가르친 쪽을 사진·PDF·HWP로 올리면 <b>업스테이지 Document Parse</b>가 글을 읽고, AI가 감정 단어와 교실 활동을 골라 줘요.
             고른 것만 학생 도움판·되묻기·응원 초안과 「다음 주 활동 추천」에 쓰여요. (4MB 안, 필요한 쪽만)
@@ -80,7 +81,7 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="btn-sub cursor-pointer">
-            📎 파일 고르기
+            <Doodle name="clip" /> 파일 고르기
             <input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.hwp,.hwpx,.docx,.pptx"

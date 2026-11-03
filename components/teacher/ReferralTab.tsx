@@ -3,6 +3,7 @@
 // 「관찰된 정서 흐름 · 학생이 말한 까닭 · 도움이 된 것」 초안만 쓰고, 선생님이 고치고 나머지를 채운 뒤 인쇄한다. 자동으로 보내지 않는다.
 // 위 학생 명단 → 왼쪽 최근 2주 기록(화면에 고정)을 보며 오른쪽 의견서를 쓴다.
 import { useState } from "react";
+import Doodle from "../Doodle";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
@@ -57,15 +58,15 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
     <div className="space-y-4">
       <StudentStrip data={data} no={no} nameOf={nameOf} onPick={choose} />
       {no === null ? (
-        <div className="card text-soft">위에서 학생을 골라 주세요. 🟡 표시는 이번 주 먼저 살펴볼 학생이에요.</div>
+        <div className="card text-soft">위에서 학생을 골라 주세요. <Doodle name="dotYellow" /> 표시는 이번 주 먼저 살펴볼 학생이에요.</div>
       ) : (
         <TwoPane
           left={<RefPanel data={data} no={no} nameOf={nameOf} />}
           right={
             <>
               <div className="no-print flex flex-wrap items-center gap-2">
-                <button onClick={make} disabled={busy} className="btn-main">{busy ? "AI가 쓰는 중…" : "✨ AI 초안 만들기"}</button>
-                <button onClick={() => window.print()} className="btn-sub">🖨️ A4로 인쇄·PDF 저장</button>
+                <button onClick={make} disabled={busy} className="btn-main">{busy ? "AI가 쓰는 중…" : <><Doodle name="sparkle" /> AI 초안 만들기</>}</button>
+                <button onClick={() => window.print()} className="btn-sub"><Doodle name="printer" /> A4로 인쇄·PDF 저장</button>
                 {err && <span className="text-sm text-alert">{err}</span>}
               </div>
               <article className="card mx-auto max-w-[210mm] space-y-4 bg-white p-6 sm:p-8 print:border-0 print:p-0">
@@ -78,7 +79,7 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
                 </header>
                 {/* 화면에서는 왼쪽 칸에 보이므로 인쇄할 때만 */}
                 <div className="hidden space-y-1 print:block">
-                  {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="text-sm">🟡 {r}</p>)}
+                  {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="text-sm"><Doodle name="dotYellow" /> {r}</p>)}
                 </div>
                 {box("1. 관찰된 정서 흐름", draft.flow, (v) => setDraft({ ...draft, flow: v }), 5, "AI 초안 — 사실과 다르면 고쳐 주세요")}
                 {box("2. 학생이 스스로 말한 까닭·상황", draft.reasons, (v) => setDraft({ ...draft, reasons: v }), 3)}

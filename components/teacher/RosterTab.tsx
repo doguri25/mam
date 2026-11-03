@@ -2,6 +2,7 @@
 // 학생 명단과 고유 코드·QR 카드. QR은 이 주소(/join?c=코드)를 담는다.
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
+import Doodle from "../Doodle";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { useNames } from "@/lib/local";
@@ -75,7 +76,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
                 </p>
               )}
             </div>
-            <button onClick={() => window.print()} className="btn-sub">🖨️ QR 카드 인쇄</button>
+            <button onClick={() => window.print()} className="btn-sub"><Doodle name="printer" /> QR 카드 인쇄</button>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 print:grid-cols-4">
             {data.students.map((s) => (

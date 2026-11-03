@@ -25,9 +25,11 @@ export interface ArtProps {
   detail?: Detail;
   size?: number;
   className?: string;
+  aura?: boolean; // 몸 둘레 감정 빛(기본: 몸 색을 직접 고른 때만)
+  label?: string; // 그림 이름(읽어 주기용). 없으면 꾸밈 그림으로 숨긴다
 }
 
-export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = false, detail = "full", size = 200, className }: ArtProps) {
+export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = false, detail = "full", size = 200, className, aura, label }: ArtProps) {
   const id = `b${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const full = detail === "full";
   const lw = detail === "tiny" ? 4.6 : detail === "small" ? 3 : 2;
@@ -43,7 +45,7 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
   const box = scene ? "0 0 200 200" : detail === "tiny" ? "24 46 152 152" : detail === "small" ? "16 34 168 168" : "8 22 184 184";
 
   const person = (
-    <svg viewBox={box} width={size} height={size} className={scene ? undefined : className} style={scene ? LAYER : undefined} aria-hidden overflow={scene ? "hidden" : "visible"}>
+    <svg viewBox={box} width={size} height={size} className={scene ? undefined : className} style={scene ? LAYER : undefined} role={label && !scene ? "img" : undefined} aria-label={scene ? undefined : label} aria-hidden={label && !scene ? undefined : true} overflow={scene ? "hidden" : "visible"}>
       <defs>
         <linearGradient id={`${id}lit`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor={pal.lit} />
@@ -90,7 +92,7 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
         {/* 바닥 그림자 */}
         <ellipse cx={n2(pose.x)} cy="2" rx={n2(rx * 0.86 * pose.shadow * pose.sx)} ry={n2(7 * pose.shadow)} fill={scene ? "#2d3b22" : INK} opacity={scene ? 0.3 : 0.16} filter={`url(#${id}soft)`} />
         <g filter={full ? `url(#${id}boil)` : undefined}>
-          <Character id={id} look={look} pal={pal} geo={geo} expr={expr} pose={pose} t={t} lw={lw} detail={detail} glow={!!look.color} fx={fx} />
+          <Character id={id} look={look} pal={pal} geo={geo} expr={expr} pose={pose} t={t} lw={lw} detail={detail} glow={aura ?? !!look.color} fx={fx} />
           {fx.length > 0 && <Effects fx={fx} pose={pose} geo={geo} t={t} lw={lw} />}
         </g>
       </g>

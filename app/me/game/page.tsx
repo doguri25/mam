@@ -2,6 +2,7 @@
 // 감정 단어 놀이: 상황을 읽고 알맞은 감정 단어를 고른다. 점수·순위는 없고, 틀리면 다시 생각해 볼 수 있다.
 // 우리 반 감정 단어(교과서 연결)가 정답인 문제가 먼저 나온다.
 import { useEffect, useMemo, useState } from "react";
+import Doodle from "@/components/Doodle";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { MEANING, makeRound } from "@/lib/game";
@@ -68,7 +69,7 @@ export default function GamePage() {
             </p>
             <h2 className="font-display text-3xl leading-snug sm:text-4xl">
               {q.text[lang]}
-              <button onClick={() => speak(q.text[lang], true, lang)} className="ml-2 inline-grid size-10 place-items-center rounded-full bg-leaf-soft align-middle text-lg" aria-label="🔊">🔊</button>
+              <button onClick={() => speak(q.text[lang], true, lang)} className="ml-2 inline-grid size-11 place-items-center rounded-full bg-leaf-soft align-middle" aria-label={tt("sayIt")}><Doodle name="speaker" size={26} /></button>
             </h2>
             <div className="grid gap-3 sm:grid-cols-3">
               {q.options.map((o) => {

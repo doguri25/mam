@@ -3,6 +3,7 @@
 // 체크하기 → 결과(평균·역량별 수준·레이더·강점/보완·요약 복사·메모) → 누적 기록(회차별 변화 꺾은선·처음과 최근 겹쳐 보기).
 // 학급 저장 공간에 쌓여 어느 기기에서든 같은 기록을 본다. 학생 이름·번호는 담지 않는다.
 import { useEffect, useMemo, useState } from "react";
+import Doodle, { DoodleText } from "../Doodle";
 import type { Overview } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
@@ -42,12 +43,12 @@ export default function SelCheckTab({ data }: { data: Overview }) {
   return (
     <div className="space-y-4">
       <div role="tablist" aria-label="학급 역량 진단" className="no-print grid grid-cols-2 gap-1 rounded-2xl border border-line bg-card p-1">
-        {([["check", "✏️ 체크하기"], ["history", `📈 누적 기록 ${items.length ? `(${items.length}회)` : ""}`]] as const).map(([k, name]) => {
+        {([["check", "pencil", "체크하기"], ["history", "chart", `누적 기록 ${items.length ? `(${items.length}회)` : ""}`]] as const).map(([k, icon, name]) => {
           const on = view.kind === k || (k === "history" && view.kind === "result");
           return (
             <button key={k} role="tab" aria-selected={on} onClick={() => go(k === "check" ? { kind: "check" } : { kind: "history" })}
-              className={`min-h-11 rounded-xl font-bold transition ${on ? "bg-leaf text-white" : "text-soft hover:bg-paper"}`}>
-              {name}
+              className={`flex min-h-11 items-center justify-center gap-2 rounded-xl font-bold transition ${on ? "bg-leaf text-white" : "text-soft hover:bg-paper"}`}>
+              <Doodle name={icon} size={24} />{name}
             </button>
           );
         })}
@@ -134,7 +135,7 @@ function CheckFlow({ data, edit, onSaved }: { data: Overview; edit?: SelCheck; o
     return (
       <section className="mx-auto max-w-xl space-y-5">
         <div className="text-center">
-          <span className="mx-auto mb-3 grid size-16 place-items-center rounded-3xl bg-[#ece9fb] text-3xl" aria-hidden>🧭</span>
+          <span className="mx-auto mb-3 grid size-16 place-items-center rounded-3xl bg-[#ece9fb] text-3xl" aria-hidden><Doodle name="compass" /></span>
           <h2 className="font-display text-3xl">{edit ? "진단 답 고치기" : "학급 사회·정서역량 진단"}</h2>
           <p className="mt-1 text-soft">우리 반 학생들 전체를 떠올리며<br />20문항에 답해 주세요. 3~4분이면 끝나요.</p>
         </div>
@@ -267,12 +268,12 @@ function Result({ check, items, onItems, onEdit, onBack, onOpen }: {
         <div className="flex flex-wrap gap-2">
           {prev && <button className="btn-sub min-h-10 px-3 text-sm" onClick={() => onOpen(prev.id)}>‹ 이전 회차</button>}
           {items[idx + 1] && <button className="btn-sub min-h-10 px-3 text-sm" onClick={() => onOpen(items[idx + 1].id)}>다음 회차 ›</button>}
-          <button className="btn-sub min-h-10 px-3 text-sm" onClick={() => window.print()}>🖨️ 인쇄</button>
+          <button className="btn-sub min-h-10 px-3 text-sm" onClick={() => window.print()}><Doodle name="printer" /> 인쇄</button>
         </div>
       </div>
 
       <header className="text-center">
-        <span className="mx-auto mb-2 grid size-14 place-items-center rounded-3xl bg-[#e4f5ee] text-2xl" aria-hidden>📊</span>
+        <span className="mx-auto mb-2 grid size-14 place-items-center rounded-3xl bg-[#e4f5ee] text-2xl" aria-hidden><Doodle name="bars" /></span>
         <h2 className="font-display text-3xl">진단 결과 <span className="text-soft">· {idx + 1}회차</span></h2>
         <p className="text-sm text-soft">{[check.school, check.group, check.rater, label(check.date)].filter(Boolean).join(" · ")}{check.demo ? " · 연습" : ""}</p>
       </header>
@@ -333,7 +334,7 @@ function Result({ check, items, onItems, onEdit, onBack, onOpen }: {
             <div key={i} className="space-y-1">
               <h3 className="font-display text-xl text-[#b8352d]">{SEL_COMPS[i].name}</h3>
               <p className="text-sm text-soft">{SEL_COMPS[i].tip}</p>
-              <p className="text-sm"><b className="text-leaf">마음빛 길잡이에서</b> {SEL_COMPS[i].app}</p>
+              <p className="text-sm"><b className="text-leaf">마음빛 길잡이에서</b> <DoodleText text={SEL_COMPS[i].app} /></p>
             </div>
           )) : <p className="text-sm text-soft">다섯 역량이 같은 점수로 고르게 나타났어요. 문항별 응답에서 낮은 문항을 살펴보세요.</p>}
         </section>
@@ -368,14 +369,14 @@ function Result({ check, items, onItems, onEdit, onBack, onOpen }: {
       </details>
 
       <section className="card space-y-3">
-        <h3 className="flex items-center gap-2 font-bold"><span aria-hidden>📋</span> 결과 요약 <span className="text-sm font-normal text-soft">(담당 선생님께 전달용)</span></h3>
+        <h3 className="flex items-center gap-2 font-bold"><span aria-hidden><Doodle name="clipboard" /></span> 결과 요약 <span className="text-sm font-normal text-soft">(담당 선생님께 전달용)</span></h3>
         <p className="rounded-2xl bg-[#eef1fb] px-4 py-2 text-sm text-[#4b55a3]">아래 글을 복사해 학년·전체 결과를 모으는 선생님께 메신저로 보내 주세요.</p>
         <pre className="whitespace-pre-wrap rounded-2xl bg-paper px-4 py-3 font-mono text-sm leading-relaxed">{text}</pre>
         <button className="btn-main no-print w-full bg-ink" onClick={copy}>{copied ? "✓ 복사했어요" : "결과 복사하기"}</button>
       </section>
 
       <section className="card space-y-2">
-        <h3 className="flex items-center gap-2 font-bold"><span aria-hidden>📝</span> 메모</h3>
+        <h3 className="flex items-center gap-2 font-bold"><span aria-hidden><Doodle name="memo" /></span> 메모</h3>
         <textarea className="field min-h-28" maxLength={1000} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="특이 사항, 다음 프로그램 계획 등을 자유롭게 적어 주세요." />
         <div className="no-print flex justify-end">
           <button className="btn-sub min-h-10 px-4 text-sm" disabled={memo === check.memo || memoBusy} onClick={saveMemo}>{memoBusy ? "저장하는 중…" : memo === check.memo ? "저장됨" : "메모 저장"}</button>
@@ -384,7 +385,7 @@ function Result({ check, items, onItems, onEdit, onBack, onOpen }: {
 
       {err && <p className="text-center text-sm text-alert">{err}</p>}
       <div className="no-print grid grid-cols-2 gap-2">
-        <button className="btn-sub" onClick={onEdit}>✏️ 답 고치기</button>
+        <button className="btn-sub" onClick={onEdit}><Doodle name="pencil" /> 답 고치기</button>
         <button className="btn-sub text-alert" onClick={remove}>이 회차 지우기</button>
       </div>
     </article>
@@ -448,7 +449,7 @@ function History({ items, onOpen, onNew }: { items: SelCheck[]; onOpen: (id: str
   if (!items.length)
     return (
       <div className="card space-y-3 text-center">
-        <p className="text-4xl" aria-hidden>🌱</p>
+        <p className="text-4xl" aria-hidden><Doodle name="sprout" /></p>
         <p className="font-display text-xl">아직 진단 기록이 없어요</p>
         <p className="text-sm text-soft">학기 초·중간·끝처럼 몇 번 체크해 두면 우리 반 역량이 어떻게 자랐는지 한눈에 보여요.</p>
         <button className="btn-main mx-auto" onClick={onNew}>첫 진단 시작하기 →</button>
@@ -467,7 +468,7 @@ function History({ items, onOpen, onNew }: { items: SelCheck[]; onOpen: (id: str
             ))}
           </div>
         ) : <span />}
-        <button className="btn-sub min-h-10 px-3 text-sm" onClick={() => window.print()}>🖨️ 누적 기록 인쇄</button>
+        <button className="btn-sub min-h-10 px-3 text-sm" onClick={() => window.print()}><Doodle name="printer" /> 누적 기록 인쇄</button>
       </div>
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -516,7 +517,7 @@ function History({ items, onOpen, onNew }: { items: SelCheck[]; onOpen: (id: str
                 return (
                   <tr key={c.id} onClick={() => onOpen(c.id)} className="cursor-pointer border-b border-line/60 hover:bg-paper">
                     <td className="py-2 pr-2 tabular-nums text-soft">{items.indexOf(c) + 1}</td>
-                    <td className="pr-2"><b>{label(c.date)}</b> <span className="text-soft">· {c.rater || "-"}{c.demo ? " · 연습" : ""}</span>{c.memo && <span className="block max-w-[16rem] truncate text-xs text-soft">📝 {c.memo}</span>}</td>
+                    <td className="pr-2"><b>{label(c.date)}</b> <span className="text-soft">· {c.rater || "-"}{c.demo ? " · 연습" : ""}</span>{c.memo && <span className="block max-w-[16rem] truncate text-xs text-soft"><Doodle name="memo" /> {c.memo}</span>}</td>
                     <td className="pr-2 text-right font-bold tabular-nums">{overall(c.answers).toFixed(2)}</td>
                     {s.map((v, i) => <td key={i} className="px-1 text-center"><span className={`inline-block min-w-9 rounded-md px-1 py-0.5 text-xs font-bold tabular-nums ${LEVEL[levelOf(v)]}`}>{fmt(v)}</span></td>)}
                   </tr>

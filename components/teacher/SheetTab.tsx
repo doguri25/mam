@@ -3,6 +3,7 @@
 // AI가 사회정서교육 4대 핵심역량에 비추어 피드백과 그 이유를 쓴다. PDF는 이 기기에서 쪽 그림으로 나눠 한 명씩 보낸다.
 // 결과는 번호로만 저장되고(이름·그림은 저장하지 않음) 선생님이 고친 뒤 학생에게 전한다.
 import { useEffect, useRef, useState } from "react";
+import Doodle from "../Doodle";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { parseNums, sheetGroups } from "@/lib/rules";
@@ -179,7 +180,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
         </h3>
         <div className="flex flex-wrap items-end gap-3">
           <label className="btn-sub cursor-pointer">
-            📄 PDF 고르기
+            <Doodle name="page" /> PDF 고르기
             <input type="file" accept=".pdf,application/pdf" className="sr-only" disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
           </label>
           <label className="block">
@@ -213,7 +214,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
               ))}
             </ol>
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => start()} disabled={busy} className="btn-main">✨ 피드백 만들기 ({groups.length}명)</button>
+              <button onClick={() => start()} disabled={busy} className="btn-main"><Doodle name="sparkle" /> 피드백 만들기 ({groups.length}명)</button>
               {progress && <button onClick={() => (stop.current = true)} className="btn-sub">멈추기</button>}
               {!progress && failed.length > 0 && live && <button onClick={() => start(failed)} className="btn-sub">못 만든 {failed.length}명 다시</button>}
             </div>
@@ -236,13 +237,13 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
             <h3 className="font-display text-xl">
               {run.topic || run.items[0]?.topic || "활동지"} <span className="text-base text-soft">· {run.createdAt.slice(0, 10)} · {run.items.length}명</span>
             </h3>
-            <button onClick={() => window.print()} disabled={!run.items.length} className="btn-sub ml-auto">🖨️ 학생용 쪽지 인쇄</button>
+            <button onClick={() => window.print()} disabled={!run.items.length} className="btn-sub ml-auto"><Doodle name="printer" /> 학생용 쪽지 인쇄</button>
             <button onClick={() => navigator.clipboard?.writeText(run.items.map((x) => `${x.no}번 ${nameOf(x.no)}\n${x.toStudent}`).join("\n\n"))} disabled={!run.items.length} className="btn-sub">
-              📋 전체 복사
+              <Doodle name="clipboard" /> 전체 복사
             </button>
           </div>
           {Object.entries(fails).map(([no, m]) => (
-            <p key={no} className="no-print rounded-xl bg-[#fdecec] px-3 py-2 text-sm">⚠️ {no}번: {m}</p>
+            <p key={no} className="no-print rounded-xl bg-[#fdecec] px-3 py-2 text-sm"><Doodle name="warning" /> {no}번: {m}</p>
           ))}
           {run.items.map((x) => (
             <article key={`${run.id}-${x.no}`} className="no-print card grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
@@ -257,9 +258,9 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
                 <p className="text-xs text-soft">스캔 {x.pages.join("·")}쪽</p>
               </div>
               <div className="min-w-0 space-y-3">
-                {x.check && <p className="rounded-xl bg-[#fdecec] px-3 py-2 text-sm font-bold">🚨 직접 살펴봐 주세요: {x.check}</p>}
+                {x.check && <p className="rounded-xl bg-[#fdecec] px-3 py-2 text-sm font-bold"><Doodle name="siren" /> 직접 살펴봐 주세요: {x.check}</p>}
                 {x.blank && <p className="rounded-xl bg-paper px-3 py-2 text-sm">빈 활동지이거나 읽기 어려워요. 스캔 순서·건너뛸 번호를 확인해 주세요.</p>}
-                <p className="text-sm"><b>📖 AI가 읽은 내용</b> <span className="text-soft">({x.topic})</span><br />{x.read}</p>
+                <p className="text-sm"><b><Doodle name="bookOpen" /> AI가 읽은 내용</b> <span className="text-soft">({x.topic})</span><br />{x.read}</p>
                 {([["잘 드러난 점", x.strengths], ["더 키워 볼 점", x.grow]] as const).map(([title, list]) =>
                   list.length > 0 && (
                     <div key={title}>
@@ -277,7 +278,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
                   ),
                 )}
                 <label className="block">
-                  <span className="text-sm font-bold">💬 학생에게 줄 피드백 <span className="font-normal text-soft">· 고치면 저장돼요</span></span>
+                  <span className="text-sm font-bold"><Doodle name="speech" /> 학생에게 줄 피드백 <span className="font-normal text-soft">· 고치면 저장돼요</span></span>
                   <textarea
                     defaultValue={x.toStudent}
                     onBlur={(e) => e.target.value !== x.toStudent && edit(x.no, e.target.value)}
@@ -286,7 +287,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
                   />
                 </label>
                 <div className="rounded-xl bg-paper px-3 py-2 text-sm">
-                  <b>🧭 이렇게 쓴 이유</b> <span className="text-xs text-soft">(선생님용)</span>
+                  <b><Doodle name="compass" /> 이렇게 쓴 이유</b> <span className="text-xs text-soft">(선생님용)</span>
                   <p>{x.why}</p>
                   <p className="mt-1 text-xs text-soft">적용한 기준: {x.criteria}</p>
                 </div>

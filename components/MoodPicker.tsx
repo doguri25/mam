@@ -2,6 +2,7 @@
 // 감정 그림카드 12장 → (더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개. 처음엔 아무것도 골라 두지 않는다.
 // stepwise: 한 화면에 질문 하나씩, 누르면 바로 다음으로(초등학생용). 아니면 세 가지를 한 화면에(말로 한 뒤 고쳐 볼 때).
 import { useState } from "react";
+import Doodle from "./Doodle";
 import { EmotionArt, EMOTION_COLOR, ReasonArt } from "./Art";
 import { t, w, type Lang } from "@/lib/i18n";
 import { speak } from "@/lib/local";
@@ -51,7 +52,7 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; 
                 onClick={() => { onChange({ ...value, emotion: e.name, word: undefined }); say(e.name); go(NUANCE[e.name] ? 1 : 2); }}
                 className={`chip flex min-h-28 flex-col items-center justify-center gap-1.5 py-3 ${on ? "chip-on" : ""}`}
                 style={on ? { borderColor: EMOTION_COLOR[e.name], background: `${EMOTION_COLOR[e.name]}1f` } : undefined}>
-                <EmotionArt name={e.name} size={64} />
+                <EmotionArt name={e.name} size={72} />
                 <span className="text-base font-bold">{w(lang, e.name)}</span>
                 {lang !== "ko" && <span className="text-[11px] text-soft">{e.name}</span>}
               </button>
@@ -72,11 +73,14 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; 
             return (
               <button key={word} type="button" aria-pressed={on}
                 onClick={() => { onChange({ ...value, word }); say(word); go(2, 650); }}
-                className="min-h-20 rounded-3xl border-[3px] px-4 py-4 font-display text-2xl transition active:scale-[0.97]"
-                style={{ borderColor: color, background: on ? color : "#fff", color: on ? "#fff" : undefined }}>
-                {w(lang, word)}
-                {lang !== "ko" && <span className="block text-xs font-normal opacity-80">{word}</span>}
-                {vocab.includes(word) && <span className="ml-1 text-base" title={t(lang, "learned")}>⭐</span>}
+                className="flex min-h-20 items-center gap-3 rounded-3xl border-[3px] px-4 py-3 text-left font-display text-2xl transition active:scale-[0.97] sm:flex-col sm:text-center"
+                style={{ borderColor: color, background: on ? `${color}2e` : "#fff" }}>
+                <EmotionArt name={word} size={72} className="shrink-0" />
+                <span className="min-w-0">
+                  {w(lang, word)}
+                  {vocab.includes(word) && <span className="ml-1 inline-block" title={t(lang, "learned")}><Doodle name="star" size={22} /></span>}
+                  {lang !== "ko" && <span className="block text-xs font-normal opacity-80">{word}</span>}
+                </span>
               </button>
             );
           })}
@@ -208,7 +212,7 @@ function All({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick
                   >
                     {w(lang, word)}
                     {lang !== "ko" && <span className={`ml-1 text-xs font-normal ${on ? "text-white/80" : "text-soft"}`}>{word}</span>}
-                    {learned && <span className="ml-1 text-xs" title={t(lang, "learned")}>⭐</span>}
+                    {learned && <span className="ml-1 inline-block" title={t(lang, "learned")}><Doodle name="star" size={16} /></span>}
                   </button>
                 );
               })}

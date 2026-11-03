@@ -2,13 +2,16 @@
 // 마음 다스리기 도구 상자: 도구 고르기 → 마음 친구와 해 보기 → 「지금 마음은 어때?」
 // 고른 느낌은 오늘 기록에 붙어 선생님이 「어떤 도구가 이 아이에게 도움이 되는지」 볼 수 있다. 그림은 저장하지 않는다.
 import { useEffect, useRef, useState } from "react";
+import Doodle, { type DoodleName } from "./Doodle";
+import BuddyFace from "./BuddyFace";
 import BuddyLazy from "./BuddyLazy";
 import { t, type Lang, type UIKey } from "@/lib/i18n";
 import { speak } from "@/lib/local";
 import { BREATH_MS, CALM_TOOLS, FELT, type BuddyLook, type CalmTool, type Felt } from "@/lib/shared";
 
-const ICON: Record<CalmTool, string> = { breathe: "🫧", squeeze: "✊", senses: "🔎", draw: "🎨" };
-const FELT_ICON: Record<Felt, string> = { better: "😊", same: "😐", unsure: "🤔" };
+const ICON: Record<CalmTool, DoodleName> = { breathe: "bubble", squeeze: "squeeze", senses: "magnifier", draw: "palette" };
+// 지금 마음: 내 마음 친구가 그 표정을 지어 보인다
+const FELT_FACE: Record<Felt, string> = { better: "후련해요", same: "그저 그래요", unsure: "멍해요" };
 type Common = { look: BuddyLook; emotion?: string; lang: Lang };
 
 // 숨 고르기·꼭 쥐었다 펴기: 8초 박자(앞 4초 들이쉼·쥐기, 뒤 4초 내쉼·펴기)를 3번
@@ -37,17 +40,17 @@ function Rhythm({ mode, look, emotion, lang, onDone, onStop }: Common & { mode: 
 }
 
 // 5-4-3-2-1 찾기: 보이는 것 5 · 만질 수 있는 것 4 · 들리는 것 3 · 냄새 2 · 나에게 해 줄 좋은 말 1
-const SENSES: [UIKey, string][] = [["senses1", "👀"], ["senses2", "✋"], ["senses3", "👂"], ["senses4", "👃"], ["senses5", "💗"]];
+const SENSES: [UIKey, DoodleName][] = [["senses1", "eyes"], ["senses2", "hand"], ["senses3", "ear"], ["senses4", "nose"], ["senses5", "heart"]];
 function Senses({ look, emotion, lang, onDone, onStop }: Common & { onDone: () => void; onStop: () => void }) {
   const [i, setI] = useState(0);
-  const [key, emoji] = SENSES[i];
+  const [key, icon] = SENSES[i];
   useEffect(() => speak(t(lang, key), false, lang), [key, lang]);
   return (
     <div className="grid items-center gap-4 sm:grid-cols-[1fr_200px]">
       <div className="space-y-4 text-center sm:text-left">
         <p className="flex items-center justify-center gap-3 sm:justify-start">
           <span className="grid size-20 place-items-center rounded-full bg-leaf font-display text-5xl text-white">{5 - i}</span>
-          <span className="text-6xl" aria-hidden>{emoji}</span>
+          <Doodle name={icon} size={72} />
         </p>
         <h2 className="font-display text-3xl leading-snug" aria-live="polite">{t(lang, key)}</h2>
         <div className="flex justify-center gap-1.5 sm:justify-start" aria-hidden>
@@ -143,14 +146,14 @@ export default function CalmBox({ look, emotion, lang, onFelt, onClose }: Common
           <div className="grid w-full max-w-xl gap-2 sm:grid-cols-3">
             {FELT.map((f) => (
               <button key={f} onClick={() => { onFelt(tool, f); setCheer((n) => n + 1); setPhase("thanks"); }} className="chip flex flex-col items-center gap-1 p-4 text-lg font-bold hover:border-leaf">
-                <span className="text-4xl" aria-hidden>{FELT_ICON[f]}</span>
+                <BuddyFace look={look} emotion={FELT_FACE[f]} size={76} />
                 {tt(`felt_${f}` as UIKey)}
               </button>
             ))}
           </div>
         ) : (
           <div className="flex flex-wrap justify-center gap-2">
-            <button onClick={back} className="btn-sub">{tt("calmOpen")}</button>
+            <button onClick={back} className="btn-sub"><Doodle name="calm" size={24} />{tt("calmOpen")}</button>
             <button onClick={onClose} className="btn-main px-8">{tt("buddyBack")}</button>
           </div>
         )}
@@ -163,7 +166,7 @@ export default function CalmBox({ look, emotion, lang, onFelt, onClose }: Common
       <div className="grid gap-3 sm:grid-cols-2">
         {CALM_TOOLS.map((k) => (
           <button key={k} onClick={() => { setTool(k); setPhase(k); }} className="chip flex items-center gap-4 p-5 text-left hover:border-leaf">
-            <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-leaf-soft text-4xl" aria-hidden>{ICON[k]}</span>
+            <span className="grid size-16 shrink-0 place-items-center rounded-2xl bg-leaf-soft"><Doodle name={ICON[k]} size={46} /></span>
             <span>
               <span className="block font-display text-2xl">{tt(`tool_${k}` as UIKey)}</span>
               <span className="text-sm text-soft">{tt(`tool_${k}_sub` as UIKey)}</span>

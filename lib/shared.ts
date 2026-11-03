@@ -5,29 +5,29 @@ export type Group = "joy" | "calm" | "sad" | "angry" | "fear";
 export type Slot = "am" | "pm";
 
 export const EMOTIONS = [
-  { name: "기뻐요", emoji: "😄", group: "joy" },
-  { name: "신나요", emoji: "🤩", group: "joy" },
-  { name: "고마워요", emoji: "🥰", group: "joy" },
-  { name: "편안해요", emoji: "😌", group: "calm" },
-  { name: "그저 그래요", emoji: "😐", group: "calm" },
-  { name: "피곤해요", emoji: "😪", group: "sad" },
-  { name: "걱정돼요", emoji: "😟", group: "fear" },
-  { name: "무서워요", emoji: "😨", group: "fear" },
-  { name: "슬퍼요", emoji: "😢", group: "sad" },
-  { name: "속상해요", emoji: "😞", group: "sad" },
-  { name: "억울해요", emoji: "😤", group: "angry" },
-  { name: "화나요", emoji: "😠", group: "angry" },
-] as const satisfies readonly { name: string; emoji: string; group: Group }[];
+  { name: "기뻐요", group: "joy" },
+  { name: "신나요", group: "joy" },
+  { name: "고마워요", group: "joy" },
+  { name: "편안해요", group: "calm" },
+  { name: "그저 그래요", group: "calm" },
+  { name: "피곤해요", group: "sad" },
+  { name: "걱정돼요", group: "fear" },
+  { name: "무서워요", group: "fear" },
+  { name: "슬퍼요", group: "sad" },
+  { name: "속상해요", group: "sad" },
+  { name: "억울해요", group: "angry" },
+  { name: "화나요", group: "angry" },
+] as const satisfies readonly { name: string; group: Group }[];
 
 export type EmotionName = (typeof EMOTIONS)[number]["name"];
 export const EMOTION_NAMES = EMOTIONS.map((e) => e.name) as string[];
 
 export const REASONS = [
-  { name: "친구", emoji: "👫" },
-  { name: "공부", emoji: "📚" },
-  { name: "집", emoji: "🏠" },
-  { name: "몸", emoji: "🤒" },
-  { name: "그냥", emoji: "🤷" },
+  { name: "친구" },
+  { name: "공부" },
+  { name: "집" },
+  { name: "몸" },
+  { name: "그냥" },
 ] as const;
 export const REASON_NAMES = REASONS.map((r) => r.name) as string[];
 
