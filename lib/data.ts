@@ -263,6 +263,9 @@ export async function saveSelChecks(items: SelCheck[]) {
   await db().set("meta", "selChecks", { items: items.slice(-80) });
 }
 
+// 연습 데이터의 판: 연습 데이터에 새 내용(예: 역량 진단 회차)을 더하면 올린다 → 체험 반이 그날 안에도 새 판으로 다시 만들어진다
+export const PRACTICE_VERSION = 2;
+
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
 export async function seedPractice() {
   for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
@@ -283,7 +286,7 @@ export async function seedPractice() {
   await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
   await saveSelChecks([...(await getSelChecks()).filter((c) => !c.demo), ...demoSelChecks(date)]); // 역량 진단 연습 회차(실제 회차는 그대로)
   await saveSettings({ ...(await getSettings()), checks: {} });
-  await db().set("meta", "practiceDay", { date });
+  await db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION });
   await touch("wipe");
   await touch("records");
 }
