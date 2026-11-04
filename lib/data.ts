@@ -3,7 +3,7 @@ import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { addDays, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelChecks, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
-import { claimOnce, signupSlot } from "./limit.ts";
+import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
@@ -131,7 +131,8 @@ export async function createAccount(name: string, className: string, password: s
   const classes = async () => (await outOfSpace(() => db().all("accounts"))).length;
   let n = await classes();
   if (n >= max - 3 && (await claimOnce("cleanup:signup", String(Math.floor(Date.now() / 600_000))))) {
-    if ((await cleanupEmptyClasses()).length) n = await classes();
+    const gone = await cleanupEmptyClasses().catch((e) => (console.error("빈 학급 정리 실패", e), [])); // 정리가 안 돼도 가입은 이어서
+    if (gone.length) n = await classes();
   }
   if (n >= max) return { error: "더 만들 수 있는 학급 수를 넘었어요. 관리하시는 선생님께 알려 주세요." };
   if (opts.ip !== undefined) {
@@ -209,9 +210,11 @@ export async function cleanupEmptyClasses(now = new Date()): Promise<string[]> {
   return gone;
 }
 
-// 선생님이 맞는 비밀번호로 들어왔을 때: 마지막 로그인을 적고(새 학급만 — 계정 문서가 있는 학급), 하루 한 번 빈 학급을 정리한다
+// 선생님이 맞는 비밀번호로 들어왔을 때: 마지막 로그인을 적고(새 학급만 — 계정 문서가 있는 학급), 하루 한 번 빈 학급을 정리한다.
+// 맞힌 학생 로그인도 IP마다 셈 문서를 남기므로 기한 지난 셈도 여기서 지운다(한 시간에 한 번).
 export async function noteTeacherLogin(acc: Account, now = new Date()) {
   if (acc.space) await outOfSpace(() => db().update<Account>("accounts", acc.id, (cur) => (cur ? { ...cur, lastLogin: now.toISOString() } : undefined)));
+  await tidyLimits(now.getTime());
   if (await claimOnce("cleanup", today(now))) await cleanupEmptyClasses(now);
 }
 
