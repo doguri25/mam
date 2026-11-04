@@ -5,7 +5,7 @@ import Doodle from "@/components/Doodle";
 import { EMOTION_COLOR, EmotionArt } from "@/components/Art";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
-import { MEANING } from "@/lib/game";
+import { meaningOf } from "@/lib/game";
 import { w } from "@/lib/i18n";
 import { ALL_SUB_WORDS, SUB_WORDS } from "@/lib/shared";
 
@@ -22,6 +22,7 @@ export default function WordsPage() {
 
   const Word = ({ word }: { word: string }) => {
     const n = dict.counts[word] ?? 0;
+    const meaning = meaningOf(lang, word); // 학생 언어로
     return (
       <div className={`rounded-2xl border-2 p-3 ${dict.mine.includes(word) ? "border-leaf bg-leaf-soft/50" : "border-line bg-card"}`}>
         <p className="flex flex-wrap items-center gap-x-2">
@@ -30,7 +31,7 @@ export default function WordsPage() {
           {lang !== "ko" && <span className="text-sm text-soft">{word}</span>}
           {dict.vocab.includes(word) && <span title={tt("dictClass")}><Doodle name="star" size={20} /></span>}
         </p>
-        {MEANING[word] && <p className="mt-1 text-sm">{MEANING[word]}</p>}
+        {meaning && <p className="mt-1 text-sm">{meaning}</p>}
         <p className="mt-2 flex flex-wrap gap-1.5 text-xs">
           <span className={`rounded-full px-2 py-0.5 ${n ? "bg-sun/30" : "bg-paper text-soft"}`}>{n ? tt("dictUsed", { n }) : tt("dictNew")}</span>
           {dict.mine.includes(word) && <span className="rounded-full bg-leaf px-2 py-0.5 text-white">✓ {tt("dictMine")}</span>}

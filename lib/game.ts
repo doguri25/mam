@@ -1,7 +1,7 @@
 // 감정 단어 놀이 문제(상황 → 알맞은 감정 단어)와 감정 단어 사전의 쉬운 뜻풀이.
 // 정답은 모두 NUANCE(더 꼭 맞는 말) 안의 단어라 마음 카드에서 바로 써 볼 수 있다.
 import type { Lang } from "./i18n.ts";
-import { NUANCE, groupOf } from "./shared.ts";
+import { NUANCE, POLARITY, groupOf } from "./shared.ts";
 
 type Text = Record<Lang, string>;
 export interface Situation { answer: string; text: Text }
@@ -34,10 +34,16 @@ export function makeRound(vocab: string[], seed: number) {
   const first = shuffle(SITUATIONS.filter((s) => vocab.includes(s.answer)));
   const rest = shuffle(SITUATIONS.filter((s) => !vocab.includes(s.answer)));
   const all = Object.values(NUANCE).flat();
-  // 이 단어가 속한 감정 무리(기쁨·평온·슬픔·화남·불안) — 헷갈리지 않게 다른 무리 단어만 보기로
-  const group = (w: string) => groupOf(Object.keys(NUANCE).find((k) => NUANCE[k].includes(w)) ?? "");
+  // 이 단어가 속한 감정 무리(기쁨·평온·슬픔·화남·불안) — 헷갈리지 않게 다른 무리 단어만 보기로.
+  // 「피곤해요」(슬픔 무리)와 「그저 그래요」(평온 무리) 낱말은 무리는 달라도 마음 카드에서 함께 「보통」 줄에 놓일 만큼
+  // 가까워서(졸려요 ↔ 멍해요, 심심해요 ↔ 기운 없어요) 서로의 보기로도 내지 않는다.
+  const parent = (w: string) => Object.keys(NUANCE).find((k) => NUANCE[k].includes(w)) ?? "";
+  const near = (a: string, b: string) => {
+    const [pa, pb] = [parent(a), parent(b)];
+    return groupOf(pa) === groupOf(pb) || (POLARITY[pa] === "mid" && POLARITY[pb] === "mid");
+  };
   return [...first, ...rest].slice(0, 5).map((s) => {
-    const other = shuffle(all.filter((w) => group(w) !== group(s.answer))).slice(0, 2);
+    const other = shuffle(all.filter((w) => !near(w, s.answer))).slice(0, 2);
     return { ...s, options: shuffle([s.answer, ...other]) };
   });
 }
@@ -67,3 +73,74 @@ export const MEANING: Record<string, string> = {
   정신없어요: "이것저것 한꺼번에 생겨 어지러운 느낌", "조용히 있고 싶어요": "말하지 않고 혼자 쉬고 싶은 느낌",
   나른해요: "몸이 축 늘어지고 졸린 느낌", "쉬고 싶어요": "잠깐 멈추고 쉬면 좋겠는 느낌",
 };
+
+// 뜻풀이를 다른 언어로(이주배경학생). 한국어 뜻풀이와 같은 길이로, 그 나라 3학년이 읽을 쉬운 말로.
+type Tr = Record<Exclude<Lang, "ko">, string>;
+const M = (en: string, zh: string, vi: string, ja: string): Tr => ({ en, zh, vi, ja });
+export const MEANING_TR: Record<string, Tr> = {
+  뿌듯해요: M("Proud and full inside because you did it", "为自己做到的事骄傲，心里满满的", "Tự hào vì việc mình làm được, lòng thấy đầy ắp", "じぶんが できた ことが じまんで、こころが いっぱいに なる きもち"),
+  즐거워요: M("Having fun and laughing a lot", "好玩又开心，忍不住笑出来", "Vui và thú vị đến mức bật cười", "たのしくて おもしろくて わらいが でる きもち"),
+  행복해요: M("Very glad and peaceful inside", "心里非常开心又安稳", "Trong lòng rất vui và bình yên", "こころが とても うれしくて おだやかな きもち"),
+  설레요: M("Heart racing while waiting for something good", "等着好事发生，心里怦怦跳", "Tim đập rộn ràng khi chờ điều vui", "いいことを まって どきどきする きもち"),
+  들떠요: M("So excited it's hard to sit still", "心情飘起来，很难安静坐着", "Háo hức đến mức khó ngồi yên", "きもちが ふわふわして じっと していられない きもち"),
+  짜릿해요: M("So excited you tingle all over", "特别兴奋，全身麻酥酥的", "Vui sướng đến rần rần cả người", "とても わくわくして からだじゅう びりびりする きもち"),
+  감동했어요: M("Your heart is moved by something kind", "因为暖心的事，心里一阵感动", "Lòng rưng rưng vì một điều tốt đẹp", "うれしい ことに むねが じーんと する きもち"),
+  든든해요: M("Strong because someone is by your side", "有人在身边，心里有了力量", "Có người bên cạnh nên thấy vững lòng", "そばに だれかが いて ちからが わく きもち"),
+  따뜻해요: M("Your heart feels warm and snug", "心里被暖暖地包围着", "Lòng được sưởi ấm dịu dàng", "こころが ほかほか あたたまる きもち"),
+  후련해요: M("Relieved because a worry is over", "担心的事结束了，心里一下子畅快", "Nhẹ người vì chuyện lo lắng đã xong", "しんぱいごとが おわって すっきりした きもち"),
+  느긋해요: M("Relaxed, with no need to hurry", "不着急，慢慢悠悠的", "Thong thả, không cần vội", "いそがないで ゆったり している きもち"),
+  홀가분해요: M("Light, like putting down a heavy bag", "像放下重担一样轻松", "Nhẹ nhõm như vừa đặt gánh nặng xuống", "おもい にもつを おろしたように かるい きもち"),
+  심심해요: M("Nothing to do, so time goes slowly", "没事可做，时间过得好慢", "Không có gì làm nên thời gian trôi chậm", "することが なくて じかんが ゆっくり すぎる きもち"),
+  멍해요: M("Your mind feels blank and empty", "什么都想不起来，脑袋空空的", "Đầu óc trống rỗng, không nghĩ được gì", "なにも かんがえられず あたまが からっぽな きもち"),
+  무덤덤해요: M("Not really good, not really bad", "说不上喜欢，也说不上讨厌", "Không thích cũng không ghét", "とくに すきでも きらいでも ない きもち"),
+  지쳤어요: M("You used so much energy there's none left", "用了太多力气，再也没劲了", "Dùng nhiều sức quá nên hết sức rồi", "ちからを たくさん つかって もう ちからが ない きもち"),
+  졸려요: M("Your eyes keep closing and you want to sleep", "眼睛总想闭上，好想睡觉", "Mắt cứ díu lại, muốn đi ngủ", "めが とじてきて ねむりたい きもち"),
+  "기운 없어요": M("No energy in your body or heart", "身体和心里都没有力气", "Cả người và lòng đều không còn sức", "からだも こころも ちからが ぬけた きもち"),
+  불안해요: M("Can't relax, wondering what might happen", "怕会出什么事，心里放不下", "Không yên lòng, sợ có chuyện xảy ra", "なにか おきそうで おちつかない きもち"),
+  긴장돼요: M("Your body is stiff and your heart pounds", "身体僵住，心怦怦直跳", "Người cứng lại, tim đập thình thịch", "からだが かたくなって むねが どきどきする きもち"),
+  조마조마해요: M("Nervous that something might go wrong", "怕事情出错，心一直悬着", "Thấp thỏm sợ mọi việc không ổn", "うまく いかないかと はらはらする きもち"),
+  겁나요: M("You shrink back, afraid of something scary", "怕有可怕的事，身体缩成一团", "Co người lại vì sợ điều đáng sợ", "こわい ことが おきそうで からだが ちぢこまる きもち"),
+  "깜짝 놀랐어요": M("Your heart jumps at something sudden", "突然发生的事，让心猛地一跳", "Tim thót lại vì chuyện bất ngờ", "きゅうな ことに むねが どきっと する きもち"),
+  오싹해요: M("A chill runs down your back", "后背一阵发凉", "Lạnh cả sống lưng", "せなかが ぞくっと ひえる きもち"),
+  서운해요: M("Let down because someone didn't do what you hoped", "别人没像期待的那样对我，心里不是滋味", "Tủi vì người khác không làm như mình mong", "きたいした ように してもらえず さみしい きもち"),
+  외로워요: M("Lonely, like you're all by yourself", "觉得只有自己一个人，冷冷清清的", "Buồn vì thấy như chỉ có một mình", "ひとりぼっちの ようで さみしい きもち"),
+  그리워요: M("You keep thinking of someone or a time you miss", "总想起想见的人或从前的时光", "Cứ nhớ đến người hay lúc mình mong gặp lại", "あいたい ひとや むかしの ことを なんども おもいだす きもち"),
+  실망했어요: M("Things didn't go as you hoped, so you feel low", "事情没像希望的那样，一下子泄了气", "Mọi việc không như mong đợi nên chán nản", "おもった とおりに ならなくて ちからが ぬける きもち"),
+  아쉬워요: M("Wishing you could have had a little more", "心里还想再多一点点", "Vẫn muốn thêm một chút nữa", "もう すこし したかったなと おもう きもち"),
+  창피해요: M("Your face gets hot when others see", "怕别人看见，脸上火辣辣的", "Mặt nóng bừng vì sợ người khác thấy", "ひとに みられて かおが かーっと あつくなる きもち"),
+  답답해요: M("Your heart feels stuck and blocked up", "心里堵得慌，一点也不痛快", "Trong lòng nghẹn lại, không thoải mái", "こころが つまって すっきりしない きもち"),
+  분해요: M("Boiling inside after an unfair loss", "输得不服气，心里直冒火", "Ấm ức sôi sục vì thua không công bằng", "ずるい やりかたで まけて くやしくて たまらない きもち"),
+  서러워요: M("So hurt and sad you might cry", "又委屈又难过，快要哭出来", "Tủi thân và buồn đến muốn khóc", "くやしくて かなしくて なみだが でそうな きもち"),
+  "짜증 나요": M("Things keep bugging you and you get snappy", "老是不顺心，脾气变得急躁", "Cứ thấy khó chịu nên dễ cáu", "なんども いやな ことが あって とげとげする きもち"),
+  "약 올라요": M("Mad because someone is teasing you", "被人捉弄，气得不行", "Bực vì bị ai đó trêu chọc", "からかわれて むっと する きもち"),
+  부글부글해요: M("Anger bubbling up inside", "怒气在心里咕嘟咕嘟往上冒", "Cơn giận sôi lên trong lòng", "いかりが おなかの なかで ぐつぐつ わきあがる きもち"),
+  흐뭇해요: M("Smiling inside just from looking", "光是看着，心里就甜甜地笑", "Chỉ nhìn thôi cũng mỉm cười mãn nguyện", "みている だけで にっこり してしまう きもち"),
+  "자신 있어요": M("Believing you can do it well", "相信自己能做好", "Tin rằng mình làm được", "じぶんは できると しんじる きもち"),
+  반가워요: M("Glad to meet someone you wanted to see", "见到想见的人，好高兴", "Vui vì gặp được người mình mong gặp", "あいたかった ひとに あえて うれしい きもち"),
+  신기해요: M("Amazed and curious about something new", "第一次见到，觉得又惊奇又有趣", "Ngạc nhiên và thích thú với điều mới", "はじめて みる ことに びっくりして おもしろい きもち"),
+  기대돼요: M("Can't wait because something good is coming", "觉得接下来会有好事，很盼望", "Mong chờ vì điều sắp tới sẽ vui", "これからの ことが たのしみで まちきれない きもち"),
+  다행이에요: M("Glad that a worry turned out okay", "担心的事平安结束，终于放心了", "Yên tâm vì chuyện lo lắng đã ổn", "しんぱいした ことが ぶじに おわって ほっとする きもち"),
+  포근해요: M("Warm and comfy, like being under a blanket", "像在被窝里一样暖和舒服", "Ấm áp dễ chịu như nằm trong chăn", "おふとんの なかみたいに あたたかくて らくな きもち"),
+  개운해요: M("Fresh and clean in body and mind", "身心都清爽干净", "Người và lòng đều sảng khoái, sạch sẽ", "からだも こころも さっぱり きれいな きもち"),
+  궁금해요: M("Wanting to know more and ask questions", "很想知道更多，总想问问题", "Muốn biết thêm nên cứ muốn hỏi", "もっと しりたくて なんども ききたく なる きもち"),
+  헷갈려요: M("Not sure if it's this or that", "分不清是这个还是那个", "Không biết là cái này hay cái kia", "これか あれか よく わからない きもち"),
+  어색해요: M("Not used to it, so you feel stiff and shy", "不习惯，动作和说话都变得僵硬", "Chưa quen nên cử chỉ và lời nói cứng lại", "なれなくて からだも ことばも かたくなる きもち"),
+  지루해요: M("The same thing goes on and on with no fun", "一直做同样的事，一点意思都没有", "Cứ lặp lại một việc nên chẳng vui", "おなじ ことが つづいて つまらない きもち"),
+  차분해요: M("Your heart feels quiet and settled", "心里安安静静、稳稳的", "Lòng lặng yên và điềm tĩnh", "こころが しずかで おちついている きもち"),
+  "생각이 많아요": M("Lots of thoughts floating in your head", "脑子里飘着好多想法", "Nhiều suy nghĩ cứ trôi trong đầu", "あたまの なかに いろんな かんがえが うかぶ きもち"),
+  괜찮아요: M("Not great, not bad, just okay", "不算好也不算坏，还过得去", "Không tốt lắm cũng không tệ, vẫn ổn", "すごく いいでも わるいでも なく、まあ へいきな きもち"),
+  평범해요: M("Just like any other day", "和平常的日子没什么两样", "Giống như mọi ngày", "いつもの ひと かわらない きもち"),
+  낯설어요: M("Awkward because the place or people are new", "第一次见的地方或人，觉得不自在", "Ngại ngùng vì nơi chốn hay người còn lạ", "はじめての ばしょや ひとで おちつかない きもち"),
+  집중돼요: M("Completely into one thing", "整个心思都投入在一件事上", "Chú tâm hết vào một việc", "ひとつの ことに むちゅうに なっている きもち"),
+  귀찮아요: M("Not wanting to do it, putting it off","不想做，想往后拖", "Không muốn làm, muốn để sau", "やりたくなくて あとまわしに したい きもち"),
+  바빠요: M("So much to do, no time to rest", "事情太多，没空休息", "Nhiều việc quá, không có lúc nghỉ", "やることが おおくて やすむ ひまが ない きもち"),
+  정신없어요: M("Dizzy from too many things at once", "很多事一起来，乱成一团", "Rối tung vì nhiều việc dồn cùng lúc", "いろんな ことが いっぺんに きて あたまが ぐるぐるする きもち"),
+  "조용히 있고 싶어요": M("Wanting to rest alone without talking", "不想说话，想一个人静静", "Muốn nghỉ một mình, không nói gì", "はなさないで ひとりで やすみたい きもち"),
+  나른해요: M("Your body feels floppy and sleepy", "身体软绵绵的，有点困", "Người rã rời và buồn ngủ", "からだが ぐったりして ねむい きもち"),
+  "쉬고 싶어요": M("Wishing you could stop and rest a bit", "希望停下来歇一会儿", "Mong được dừng lại nghỉ một chút", "ちょっと とまって やすみたい きもち"),
+};
+
+// 학생 언어의 뜻풀이(한국어 학생은 한국어). 뜻풀이가 없는 말(교과서에서 더한 말)은 빈 글자.
+export function meaningOf(lang: Lang, word: string): string {
+  return lang === "ko" ? MEANING[word] ?? "" : MEANING_TR[word]?.[lang] ?? "";
+}
