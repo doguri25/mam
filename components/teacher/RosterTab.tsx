@@ -11,6 +11,7 @@ import { useNames } from "@/lib/local";
 export default function RosterTab({ data, reload }: { data: Overview; reload: Reload }) {
   const [text, setText] = useState(() => data.students.map((s) => `${s.no} ${s.alias}`).join("\n"));
   const [msg, setMsg] = useState("");
+  const [skipped, setSkipped] = useState<string[]>([]); // 명단 저장 때 읽지 못한 줄
   const names = useNames(data.space);
   const [qr, setQr] = useState<Record<string, string>>({});
   const [letter, setLetter] = useState(false); // 보호자 안내문을 보고 인쇄할 때는 QR 카드를 인쇄에서 뺀다
@@ -23,8 +24,12 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
   }, [data.students, origin]);
 
   async function saveRoster() {
+    setSkipped([]);
     try {
-      const r = await api<{ students: unknown[] }>("teacher", "roster", { text });
+      // skipped: 서버가 읽지 못한 줄(번호가 겹침·모양이 다름·가명이 너무 김). 예전 서버는 보내지 않는다.
+      const r = await api<{ students: unknown[]; skipped?: unknown }>("teacher", "roster", { text });
+      const bad = Array.isArray(r.skipped) ? r.skipped.map(String) : [];
+      setSkipped(bad);
       setMsg(`${r.students.length}명을 저장했어요. 같은 번호는 원래 코드를 그대로 써요.`);
       await reload();
     } catch (e) {
@@ -63,6 +68,16 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
           <span className="text-sm">{msg}</span>
           <button onClick={saveRoster} className="btn-main">명단 저장</button>
         </div>
+        {skipped.length > 0 && (
+          <div role="alert" className="space-y-1 rounded-2xl border border-alert/40 bg-alert-soft p-3 text-sm">
+            <p className="font-bold text-alert"><Doodle name="warning" /> 읽지 못한 줄 {skipped.length}개 · 명단에 넣지 않았어요</p>
+            <ul className="space-y-0.5 font-mono">
+              {skipped.slice(0, 10).map((line, i) => <li key={i}>· {line.trim() || "(빈 줄)"}</li>)}
+              {skipped.length > 10 && <li className="font-sans text-soft">· 그 밖에 {skipped.length - 10}줄</li>}
+            </ul>
+            <p className="text-xs text-soft">번호가 겹치거나, 「번호 가명」 모양이 아니거나, 가명이 너무 길면 읽지 못해요. 고친 뒤 다시 저장해 주세요.</p>
+          </div>
+        )}
       </section>
 
       <section className="no-print card space-y-3">
