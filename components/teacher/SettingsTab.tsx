@@ -8,7 +8,9 @@ import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
-import { PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
+
+const LANG_KO: Record<string, string> = { ko: "한국어", en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 
 const LINKS: Record<Provider, string> = {
   upstage: "https://console.upstage.ai/api-keys",
@@ -46,14 +48,29 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   }
 
   async function exportCsv() {
-    const { records, students } = await api<{ records: MoodRecord[]; students: { no: number; alias: string }[] }>("teacher", "export");
+    let got: { records: MoodRecord[]; students: { no: number; alias: string }[] };
+    try {
+      got = await api("teacher", "export");
+    } catch (e) {
+      return say("export", `내보내지 못했어요: ${(e as Error).message}`);
+    }
+    const { records, students } = got;
     const alias = (no: number) => students.find((x) => x.no === no)?.alias ?? "";
-    const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각", "한 일(조치)"];
+    // 엑셀·구글 시트가 = + - @ 탭·줄바꿈으로 시작하는 칸을 수식으로 읽지 않게 앞에 '를 붙인다
+    const cell = (v: unknown) => {
+      const t = String(v ?? "");
+      return `"${(/^[=+\-@\t\r]/.test(t) ? `'${t}` : t).replace(/"/g, '""')}"`;
+    };
+    // 앞 열 순서는 그대로 두고(예전 파일과 맞게) 새 열은 뒤에 붙인다
+    const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각", "한 일(조치)", "감정 단어", "한국어 정리", "언어", "마음 다스리기"];
     const did = (id: string) => data.riskActions.filter((x) => x.recordId === id).map((x) => `${x.date} ${x.kinds.map((k) => RISK_ACTION_KO[k]).join("·")}${x.note ? ` (${x.note})` : ""}`).join(" / ");
+    const calm = (r: MoodRecord) => (r.calm ?? []).map((c) => `${CALM_KO[c.tool] ?? c.tool} → ${FELT_KO[c.felt] ?? c.felt}`).join(" / ");
     const rows = records
       .sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.slot.localeCompare(b.slot))
-      .map((r) => [r.date, r.slot === "am" ? "아침" : "하교 전", r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id)]);
+      .map((r) => [
+        r.date, r.slot === "am" ? "아침" : "하교 전", r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id),
+        r.word ?? "", r.summaryKo ?? "", r.lang ? LANG_KO[r.lang] ?? r.lang : "", calm(r),
+      ]);
     const csv = "﻿" + [head, ...rows].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
