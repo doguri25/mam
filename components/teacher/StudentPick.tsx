@@ -49,7 +49,7 @@ export function RefPanel({ data, no, nameOf }: { data: Overview; no: number; nam
         {no}번 {nameOf(no)} · 최근 2주
       </h2>
       {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
-      <ReflectBox reflects={data.reflects} no={no} />
+      <ReflectBox reflects={data.reflects} no={no} words={data.settings.riskWords} />
       <Timeline records={data.records.filter((r) => r.no === no)} today={data.today} />
     </section>
   );

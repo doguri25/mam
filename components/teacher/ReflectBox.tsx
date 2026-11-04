@@ -1,23 +1,29 @@
 // 학생이 쓴 「한 주 돌아보기」와 마음 친구의 답(이번 주·지난주). 위험 표현이 있으면 빨갛게.
+// 지금 글은 순해졌어도 고쳐 쓰기 전 글에 위험 표현이 있었으면 그렇다고 알리고 앞 글을 펼쳐 둔다.
 import Doodle from "../Doodle";
+import { reflectSource } from "./alerts";
 import { label } from "@/lib/date";
 import type { Reflect } from "@/lib/shared";
 
-export default function ReflectBox({ reflects, no }: { reflects: Reflect[]; no: number }) {
+export default function ReflectBox({ reflects, no, words }: { reflects: Reflect[]; no: number; words?: string[] }) {
   const mine = reflects.filter((r) => r.no === no).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
   if (!mine.length) return null;
   return (
     <div className="space-y-2">
-      {mine.map((r) => (
-        <div key={r.id} className={`rounded-2xl p-3 text-sm ${r.risk ? "bg-alert-soft" : "bg-paper"}`}>
+      {mine.map((r) => {
+        const before = !!reflectSource(r, words).prev; // 지금 글이 아니라 고쳐 쓰기 전 글에 위험 표현
+        const self = !before && !!(r.riskSelf ?? r.risk);
+        return (
+        <div key={r.id} className={`rounded-2xl p-3 text-sm ${r.risk || before ? "bg-alert-soft" : "bg-paper"}`}>
           <p className="text-xs font-bold text-soft">
             <Doodle name="calendar" /> 한 주 돌아보기 · {label(r.weekStart)} 주{r.lang && r.lang !== "ko" && <> · <Doodle name="globe" /> {r.lang}</>}
-            {r.risk && <span className="ml-1 rounded bg-alert px-1.5 text-white">위험 표현</span>}
+            {self && <span className="ml-1 rounded bg-alert px-1.5 text-white">위험 표현</span>}
+            {before && <span className="ml-1 rounded bg-alert px-1.5 text-white">고쳐 쓰기 전 글에 위험 표현</span>}
           </p>
           <p className="mt-1 text-base">“{r.text}”</p>
           <p className="mt-1 text-soft">↳ 마음 친구: {r.reply}</p>
           {!!r.prev?.length && (
-            <details className="mt-1 text-xs">
+            <details className="mt-1 text-xs" open={before}>
               <summary className="cursor-pointer text-soft">고쳐 쓰기 전 글 {r.prev.length}개{r.prev.some((p) => p.risk) && <span className="ml-1 rounded bg-alert px-1.5 text-white">위험 표현</span>}</summary>
               <ul className="mt-1 space-y-0.5">
                 {r.prev.map((p) => <li key={p.createdAt} className={p.risk ? "text-alert" : "text-soft"}>“{p.text}”</li>)}
@@ -25,7 +31,8 @@ export default function ReflectBox({ reflects, no }: { reflects: Reflect[]; no: 
             </details>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

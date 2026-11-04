@@ -2,7 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useState } from "react";
 import Doodle from "../Doodle";
-import { RiskActionForm, RiskHistory } from "./RiskActions";
+import { RiskActionForm, RiskHistory, riskItems } from "./RiskActions";
 import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
@@ -12,7 +12,7 @@ import Timeline from "./Timeline";
 import Weather from "./Weather";
 import type { NameOf, Overview, Reload } from "./types";
 import { flagChecked, flagKey } from "./when";
-import { riskAlerts, riskySource } from "./alerts";
+import { reflectSource, riskAlerts, riskySource } from "./alerts";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { isHard } from "@/lib/shared";
@@ -26,94 +26,124 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
   // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
   const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
   const openFlags = flags.filter((f) => !checkedAt(f.no));
+  // 한 학생의 위험 표현(마음 기록·마치지 않은 기록·돌아보기·보낸 쪽지)과 조치 기록
+  const risks = (no: number) => ({
+    records: records.filter((r) => r.no === no), actions: data.riskActions.filter((a) => a.no === no),
+    drafts: (data.riskDrafts ?? []).filter((d) => d.no === no), reflects: data.reflects.filter((x) => x.no === no),
+    letters: data.letters.filter((l) => l.from === no), words: settings.riskWords,
+  });
+  // 명단에서 빠진 번호(알림만 남은 학생)는 번호만
+  const who = (no: number) => (students.some((s) => s.no === no) ? `${no}번 ${nameOf(no)}` : `${no}번`);
 
   async function checkFlag(no: number) {
     await api("teacher", "checkFlag", { key: flagKey(no, today) });
     await reload();
   }
 
+  // 명단이 비어도(모두 지운 뒤 등) 남은 위험 표현 알림은 보인다 — 메뉴의 빨간 수와 어긋나지 않게
+  const alertBox = alerts.length > 0 && (
+    <section className="rounded-3xl border-2 border-alert bg-alert-soft p-5" role="alert">
+      <h2 className="font-display text-xl text-alert"><Doodle name="warning" /> 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
+      <p className="mt-1 text-sm">
+        학생 화면에는 아무 표시도 나가지 않았어요. 진단이 아닌 신호예요. 학교 위기관리 절차에 따라 Wee클래스·상담교사와 함께 살펴봐 주세요.
+        (청소년상담 1388, 자살예방상담 109)
+      </p>
+      <ul className="mt-3 space-y-2">
+        {alerts.map((a) => {
+          const slot = "slot" in a ? (a.slot === "am" ? " 아침" : " 하교 전") : "";
+          const head = (what: string) => <><b>{who(a.no)}</b> · {label(a.date)}{slot} · {what}</>;
+          let body: React.ReactNode;
+          let saw = "text" in a ? a.text : "";
+          if (a.kind === "record") {
+            const r = a.rec;
+            const src = riskySource(r);
+            saw = src.prev ? `고치기 전 글: ${src.text}` : src.text;
+            body = (
+              <span className="flex items-start gap-2">
+                <EmotionArt name={r.emotion} size={34} className="shrink-0" />
+                <span>
+                  {head(r.emotion)}
+                  {src.prev ? (
+                    <span className="block text-sm"><span className="font-bold text-alert">고치기 전 글에 위험 표현</span> “{src.text}”</span>
+                  ) : (
+                    src.text && <span className="block text-sm">“{src.text}”</span>
+                  )}
+                  <span className="block text-xs text-soft">{src.hits.length ? `걸린 말: ${src.hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
+                  <PrevList prev={r.prev} now={r.createdAt} />
+                </span>
+              </span>
+            );
+          } else if (a.kind === "draft") {
+            body = (
+              <span>
+                {head("기록을 마치지 않고 나감")}
+                <span className="block text-sm">“{a.text}”</span>
+                <span className="block text-xs text-soft">{a.hits.length ? `걸린 말: ${a.hits.join(", ")}` : "AI가 위험 내용으로 판단"} · 말로 쓴 뒤 카드를 고르지 않았어요</span>
+                {a.draft.earlier?.map((e) => (
+                  <span key={e.at} className="block text-xs"><span className="font-bold text-alert">앞서 쓴 글</span> “{e.text}”{e.hits.length > 0 && <span className="text-soft"> · 걸린 말: {e.hits.join(", ")}</span>}</span>
+                ))}
+              </span>
+            );
+          } else if (a.kind === "reflect") {
+            // 지금 글은 고쳐 써서 순해졌어도 고쳐 쓰기 전 글에 위험 표현이 있었으면 그 글을 보인다
+            const src = reflectSource(a.ref, settings.riskWords);
+            saw = src.prev ? `고쳐 쓰기 전 글: ${src.text}` : src.text;
+            body = (
+              <span>
+                {head("한 주 돌아보기")}
+                {src.prev ? (
+                  <>
+                    <span className="block text-sm"><span className="font-bold text-alert">고쳐 쓰기 전 글</span> “{src.text}”</span>
+                    <span className="block text-xs text-soft">지금 글: “{a.text}”</span>
+                  </>
+                ) : (
+                  <span className="block text-sm">“{a.text}”</span>
+                )}
+              </span>
+            );
+          } else {
+            body = (
+              <span>
+                {head(`공감 쪽지 → ${who(a.to)}`)}
+                <span className="block text-sm">“{a.text}”</span>
+                <span className="block text-xs text-soft">허락을 기다리는 쪽지예요. 살펴본 일을 적고, 「공감 쪽지」에서 읽고 전하거나 돌려보내 주세요.</span>
+              </span>
+            );
+          }
+          return (
+            <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
+              {body}
+              {acting === a.id ? (
+                <RiskActionForm recordId={a.id} kind={a.kind} today={today} first seen={a.seen} text={saw}
+                  onCancel={() => setActing(null)} onStale={reload} onDone={async () => { setActing(null); await reload(); }} />
+              ) : (
+                <span className="flex flex-wrap gap-2">
+                  {a.kind === "letter" && onLetters && <button onClick={onLetters} className="btn-sub min-h-10 text-sm">공감 쪽지로</button>}
+                  <button onClick={() => setActing(a.id)} className="btn-sub min-h-10 text-sm">{a.kind === "letter" ? "살펴보고 적기" : "살펴봤어요"}</button>
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+
   if (!students.length) {
     return (
-      <div className="card text-center">
-        <p className="text-lg">아직 반 명단이 없어요.</p>
-        <p className="mt-1 text-soft">「학생 코드·QR」에서 명단을 넣거나, 「설정」에서 시연 데이터를 만들어 보세요.</p>
+      <div className="space-y-5">
+        {alertBox}
+        <div className="card text-center">
+          <p className="text-lg">아직 반 명단이 없어요.</p>
+          <p className="mt-1 text-soft">「학생 코드·QR」에서 명단을 넣거나, 「설정」에서 시연 데이터를 만들어 보세요.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
-      {alerts.length > 0 && (
-        <section className="rounded-3xl border-2 border-alert bg-alert-soft p-5" role="alert">
-          <h2 className="font-display text-xl text-alert"><Doodle name="warning" /> 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
-          <p className="mt-1 text-sm">
-            학생 화면에는 아무 표시도 나가지 않았어요. 진단이 아닌 신호예요. 학교 위기관리 절차에 따라 Wee클래스·상담교사와 함께 살펴봐 주세요.
-            (청소년상담 1388, 자살예방상담 109)
-          </p>
-          <ul className="mt-3 space-y-2">
-            {alerts.map((a) => {
-              const slot = "slot" in a ? (a.slot === "am" ? " 아침" : " 하교 전") : "";
-              const head = (what: string) => <><b>{a.no}번 {nameOf(a.no)}</b> · {label(a.date)}{slot} · {what}</>;
-              let body: React.ReactNode;
-              if (a.kind === "record") {
-                const r = a.rec;
-                const src = riskySource(r);
-                body = (
-                  <span className="flex items-start gap-2">
-                    <EmotionArt name={r.emotion} size={34} className="shrink-0" />
-                    <span>
-                      {head(r.emotion)}
-                      {src.prev ? (
-                        <span className="block text-sm"><span className="font-bold text-alert">고치기 전 글에 위험 표현</span> “{src.text}”</span>
-                      ) : (
-                        src.text && <span className="block text-sm">“{src.text}”</span>
-                      )}
-                      <span className="block text-xs text-soft">{src.hits.length ? `걸린 말: ${src.hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
-                      <PrevList prev={r.prev} now={r.createdAt} />
-                    </span>
-                  </span>
-                );
-              } else if (a.kind === "draft") {
-                body = (
-                  <span>
-                    {head("기록을 마치지 않고 나감")}
-                    <span className="block text-sm">“{a.text}”</span>
-                    <span className="block text-xs text-soft">{a.hits.length ? `걸린 말: ${a.hits.join(", ")}` : "AI가 위험 내용으로 판단"} · 말로 쓴 뒤 카드를 고르지 않았어요</span>
-                  </span>
-                );
-              } else if (a.kind === "reflect") {
-                body = (
-                  <span>
-                    {head("한 주 돌아보기")}
-                    <span className="block text-sm">“{a.text}”</span>
-                  </span>
-                );
-              } else {
-                body = (
-                  <span>
-                    {head(`공감 쪽지 → ${a.to}번 ${nameOf(a.to)}`)}
-                    <span className="block text-sm">“{a.text}”</span>
-                    <span className="block text-xs text-soft">허락을 기다리는 쪽지예요. 「공감 쪽지」에서 읽고 전하거나 돌려보내 주세요.</span>
-                  </span>
-                );
-              }
-              return (
-                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
-                  {body}
-                  {a.kind === "letter" ? (
-                    onLetters && <button onClick={onLetters} className="btn-sub min-h-10 text-sm">공감 쪽지로</button>
-                  ) : acting === a.id ? (
-                    <RiskActionForm recordId={a.id} today={today} first seen={a.kind === "record" ? a.rec.createdAt : undefined}
-                      onCancel={() => setActing(null)} onStale={async () => { setActing(null); await reload(); }} onDone={async () => { setActing(null); await reload(); }} />
-                  ) : (
-                    <button onClick={() => setActing(a.id)} className="btn-sub min-h-10 text-sm">살펴봤어요</button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+      {alertBox}
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="오늘 기록한 학생" value={`${new Set(todays.map((r) => r.no)).size}/${students.length}`} />
@@ -214,12 +244,12 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
               <button onClick={() => setOpen(null)} className="btn-sub min-h-9 px-3" aria-label="닫기" autoFocus>✕</button>
             </div>
             {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
-            <ReflectBox reflects={data.reflects} no={open} />
+            <ReflectBox reflects={data.reflects} no={open} words={settings.riskWords} />
             <Timeline records={records.filter((r) => r.no === open)} today={today} />
-            {(records.some((r) => r.no === open && r.risk) || data.riskActions.some((a) => a.no === open)) && (
+            {riskItems(risks(open)).length > 0 && (
               <div className="border-t border-line pt-3">
                 <h3 className="mb-2 font-bold"><Doodle name="warning" /> 위험 표현과 조치</h3>
-                <RiskHistory records={records.filter((r) => r.no === open)} actions={data.riskActions.filter((a) => a.no === open)} today={today} onChange={reload} />
+                <RiskHistory {...risks(open)} today={today} nameOf={nameOf} onChange={reload} onStale={reload} />
               </div>
             )}
             <div className="border-t border-line pt-3">
