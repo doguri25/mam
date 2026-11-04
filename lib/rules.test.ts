@@ -59,6 +59,32 @@ test("위험 단어는 띄어쓰기가 달라도 찾고, 평범한 말은 지나
   assert.deepEqual(matchRisk("친구랑 놀아서 신났어요", DEFAULT_RISK_WORDS), []);
 });
 
+test("아이들이 띄어쓰기를 빼거나 더 넣어도 위험 표현을 놓치지 않는다", () => {
+  assert.deepEqual(matchRisk("죽고싶어", DEFAULT_RISK_WORDS), ["죽고 싶"]);
+  assert.deepEqual(matchRisk("사라지고싶다", DEFAULT_RISK_WORDS), ["사라지고 싶"]);
+  assert.deepEqual(matchRisk("맞고있어요", DEFAULT_RISK_WORDS), ["맞고 있"]);
+  assert.deepEqual(matchRisk("집에가기싫어", DEFAULT_RISK_WORDS), ["집에 가기 싫"]);
+  assert.deepEqual(matchRisk("죽고 싶 어", DEFAULT_RISK_WORDS), ["죽고 싶"]);
+  assert.deepEqual(matchRisk("자살하고 싶어", DEFAULT_RISK_WORDS), ["자살"]);
+  assert.deepEqual(matchRisk("아빠한테 맞았어", DEFAULT_RISK_WORDS), ["한테 맞"]);
+  assert.deepEqual(matchRisk("괴롭혀서 죽고싶어", DEFAULT_RISK_WORDS), ["죽고 싶", "괴롭혀"]);
+  // 선생님이 목록에서 지워도 스스로 해치려는 마음은 늘 살핀다
+  assert.deepEqual(matchRisk("그냥 죽고싶다", ["왕따"]), ["죽고 싶"]);
+  // 두 글자 말은 낱말 사이 빈칸을 건너 붙이지 않는다
+  assert.deepEqual(matchRisk("남자 해적이 나오는 책", DEFAULT_RISK_WORDS), []);
+  assert.deepEqual(matchRisk("받아쓰기 다 맞았어요!", DEFAULT_RISK_WORDS), []);
+});
+
+test("한국어가 아닌 말로 쓴 위험 표현도 찾는다", () => {
+  assert.deepEqual(matchRisk("I want to die", DEFAULT_RISK_WORDS), ["want to die"]);
+  assert.deepEqual(matchRisk("They keep bullying me.", DEFAULT_RISK_WORDS), ["bully"]);
+  assert.deepEqual(matchRisk("I ate white meat", DEFAULT_RISK_WORDS), []);
+  assert.deepEqual(matchRisk("我想死", DEFAULT_RISK_WORDS), ["想死"]);
+  assert.deepEqual(matchRisk("Con muốn chết", DEFAULT_RISK_WORDS), ["muốn chết"]);
+  assert.deepEqual(matchRisk("もう死にたい", DEFAULT_RISK_WORDS), ["死にたい"]);
+  assert.deepEqual(matchRisk("I had fun with my friend", DEFAULT_RISK_WORDS), []);
+});
+
 test("응원 초안에서 선생님용 표현을 찾는다", () => {
 
   assert.deepEqual(leaks("가라앉은 날이 두 번이나 있었구나"), ["두 번"]);
@@ -86,6 +112,7 @@ test("반 마음 날씨: 절반 넘는 무리가 날씨를 정하고, 섞이면 
   assert.equal(classWeather([...many("기뻐요", 4), ...many("편안해요", 3, 10), ...many("화나요", 3, 20)]).weather, "partly");
   assert.equal(classWeather([...many("기뻐요", 2), ...many("슬퍼요", 3, 10), ...many("무서워요", 3, 20)]).weather, "cloudy");
   assert.equal(classWeather([...many("기뻐요", 3), ...many("슬퍼요", 4, 10), ...many("편안해요", 2, 20), ...many("화나요", 1, 30)]).weather, "rainbow");
+  assert.equal(classWeather([...many("기뻐요", 5), ...many("슬퍼요", 5, 10)]).weather, "rainbow"); // 반반이면 한쪽으로 정하지 않음
   const w = classWeather([{ ...rec(1, TODAY, "am", "기뻐요"), word: "뿌듯해요", risk: true }]);
   assert.deepEqual(w.words, [["뿌듯해요", 1]]);
   assert.equal(JSON.stringify(w).includes("risk"), false); // 위험 표시는 반 화면으로 나가지 않음

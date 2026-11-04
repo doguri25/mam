@@ -105,8 +105,22 @@ export function drawCards(per = 4, rand = Math.random, avoid: readonly string[] 
 
 export const DEFAULT_VOCAB = ["뿌듯해요", "서운해요", "후련해요", "설레요"];
 export const DEFAULT_RISK_WORDS = [
-  "죽고 싶", "죽을래", "죽어버", "사라지고 싶", "없어지고 싶", "자해",
-  "때렸", "때려", "맞고 있", "괴롭혀", "괴롭힘", "왕따", "집에 가기 싫", "다치게 하",
+  "죽고 싶", "죽을래", "죽어버", "사라지고 싶", "없어지고 싶", "자해", "자살", "살기 싫",
+  "때렸", "때려", "때리", "맞고 있", "한테 맞", "에게 맞", "괴롭혀", "괴롭힘", "왕따", "집에 가기 싫", "다치게 하", "죽여", "죽일",
+];
+// 예전 기본 목록에 나중에 더한 말 — 선생님이 목록을 고친 적이 있어도 한 번은 더해 준다(riskWordsV)
+export const RISK_WORDS_ADDED = ["자살", "살기 싫", "때리", "한테 맞", "에게 맞", "죽여", "죽일"];
+export const RISK_WORDS_V = 2;
+
+// 선생님이 목록에서 지워도 늘 살피는 말: 스스로 해치려는 마음과, 한국어가 아닌 말로 쓴 위험 표현
+// (학생 화면은 영어·중국어·베트남어·일본어로도 쓸 수 있다)
+export const RISK_CORE = [
+  "죽고 싶", "사라지고 싶", "없어지고 싶", "자해", "자살", "살기 싫", "죽어버",
+  "kill myself", "want to die", "wanna die", "suicide", "hurt myself", "cut myself", "self harm", "disappear forever",
+  "bully", "bullied", "bullies", "beat me", "hit me", "hits me", "hurt me", "don't want to go home", "dont want to go home",
+  "想死", "不想活", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "不想回家", "想消失",
+  "muốn chết", "muon chet", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh con", "đánh em", "đánh tôi", "không muốn về nhà", "muốn biến mất",
+  "死にたい", "消えたい", "自殺", "自傷", "いじめ", "殴られ", "叩かれ", "蹴られ", "家に帰りたくない",
 ];
 
 export function emotionOf(name: string) {
@@ -125,6 +139,7 @@ export interface Student {
   alias: string;
   code: string;
   consent?: string; // 보호자 동의서를 받은 날(YYYY-MM-DD). 기록을 막지는 않고 명단에 표시만
+  demo?: boolean; // 연습 데이터로 만든 가짜 학생(「연습 데이터만 지우기」로 지운다)
 }
 
 // 위험 표현 조치 기록: 「살펴봤어요」를 누를 때와 그 뒤에 선생님이 한 일(선생님만 봄, AI에 보내지 않음)
@@ -162,6 +177,7 @@ export interface MoodRecord {
   risk: boolean;
   riskHits: string[];
   riskChecked: string | null;
+  riskSelf?: boolean; // 이 기록 자체에 위험 표현이 있었나(risk는 다시 남기기 전 기록의 살펴보지 않은 위험까지 이어받음)
   createdAt: string;
   tone?: string | null; // 말투(목소리 기운) — 말하기로 남긴 기록만, 교사만 봄
   toneWhy?: string;
@@ -208,6 +224,7 @@ export interface Cheer {
   no: number;
   text: string;
   createdAt: string;
+  demo?: boolean; // 연습용 가짜 학생에게 쓴 것(메모도 같은 모양)
 }
 
 // 면담 메모: 교사만 보고 AI에는 보내지 않는다

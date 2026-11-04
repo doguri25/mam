@@ -1,10 +1,35 @@
 // 「먼저 살펴볼 학생」과 위험 표현 규칙 — AI가 아니라 코드로, 이유를 교사가 그대로 읽을 수 있게
 import { addDays } from "./date.ts";
-import { CALM_KO, CALM_TOOLS, DEFAULT_RULES, groupOf, isHard, type Group, type MoodRecord, type Rules } from "./shared.ts";
+import { CALM_KO, CALM_TOOLS, DEFAULT_RULES, RISK_CORE, groupOf, isHard, type Group, type MoodRecord, type Rules } from "./shared.ts";
 
+// 위험 표현 찾기. 아이들은 띄어쓰기를 자주 빼거나 더 넣으므로(「죽고싶어」「죽고 싶 어」) 한글·한자·가나 말은 빈칸을 무시하고 견준다.
+// 다만 두 글자 말(「자해」)은 낱말 사이 빈칸을 건너 붙이지 않는다(「남자 해적」이 걸리지 않게).
+// 영어·베트남어처럼 빈칸으로 낱말을 나누는 말은 낱말 앞머리부터 견준다(「hit me」가 「white meat」에 걸리지 않게).
+// 선생님 목록(words)에 RISK_CORE를 늘 더한다. 돌려주는 것은 걸린 말(선생님이 쓴 모양 그대로, 겹치지 않게).
+const CJK = /[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-鿿가-힯豈-﫿]/;
+const norm = (s: string) => s.normalize("NFC").toLowerCase().replace(/[​-‍﻿]/g, "");
+const squash = (s: string) => norm(s).replace(/\s+/g, "");
+const spaced = (s: string) => ` ${norm(s).replace(/[^\p{L}\p{N}']+/gu, " ").trim()} `;
+const esc = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function cjkPattern(word: string) {
+  const w = norm(word).trim();
+  const chars = [...w.replace(/\s+/g, "")];
+  if (chars.length >= 3) return new RegExp(chars.map(esc).join("\\s*"));
+  return new RegExp(w.split(/\s+/).map((p) => [...p].map(esc).join("")).join("\\s*"));
+}
 export function matchRisk(text: string, words: string[]) {
-  const t = text.replace(/\s+/g, " ");
-  return words.filter((w) => w.trim() && t.includes(w.trim()));
+  const plain = norm(text);
+  const loose = spaced(text);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...words, ...RISK_CORE]) {
+    const w = raw.trim();
+    const key = squash(w);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (CJK.test(w) ? cjkPattern(w).test(plain) : loose.includes(spaced(w).trimEnd())) out.push(w);
+  }
+  return out;
 }
 
 // 기쁨·평온은 +세기, 힘든 감정은 −세기
@@ -115,11 +140,13 @@ export function classWeather(records: MoodRecord[]) {
   const words = Object.entries(
     records.reduce<Record<string, number>>((m, r) => (r.word ? { ...m, [r.word]: (m[r.word] ?? 0) + 1 } : m), {}),
   ).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const [top, topN] = (Object.entries(groups) as [Group, number][]).sort((a, b) => b[1] - a[1])[0];
+  const ranked = (Object.entries(groups) as [Group, number][]).sort((a, b) => b[1] - a[1]);
+  const [top, topN] = ranked[0];
+  const tie = ranked[1][1] === topN; // 반반으로 갈리면 한쪽 날씨로 정하지 않는다(기쁨 5·슬픔 5가 「맑음」이 되지 않게)
   const light = (groups.joy + groups.calm) / (n || 1);
   const weather: Weather =
     n === 0 ? "partly"
-    : topN / n >= 0.5 ? ({ joy: "sunny", calm: "warm", sad: "rain", angry: "storm", fear: "fog" } as const)[top]
+    : topN / n >= 0.5 && !tie ? ({ joy: "sunny", calm: "warm", sad: "rain", angry: "storm", fear: "fog" } as const)[top]
     : light >= 0.6 ? "partly"
     : light <= 0.4 ? "cloudy"
     : "rainbow";
