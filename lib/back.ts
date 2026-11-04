@@ -6,7 +6,7 @@
 // 항목마다 「몇째 단계인지」(mbBack)를 적어 두어, 뒤로 가기로 도착한 곳이 어느 단계인지로 꺼낼 개수를 정한다.
 import { useEffect, useRef } from "react";
 
-interface Entry { onPop: () => void }
+interface Entry { onPop: () => void; path: string }
 const stack: Entry[] = [];
 let installed = false;
 let pendingGo = 0;
@@ -19,6 +19,12 @@ function install() {
   window.addEventListener("popstate", (e) => {
     const target = (e.state as { mbBack?: unknown } | null)?.mbBack;
     if (typeof target !== "number") return; // 우리가 적지 않은 항목(다른 주소로 오가기)은 Next.js가 알아서
+    // 앞으로 가기로 이미 걷어 낸 단계에 다시 왔거나, 새로 불러오기 전에 쌓였던 단계에 왔다: 화면을 되살릴 수 없으니
+    // 지금 화면과 맞는 자리로 조용히 되돌린다(그대로 두면 뒤로 가기를 한두 번 눌러도 아무 일이 없다)
+    if (target > stack.length && (!stack.length || stack[stack.length - 1].path === window.location.pathname)) {
+      window.history.go(stack.length - target);
+      return;
+    }
     // 먼저 꺼내 둔 뒤 위에서부터 부른다(손잡이가 새로 쌓아도 다시 꺼내지 않게)
     for (const e of stack.splice(Math.max(0, target)).reverse()) e.onPop();
   });
@@ -26,9 +32,9 @@ function install() {
 
 function push(onPop: () => void): Entry {
   install();
-  // 처음 쌓을 때 지금 항목에도 단계(=지금 쌓인 수)를 적어 둔다 → 끝까지 뒤로 오면 0
-  if (typeof depthHere() !== "number") window.history.replaceState({ ...window.history.state, mbBack: stack.length }, "");
-  const e: Entry = { onPop };
+  // 지금 항목에도 단계(=지금 쌓인 수)를 적어 둔다 → 끝까지 뒤로 오면 0. 새로 불러오기 전에 적힌 낡은 수는 바로잡는다.
+  if (depthHere() !== stack.length) window.history.replaceState({ ...window.history.state, mbBack: stack.length }, "");
+  const e: Entry = { onPop, path: window.location.pathname };
   stack.push(e);
   window.history.pushState({ mbBack: stack.length }, ""); // Next.js가 자기 정보를 덧붙여 같은 주소로 쌓는다
   return e;
@@ -97,4 +103,22 @@ export function useBackGuard(onBlocked: () => void, root?: string) {
       }, 0);
     };
   }, [root]);
+}
+
+// 학생 화면(/me)에서 작은 화면(달력·쪽지·꾸미기…)으로 갔다가 「← 돌아가기」를 누르면, 새 /me 항목을 쌓지 않고 실제로 뒤로 간다.
+// 새로 쌓으면 그 뒤 브라우저 뒤로 가기가 작은 화면으로 되돌아가거나 한두 번 먹통이 된다.
+let fromMe = false;
+export const leftMe = () => { fromMe = true; };
+export const atMe = () => { fromMe = false; };
+export function backToMe(e: { preventDefault: () => void }) {
+  if (!fromMe) return; // 주소로 바로 들어왔거나 새로 불러왔으면 보통 링크처럼 /me로
+  fromMe = false;
+  e.preventDefault();
+  window.history.back();
+}
+// 링크가 아닌 곳에서 /me로 돌아갈 때(저장한 뒤 등)
+export function returnToMe(push: () => void) {
+  if (!fromMe) return push();
+  fromMe = false;
+  window.history.back();
 }

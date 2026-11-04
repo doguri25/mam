@@ -31,24 +31,34 @@ export function queueRecord(no: number, record: Record<string, unknown>) {
   return true;
 }
 
-// 보낸 개수를 돌려준다. 서버가 받지 않는 기록(날짜가 지남 등)은 버리고, 아직 끊겨 있으면 남겨 둔다.
-export async function flushQueue() {
+// 보낸 개수와 받지 못한 개수를 돌려준다. 서버가 받지 않는 기록(사흘이 지남·코드가 바뀜)은 버리고, 아직 끊겨 있으면 남겨 둔다.
+// 담아 둔 날짜로 저장되므로 다음 날 연결돼도 보낼 수 있다.
+let flushing: Promise<{ sent: number; dropped: number }> | null = null;
+export function flushQueue() {
+  // 연결이 돌아온 순간과 화면에 들어온 순간이 겹쳐도 한 번만 보낸다(같은 기록을 두 번 보내지 않게)
+  flushing ??= send().finally(() => { flushing = null; });
+  return flushing;
+}
+async function send() {
   const items = read<Item[]>(PENDING, []);
-  if (!items.length) return 0;
+  if (!items.length) return { sent: 0, dropped: 0 };
   const left: Item[] = [];
-  let sent = 0;
+  let sent = 0, dropped = 0;
   for (const it of items) {
     try {
       const res = await fetch("/api/student", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "saveQueued", qtoken: it.token, record: it.record }),
+        body: JSON.stringify({ action: "saveQueued", qtoken: it.token, record: it.record, madeAt: new Date(it.at).toISOString() }),
       });
       if (res.ok) sent++;
-      else if (res.status >= 500) left.push(it);
+      else if (res.status >= 500 || res.status === 429) left.push(it);
+      else dropped++;
     } catch {
       left.push(it);
     }
   }
-  write(PENDING, left);
-  return sent;
+  // 보내는 사이에 새로 담긴 기록은 남긴다
+  const added = read<Item[]>(PENDING, []).filter((x) => !items.some((y) => y.at === x.at && y.token === x.token));
+  write(PENDING, [...left, ...added]);
+  return { sent, dropped };
 }

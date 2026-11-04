@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { backToMe } from "@/lib/back";
 import Doodle from "@/components/Doodle";
 import { api } from "@/lib/api";
-import { WEEKDAYS, isLang, t, w, type Lang } from "@/lib/i18n";
+import { WEEKDAYS, isLang, langOf, t, w, type Lang } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
 import { label } from "@/lib/date";
 import { EmotionArt } from "@/components/Art";
@@ -19,6 +20,9 @@ function shift(month: string, n: number) {
 }
 
 const weekRow = (l: Lang) => WEEKDAYS[l];
+// 고른 날 머리말: 한국어는 「11월 4일 (수)」, 다른 언어는 그 나라 날짜 모양으로
+const dayTitle = (date: string, l: Lang) =>
+  l === "ko" ? label(date) : new Intl.DateTimeFormat(langOf(l).speech, { month: "long", day: "numeric", weekday: "short", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
 
 export default function Calendar() {
   const router = useRouter();
@@ -30,19 +34,39 @@ export default function Calendar() {
   const [pick, setPick] = useState("");
   const [buddy, setBuddy] = useState<{ look: BuddyLook; flowers: number; emotion?: string } | null>(null);
 
+  // 로그인이 풀렸을 때(401)만 첫 화면으로. 와이파이가 끊긴 것이면 잠시 뒤 다시 묻는다.
   useEffect(() => {
-    api<{ today: string; no: number; look: BuddyLook; flowers: { emotion: string }[] }>("student", "me").then(
-      (m) => {
-        setMonth(m.today.slice(0, 7));
-        setNo(m.no);
-        setBuddy({ look: m.look, flowers: m.flowers.length, emotion: m.flowers.at(-1)?.emotion });
-      },
-      () => router.replace("/"),
-    );
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (wait: number) =>
+      api<{ today: string; no: number; look: BuddyLook; flowers: { emotion: string }[] }>("student", "me").then(
+        (m) => {
+          if (!alive) return;
+          setMonth((cur) => cur || m.today.slice(0, 7));
+          setNo(m.no);
+          setBuddy({ look: m.look, flowers: m.flowers.length, emotion: m.flowers.at(-1)?.emotion });
+        },
+        (e) => {
+          if (!alive) return;
+          if ((e as { status?: number }).status === 401) return router.replace("/");
+          timer = setTimeout(() => load(Math.min(wait * 2, 10_000)), wait);
+        },
+      );
+    load(2000);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [router]);
 
+  // 달을 빨리 넘기면 늦게 온 앞 달 답이 지금 달을 덮지 않게, 지금 달 답만 받는다
   useEffect(() => {
-    if (month) api<{ records: MoodRecord[] }>("student", "records", { month }).then((r) => setRecords(r.records));
+    if (!month) return;
+    let alive = true;
+    api<{ records: MoodRecord[] }>("student", "records", { month }).then((r) => alive && setRecords(r.records), () => {});
+    return () => {
+      alive = false;
+    };
   }, [month]);
 
   if (!month) return <main className="grid min-h-dvh place-items-center text-soft">불러오는 중…</main>;
@@ -56,7 +80,7 @@ export default function Calendar() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-5">
       <div className="mb-4 flex items-center justify-between">
-        <Link href="/me" className="btn-sub min-h-10 px-3 text-sm">← {t(lang, "todayRec")}</Link>
+        <Link href="/me" onClick={backToMe} className="btn-sub min-h-10 px-3 text-sm">← {t(lang, "todayRec")}</Link>
         <div className="flex items-center gap-2">
           <button onClick={() => setMonth(shift(month, -1))} className="btn-sub min-h-10 px-3" aria-label="지난달">‹</button>
           <h1 className="font-display text-2xl">{lang === "ko" ? `${y}년 ${m}월` : `${y} · ${m}`}</h1>
@@ -100,7 +124,7 @@ export default function Calendar() {
       </div>
       {pick && (
         <div className="card mt-4">
-          <h2 className="font-display text-xl">{label(pick)}</h2>
+          <h2 className="font-display text-xl">{dayTitle(pick, lang)}</h2>
           {picked.length ? (
             picked.map((r) => (
               <div key={r.id} className="mt-3 flex items-start gap-3">

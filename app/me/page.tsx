@@ -5,17 +5,17 @@
 // 와이파이가 끊기면 기록을 이 기기에 담아 두었다가 연결되면 보낸다(lib/queue).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
-import { flushQueue, queueRecord } from "@/lib/queue";
+import { flushQueue, queueRecord, rememberToken } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
 import MoodPicker, { STEP_START, stepBack, stepDepth, type Pick, type StepNav } from "@/components/MoodPicker";
-import { useBackGuard, useBackSteps } from "@/lib/back";
+import { atMe, leftMe, useBackGuard, useBackSteps } from "@/lib/back";
 import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
-import { CHEER, LANGS, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
+import { CHEER, LANGS, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
 import { ACC_UNLOCK, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
@@ -23,7 +23,7 @@ import type { VoiceFeatures } from "@/lib/tone";
 type Me = {
   no: number; alias: string; className: string; vocab: string[]; voiceMode: VoiceMode; slot: Slot; today: string;
   records: MoodRecord[]; flowers: { date: string; emotion: string }[]; look: BuddyLook;
-  words: string[]; unread: number; reflected: boolean; demo: boolean;
+  words: string[]; unread: number; reflected: boolean; demo: boolean; qtoken?: string;
   selfCheck: { id: string; title: string; done: boolean } | null; // 선생님이 연 마음 점검
 };
 type Step = "choose" | "card" | "voice" | "confirm" | "ask" | "done";
@@ -61,6 +61,10 @@ export default function MePage() {
   const [unlocked, setUnlocked] = useState(false); // 새 감정 단어로 꾸미개가 열렸나
   const [offline, setOffline] = useState(false); // 이번 기록을 기기에 담아 뒀나
   const [flushed, setFlushed] = useState(0);
+  const [dropped, setDropped] = useState(0); // 너무 오래돼 보내지 못한 담아 둔 기록
+  const [loadFail, setLoadFail] = useState(false); // 학생 정보를 못 받음(와이파이 끊김)
+  const [loadTry, setLoadTry] = useState(0);
+  const lastNo = useRef<number | null>(null);
   // 브라우저 뒤로 가기 = 화면 안 한 단계 앞으로: 감정 카드 질문 위치, 되묻기 앞 화면, 도구 상자 안 단계
   const [pickNav, setPickNav] = useState<StepNav>(STEP_START);
   const [askFrom, setAskFrom] = useState<"card" | "confirm">("card");
@@ -74,15 +78,39 @@ export default function MePage() {
   const answerSpeech = useSpeech(setAnswer, { lang: langOf(lang).speech });
   const say = (x: string) => speak(x, false, lang);
 
+  // 이 화면은 다른 화면에 갔다 와도(숨겨졌다 다시 보여도) 상태가 남는다(Next.js Activity).
+  // 다른 학생으로 바뀌었으면 고르던 것·쓰던 글을 모두 비우고, 같은 학생이면 학생이 고른 아침·하교 전을 그대로 둔다.
   useEffect(() => {
+    atMe(); // 작은 화면에서 돌아왔다
     api<Me>("student", "me").then(
       (m) => {
+        if (m.qtoken) rememberToken(m.no, m.qtoken); // 쿠키로 바로 들어온 날에도 끊김 대비 표를 새로
+        if (lastNo.current !== m.no) {
+          lastNo.current = m.no;
+          setSlot(m.slot);
+          setStep("choose");
+          setMethod("card");
+          setPick({});
+          setText("");
+          setSpoke(false);
+          setAnswer("");
+          setNote("");
+          setTone(NO_TONE);
+          setSummaryKo("");
+          setQa({ question: "", options: [], aiRisk: false, skip: false });
+          setCalm("off");
+          setPickNav(STEP_START);
+          setOffline(false);
+          setUnlocked(false);
+          setFlushed(0);
+          setDropped(0);
+          setBusy("");
+        }
         setMe(m);
-        setSlot(m.slot);
       },
-      () => router.replace("/"),
+      (e) => ((e as { status?: number }).status === 401 ? router.replace("/") : setLoadFail(true)),
     );
-  }, [router]);
+  }, [router, loadTry]);
 
   useEffect(() => {
     if (step === "ask") speak(qa.question, false, lang);
@@ -90,7 +118,10 @@ export default function MePage() {
 
   // 담아 둔 기록이 있으면 들어올 때와 연결이 돌아올 때 보낸다
   useEffect(() => {
-    const send = () => flushQueue().then((n) => n && setFlushed(n), () => {});
+    const send = () => flushQueue().then(({ sent, dropped: d }) => {
+      if (sent) setFlushed(sent);
+      if (d) setDropped(d);
+    }, () => {});
     send();
     window.addEventListener("online", send);
     return () => window.removeEventListener("online", send);
@@ -120,11 +151,23 @@ export default function MePage() {
     setTimeout(() => setBackHint(false), 4000);
   }, "me");
 
-  if (!me) return <main data-back-root="me" className="grid min-h-dvh place-items-center text-soft">…</main>;
+  if (!me) {
+    const guess: Lang = typeof navigator !== "undefined" && isLang(navigator.language.slice(0, 2)) ? (navigator.language.slice(0, 2) as Lang) : "ko";
+    return (
+      <main data-back-root="me" className="grid min-h-dvh place-items-center px-5 text-center text-soft">
+        {loadFail ? (
+          <div className="card space-y-4">
+            <p className="text-lg text-ink">{t(guess, "loadFail")}</p>
+            <button onClick={() => { setLoadFail(false); setLoadTry((n) => n + 1); }} className="btn-main px-8">{t(guess, "retry")}</button>
+          </div>
+        ) : "…"}
+      </main>
+    );
+  }
 
   const tt = (key: UIKey, vars?: Record<string, string | number>) => t(lang, key, vars);
   const slotName = (s: Slot) => w(lang, SLOT_KO[s]);
-  const msg = (x: string) => (x in { micDenied: 1, noSpeech: 1, speechFail: 1, notUnderstood: 1 } ? tt(x as UIKey) : x);
+  const msg = (x: string) => (x in { micDenied: 1, noSpeech: 1, speechFail: 1, notUnderstood: 1, loadFail: 1, logoutFail: 1 } ? tt(x as UIKey) : errText(lang, x));
   const done = me.records.find((r) => r.slot === slot);
   const complete = !!(pick.emotion && pick.intensity && pick.reason);
 
@@ -186,7 +229,12 @@ export default function MePage() {
         setStep("confirm");
       }
     } catch (e) {
-      setNote((e as Error).message);
+      if (!(e as { status?: number }).status) {
+        // 와이파이가 끊겨 정리할 수 없으면 카드로 고르게 한다(쓴 문장은 그대로 함께 담아 둠)
+        setNote("loadFail");
+        setPickNav(STEP_START);
+        setStep("card");
+      } else setNote((e as Error).message);
     }
     setBusy("");
   }
@@ -240,8 +288,15 @@ export default function MePage() {
 
   // 다음 친구 차례: 화면을 새로 불러 이 학생의 기록·고르던 카드가 다음 친구에게 남지 않게 한다
   // (Next.js는 지나온 화면을 숨겨 두고 상태를 그대로 살려 두므로, 같은 태블릿을 돌려 쓸 때는 통째로 비운다)
+  // 나가기를 서버에 알리지 못하면(와이파이 끊김) 그대로 머문다. 그냥 넘어가면 다음 친구가 이 학생으로 들어오게 된다.
   async function nextFriend() {
-    await api("student", "logout").catch(() => {});
+    try {
+      await api("student", "logout");
+    } catch {
+      setNote("logoutFail");
+      setBackHint(false);
+      return;
+    }
     window.location.replace("/");
   }
 
@@ -276,12 +331,14 @@ export default function MePage() {
         </p>
       )}
       {flushed > 0 && <p className="mb-3 rounded-2xl bg-leaf-soft px-4 py-2 text-sm"><Doodle name="signal" /> {tt("offlineSent", { n: flushed })}</p>}
+      {dropped > 0 && <p className="mb-3 rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt("offlineDropped", { n: dropped })}</p>}
+      {note === "logoutFail" && (step === "choose" || step === "done") && <p role="alert" className="mb-3 rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt("logoutFail")}</p>}
       {backHint && <p role="status" className="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-2xl bg-ink px-5 py-3 text-center text-white shadow-lg">{tt("backHint")}</p>}
       <header className="mb-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm text-soft">{me.className} · {me.no}</p>
-            <h1 className="truncate font-display text-2xl sm:text-3xl">{tt("title", { alias: me.alias })}</h1>
+            <p className="text-sm text-soft">{me.className} · {me.no} {me.alias}</p>
+            <h1 className="line-clamp-2 font-display text-2xl break-keep sm:text-3xl">{tt("title", { alias: me.alias })}</h1>
           </div>
           <button onClick={nextFriend} className="btn-sub min-h-12 shrink-0 px-4">{tt("next")}</button>
         </div>
@@ -402,7 +459,7 @@ export default function MePage() {
               )}
               {note && <p className="text-alert">{msg(note)}</p>}
               <div className="flex justify-between gap-3">
-                <button onClick={() => { speech.stop(); setMethod("card"); setPickNav(STEP_START); setStep("card"); }} className="btn-sub">{tt("toCard")}</button>
+                <button onClick={() => { speech.stop(); if (!text.trim()) setMethod("card"); setPickNav(STEP_START); setStep("card"); }} className="btn-sub">{tt("toCard")}</button>
                 <button onClick={fromText} disabled={text.trim().length < 2 || speech.listening} className="btn-main px-8 text-lg">{tt("organize")}</button>
               </div>
             </div>
@@ -476,7 +533,7 @@ export default function MePage() {
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
             {tiles.map((x) =>
               x.href ? (
-                <Link key={x.label} href={x.href} className={tileClass}>
+                <Link key={x.label} href={x.href} onClick={leftMe} className={tileClass}>
                   <Doodle name={x.icon} size={40} />{x.label}
                   {x.badge && <span className="absolute -right-1 -top-1 rounded-full bg-alert px-2 text-xs text-white">{x.badge}</span>}
                 </Link>

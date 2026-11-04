@@ -52,7 +52,17 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
   const [rerolled, setRerolled] = useState(false); // 다른 카드로 바꾸기는 한 번만(처음 12장과 겹치지 않게)
   const color = value.emotion ? cardColor(value.word ?? value.emotion) : "#f2b705";
   const say = (ko: string) => speak(w(lang, ko), false, lang);
-  const go = (n: number, delay = 260) => setTimeout(() => setStage(n), delay);
+  // 고른 뒤 잠깐 보여 주고 넘어간다. 넘어가는 동안 또 누르면(두 번 누름) 한 번만 넘어가고, 까닭은 한 번만 보낸다.
+  const moving = useRef(false);
+  const later = (fn: () => void, delay = 260) => {
+    if (moving.current) return;
+    moving.current = true;
+    setTimeout(() => {
+      moving.current = false;
+      fn();
+    }, delay);
+  };
+  const go = (n: number, delay = 260) => later(() => setStage(n), delay);
   const dots = [0, 1, 2, 3];
   const back = () => {
     const prev = stepBack(cur, value.emotion);
@@ -60,12 +70,13 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
     else onBack?.();
   };
   const pickCard = (word: string) => {
+    if (moving.current) return;
     const parent = parentEmotion(word);
     const isBig = parent === word;
     onChange({ ...value, emotion: parent, word: isBig ? undefined : word });
     say(word);
     const next = isBig && NUANCE[word] ? 1 : 2;
-    setTimeout(() => setNav({ stage: next, direct: !isBig }), 260);
+    later(() => setNav({ stage: next, direct: !isBig }));
   };
   const head = (title: string) => (
     <div className="mb-4 flex items-center gap-3">
@@ -166,7 +177,7 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
           const on = value.reason === r.name;
           return (
             <button key={r.name} type="button" aria-pressed={on}
-              onClick={() => { const v = { ...value, reason: r.name }; onChange(v); say(r.name); setTimeout(() => onDone?.(v), 260); }}
+              onClick={() => { if (moving.current) return; const v = { ...value, reason: r.name }; onChange(v); say(r.name); later(() => onDone?.(v)); }}
               className={`chip flex min-h-32 flex-col items-center justify-center gap-2 py-3 ${on ? "chip-on" : ""}`}>
               <ReasonArt name={r.name} size={58} />
               <span className="text-center text-base font-bold">{w(lang, r.name)}</span>

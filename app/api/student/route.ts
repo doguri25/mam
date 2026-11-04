@@ -11,8 +11,8 @@ import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
 import {
-  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, isWordOf,
-  type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type Student,
+  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, PREV_MAX, REASON_NAMES, TONES, cleanLook, isWordOf,
+  type CalmTool, type Felt, type Letter, type MoodRecord, type PrevVersion, type Reflect, type Student,
 } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
 
@@ -73,12 +73,17 @@ async function handle(req: NextRequest, body: Body) {
     }
 
     // 끊겼을 때 담아 둔 기록 보내기: 로그인 쿠키 대신 그날의 qtoken으로
+    // 기록은 담아 둔 날짜로 저장한다(다음 날 연결돼도 버리지 않음). 표가 만들어진 날보다 앞이거나 사흘이 지난 기록은 받지 않는다.
     if (body.action === "saveQueued") {
       const q = readQueueToken(body.qtoken);
-      if (!q || q.date !== today()) return bad("그날 안에 보내지 못한 기록이에요.", 410);
+      if (!q) return bad("보낼 수 없는 기록이에요.", 410);
       const s = (await getRoster()).find((x) => x.no === q.no && x.code === q.code);
       if (!s) return bad("학생 코드가 바뀌었어요.", 410);
-      return saveRecord(s, body.record ?? {}, await getSettings());
+      const made = Date.parse(String(body.madeAt ?? ""));
+      const now = today();
+      const date = Number.isFinite(made) && made <= Date.now() + 60_000 ? today(new Date(made)) : q.date;
+      if (date < q.date || date > now || date < addDays(now, -3)) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
+      return saveRecord(s, body.record ?? {}, await getSettings(), { date, madeAt: Number.isFinite(made) ? made : undefined });
     }
 
     const s = await me(req);
@@ -106,6 +111,7 @@ async function handle(req: NextRequest, body: Body) {
         reflected: !!ref,
         selfCheck: round ? { id: round.id, title: round.title, done: answered } : null, // 선생님이 연 마음 점검 회차
         demo: isDemo(),
+        qtoken: queueToken(s.no, s.code, date), // 끊김 대비 그날 표(쿠키로 바로 들어온 날에도)
       });
     }
 
@@ -120,7 +126,7 @@ async function handle(req: NextRequest, body: Body) {
       }
       const answers = cleanSelfAnswers(body.answers);
       if (!answers || body.round !== round.id) return bad("답이 다 채워지지 않았어요.");
-      const a: SelfAnswer = { kind: "selfAnswer", round: round.id, no: s.no, answers, at: new Date().toISOString(), ...(isDemo() ? { demo: true } : {}) };
+      const a: SelfAnswer = { kind: "selfAnswer", round: round.id, no: s.no, answers, at: new Date().toISOString(), ...(isDemo() || s.demo ? { demo: true } : {}) };
       await db().set("meta", id, { ...a });
       await touch("other");
       return NextResponse.json({ ok: true });
@@ -168,7 +174,7 @@ async function handle(req: NextRequest, body: Body) {
       const risk = matchRisk(text, settings.riskWords).length > 0;
       const letter: Letter = {
         id: `${s.no}_${Date.now()}`, from: s.no, to, text, showName: body.showName !== false, status: "wait",
-        createdAt: new Date().toISOString(), risk, lang: isLang(body.lang) ? body.lang : "ko", ...(isDemo() ? { demo: true } : {}),
+        createdAt: new Date().toISOString(), risk, lang: isLang(body.lang) ? body.lang : "ko", ...(isDemo() || s.demo ? { demo: true } : {}),
       };
       await db().set("letters", letter.id, { ...letter });
       await touch("other"); // 선생님 화면에 「허락 기다리는 쪽지」가 바로 보이게
@@ -225,7 +231,7 @@ async function handle(req: NextRequest, body: Body) {
           }
         }
       }
-      const ref: Reflect = { id: `${s.no}_${ws}`, no: s.no, weekStart: ws, text, reply, createdAt: new Date().toISOString(), lang, risk, ...(isDemo() ? { demo: true } : {}) };
+      const ref: Reflect = { id: `${s.no}_${ws}`, no: s.no, weekStart: ws, text, reply, createdAt: new Date().toISOString(), lang, risk, ...(isDemo() || s.demo ? { demo: true } : {}) };
       await db().set("reflects", ref.id, { ...ref });
       await touch("other");
       return NextResponse.json({ reply });
@@ -297,32 +303,66 @@ async function handle(req: NextRequest, body: Body) {
   }
 }
 
+// 같은 칸(아침·하교 전)에 다시 남기면 새 기록으로 바꾸되, 앞 기록은 prev에 모아 선생님이 볼 수 있게 한다.
+// 선생님이 아직 살펴보지 않은 위험 표시와 마음 다스리기 기록은 새 기록에도 그대로 남긴다(다시 남겨서 알림이 사라지지 않게).
+// 끊겼을 때 담아 둔 기록(madeAt)이 이미 저장된 기록보다 먼저 만든 것이면 덮어쓰지 않고 앞 기록으로만 끼워 넣는다.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 화면에서 온 그대로의 기록, 아래에서 하나씩 검사한다
-async function saveRecord(s: Student, r: any, settings: Settings) {
+async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: string; madeAt?: number } = {}) {
   if (!validCard(r) || !["am", "pm"].includes(r.slot) || !["card", "voice"].includes(r.method)) return bad("기록 모양이 맞지 않아요.");
-  const date = today();
+  const date = opt.date ?? today();
   const summary = String(r.summary ?? "").slice(0, 180);
   const answer = String(r.answer ?? "").slice(0, 120);
-  const hits = matchRisk(`${summary} ${answer}`, settings.riskWords);
+  const lang = isLang(r.lang) ? r.lang : "ko";
+  const summaryKo = lang !== "ko" ? String(r.summaryKo ?? "").slice(0, 120) : "";
+  const hits = matchRisk([summary, answer, summaryKo].filter(Boolean).join(" "), settings.riskWords);
+  const own = hits.length > 0 || r.aiRisk === true;
   const voice = r.method === "voice" ? cleanFeatures(r.voice) : null;
+  const id = `${s.no}_${date}_${r.slot}`;
+  const createdAt = new Date(opt.madeAt ?? Date.now()).toISOString();
   const rec: MoodRecord = {
-    id: `${s.no}_${date}_${r.slot}`, no: s.no, date, slot: r.slot, method: r.method,
+    id, no: s.no, date, slot: r.slot, method: r.method,
     emotion: r.emotion, intensity: r.intensity, reason: r.reason, summary,
     question: String(r.question ?? "").slice(0, 80), answer,
-    risk: hits.length > 0 || r.aiRisk === true, riskHits: hits, riskChecked: null,
-    createdAt: new Date().toISOString(),
+    risk: own, riskSelf: own, riskHits: hits, riskChecked: null,
+    createdAt,
     tone: voice && (TONES as readonly string[]).includes(r.tone) ? r.tone : null,
     toneWhy: voice ? String(r.toneWhy ?? "").slice(0, 40) : "",
     toneBy: voice && (r.toneBy === "device" || r.toneBy === "gemini") ? r.toneBy : null,
     voice,
     word: isWordOf(r.emotion, r.word) ? r.word : "", // 더 꼭 맞는 말·카드에 더한 낱말
-    lang: isLang(r.lang) ? r.lang : "ko",
-    summaryKo: isLang(r.lang) && r.lang !== "ko" ? String(r.summaryKo ?? "").slice(0, 120) : "",
-    ...(isDemo() ? { demo: true } : {}),
+    lang,
+    summaryKo,
+    ...(isDemo() || s.demo ? { demo: true } : {}),
   };
-  await putRecord(rec);
-  if (rec.risk) alertTeacher(rec.no, "기록", `risk-${rec.id}`);
-  return NextResponse.json({ record: publicRecord(rec) });
+  const old = await db().get<MoodRecord>("records", id);
+  let saved = rec;
+  if (old && opt.madeAt && old.createdAt > createdAt) {
+    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다
+    const prev = [...(old.prev ?? []), toPrev(rec)].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-PREV_MAX);
+    saved = own
+      ? { ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])] }
+      : { ...old, prev };
+  } else if (old) {
+    const carry = old.risk && !old.riskChecked; // 아직 살펴보지 않은 위험 표시
+    saved = {
+      ...rec,
+      prev: [...(old.prev ?? []), toPrev(old)].slice(-PREV_MAX),
+      ...(old.calm?.length ? { calm: old.calm } : {}),
+      ...(carry ? { risk: true, riskHits: [...new Set([...hits, ...old.riskHits])] } : {}),
+    };
+  }
+  await putRecord(saved);
+  if (own) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
+  return NextResponse.json({ record: publicRecord(saved) });
+}
+
+// 앞 기록으로 넘길 때 남길 것(말투 숫자·목소리 특징은 빼고, 그 기록 자체의 위험 여부만)
+function toPrev(r: MoodRecord): PrevVersion {
+  return {
+    method: r.method, emotion: r.emotion, intensity: r.intensity, reason: r.reason, word: r.word || undefined,
+    summary: r.summary, summaryKo: r.summaryKo || undefined, question: r.question, answer: r.answer,
+    risk: r.riskSelf ?? r.risk, riskHits: r.riskSelf === false ? [] : r.riskHits, lang: r.lang, createdAt: r.createdAt,
+  };
 }
 
 function validCard(c: { emotion?: unknown; intensity?: unknown; reason?: unknown }) {
@@ -332,5 +372,5 @@ function validCard(c: { emotion?: unknown; intensity?: unknown; reason?: unknown
 
 // 학생 화면에는 위험 표시와 말투 판단을 보내지 않는다
 function publicRecord(r: MoodRecord) {
-  return { ...r, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
+  return { ...r, prev: undefined, riskSelf: undefined, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
 }
