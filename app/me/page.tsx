@@ -18,6 +18,7 @@ import { slotNow, today as kToday } from "@/lib/date";
 import { api } from "@/lib/api";
 import { CHEER, CHEER_TIRED, LANGS, RISK_REPLY, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
+import { useStudentLang } from "@/components/StudentFrame";
 import { ACC_UNLOCK, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
 
@@ -25,6 +26,7 @@ type Me = {
   no: number; alias: string; className: string; vocab: string[]; voiceMode: VoiceMode; slot: Slot; today: string;
   records: MoodRecord[]; flowers: { date: string; emotion: string }[]; look: BuddyLook;
   words: string[]; unread: number; reflected: boolean; demo: boolean; qtoken?: string;
+  space?: string; // 학급(공간): 이 기기에 학생마다 남기는 값(언어)을 반마다 따로
   selfCheck: { id: string; title: string; done: boolean } | null; // 선생님이 연 마음 점검
 };
 type Step = "choose" | "card" | "voice" | "confirm" | "ask" | "done";
@@ -32,6 +34,8 @@ type Tone = { tone: string | null; toneWhy: string; toneBy: string | null; voice
 type Analyzed = Pick & Tone & { needCard?: boolean; question: string; options: string[]; risk: boolean; skipAsk?: boolean; summary?: string };
 
 const SLOT_KO: Record<Slot, string> = { am: "아침", pm: "하교 전" };
+// 기기 시계가 서버와 어긋나 있을 때(하루 앞섬 등) 같은 경계로 다시 묻는 간격: 처음 답 뒤 1분·4분·15분, 그 뒤로는 다음 경계까지 묻지 않는다
+const RETRY = [0, 1, 4, 15].map((m) => m * 60_000 - 5_000);
 const NO_TONE: Tone = { tone: null, toneWhy: "", toneBy: null, voice: null };
 
 function SayBtn({ text, lang }: { text: string; lang: Lang }) {
@@ -65,10 +69,19 @@ export default function MePage() {
   const [dropped, setDropped] = useState(0); // 너무 오래돼 보내지 못한 담아 둔 기록
   const [loadFail, setLoadFail] = useState(false); // 학생 정보를 못 받음(와이파이 끊김)
   const [loadTry, setLoadTry] = useState(0);
+  const [leaving, setLeaving] = useState(false); // 「다음 친구 차례」를 눌러 나가는 중
   const lastNo = useRef<number | null>(null);
   const lastServer = useRef<{ slot: Slot; today: string } | null>(null); // 서버가 마지막으로 알려 준 시간(아침·하교 전)과 날짜
   const stepNow = useRef<Step>("choose");
-  useEffect(() => { stepNow.current = step; });
+  const calmNow = useRef<"off" | "offer" | "open">("off");
+  const busyNow = useRef<UIKey | "">("");
+  useEffect(() => {
+    stepNow.current = step;
+    calmNow.current = calm;
+    busyNow.current = busy;
+  });
+  const manual = useRef(false); // 학생이 아침·하교 전을 손수 바꿨나(그러면 시계를 따라 바꾸지 않는다)
+  const flowStale = useRef(false); // 서버에 시간을 다시 묻는 사이에 고르기를 시작했나(답이 오면 이번 기록의 시간을 바로잡는다)
   // 브라우저 뒤로 가기 = 화면 안 한 단계 앞으로: 감정 카드 질문 위치, 되묻기 앞 화면, 도구 상자 안 단계
   const [pickNav, setPickNav] = useState<StepNav>(STEP_START);
   const [askFrom, setAskFrom] = useState<"card" | "confirm">("card");
@@ -76,79 +89,146 @@ export default function MePage() {
   const onCalmStep = useCallback((depth: number, back: () => void) => setCalmStep({ depth, back }), []);
   const [backHint, setBackHint] = useState(false);
   const [readAloud, setReadAloud] = useLocal("mb_read");
-  const [langRaw, setLang] = useLocal(`mb_lang_${me?.no ?? 0}`); // 같은 태블릿을 돌려 써도 학생마다 따로
-  const lang: Lang = isLang(langRaw) ? langRaw : "ko";
+  const [lang, setLang] = useStudentLang(me); // 같은 태블릿을 돌려 써도 학생마다(반마다) 따로
   const speech = useSpeech((x) => { setText(x); setSpoke(true); }, { measure: !!me && me.voiceMode !== "off", record: me?.voiceMode === "gemini", lang: langOf(lang).speech });
   const answerSpeech = useSpeech(setAnswer, { lang: langOf(lang).speech });
   const say = (x: string) => speak(x, false, lang);
 
+  // 고르던 것·쓰던 글·안내를 모두 비우고 고르기 화면으로
+  const clearAll = useCallback(() => {
+    setStep("choose");
+    setMethod("card");
+    setPick({});
+    setText("");
+    setSpoke(false);
+    setAnswer("");
+    setNote("");
+    setTone(NO_TONE);
+    setSummaryKo("");
+    setQa({ question: "", options: [], aiRisk: false, skip: false });
+    setCalm("off");
+    setPickNav(STEP_START);
+    setOffline(false);
+    setUnlocked(false);
+    setFlushed(0);
+    setDropped(0);
+    setBusy("");
+  }, []);
+
   // 이 화면은 다른 화면에 갔다 와도(숨겨졌다 다시 보여도) 상태가 남는다(Next.js Activity).
   // 다른 학생으로 바뀌었거나 날짜가 바뀌었으면 고르던 것·쓰던 글을 모두 비운다.
-  // 같은 학생·같은 날이면 학생이 고른 아침·하교 전을 그대로 두되, 시계가 아침→하교 전으로 넘어갔으면
-  // (고르는 중이 아닐 때) 따라간다 → 켜 둔 태블릿에서 오후 마음이 아침 칸을 덮어쓰지 않게.
-  useEffect(() => {
-    atMe(); // 작은 화면에서 돌아왔다
+  // 같은 학생·같은 날이면 학생이 고른 아침·하교 전을 그대로 두되, 서버 시간이 아침→하교 전으로 넘어갔으면
+  // 고르는 중이 아닐 때(고르기·저장한 뒤 화면) 모두 비우고 따라간다 → 켜 둔 태블릿에서 오후 마음이 아침 칸을 덮어쓰지 않게,
+  // 아침에 고른 카드·되묻기가 오후 기록에 딸려 가지 않게. 학생이 손수 바꾼 시간은 그대로 둔다.
+  // 시간을 다시 묻는 사이에 고르기를 막 시작했으면(자고 깬 태블릿) 고른 것은 두고 이번 기록의 시간만 바로잡는다.
+  const asking = useRef(false);
+  const asked = useRef({ key: "", n: 0, at: 0 }); // 시계만 보고 다시 물은 경계(기기 시간)와 횟수
+  const forcedAt = useRef(0); // 기다리지 않고 물은 때(깨어남·카드로·말로)
+  const ask = useCallback(() => {
+    if (asking.current) return;
+    asking.current = true;
     api<Me>("student", "me").then(
       (m) => {
+        asking.current = false;
         if (m.qtoken) rememberToken(m.no, m.qtoken); // 쿠키로 바로 들어온 날에도 끊김 대비 표를 새로
         const prev = lastServer.current;
         lastServer.current = { slot: m.slot, today: m.today };
-        const idle = stepNow.current === "choose" || stepNow.current === "done";
-        if (lastNo.current === m.no && prev && prev.today === m.today && prev.slot !== m.slot && idle) {
-          setSlot(m.slot);
-          if (stepNow.current === "done") setStep("choose");
-        }
         if (lastNo.current !== m.no || (prev && prev.today !== m.today)) {
           lastNo.current = m.no;
+          manual.current = false;
+          clearAll();
           setSlot(m.slot);
-          setStep("choose");
-          setMethod("card");
-          setPick({});
-          setText("");
-          setSpoke(false);
-          setAnswer("");
-          setNote("");
-          setTone(NO_TONE);
-          setSummaryKo("");
-          setQa({ question: "", options: [], aiRisk: false, skip: false });
-          setCalm("off");
-          setPickNav(STEP_START);
-          setOffline(false);
-          setUnlocked(false);
-          setFlushed(0);
-          setDropped(0);
-          setBusy("");
+        } else if (prev && prev.slot !== m.slot && !manual.current && !busyNow.current) {
+          if ((stepNow.current === "choose" || stepNow.current === "done") && calmNow.current !== "open") {
+            clearAll();
+            setSlot(m.slot);
+          } else if (flowStale.current) setSlot(m.slot);
         }
+        flowStale.current = false;
+        setNote((n) => (n === "logoutFail" ? "" : n)); // 서버에 닿았으니 「인터넷이 연결되면 다시 눌러」 안내는 내린다
+        // 기기 시계가 서버와 다르면 이 답을 그 경계의 첫 물음으로 센다(아래 recheck가 몇 번만 더 묻게)
+        const key = `${slotNow()}|${kToday()}`;
+        if (key !== `${m.slot}|${m.today}` && asked.current.key !== key) asked.current = { key, n: 1, at: Date.now() };
         setMe(m);
       },
-      (e) => ((e as { status?: number }).status === 401 ? router.replace("/") : setLoadFail(true)),
+      (e) => {
+        asking.current = false;
+        forcedAt.current = 0; // 깨자마자 와이파이가 아직 안 붙었으면, 붙자마자(online)·누르자마자 다시 물을 수 있게
+        if ((e as { status?: number }).status === 401) router.replace("/");
+        else setLoadFail(true);
+      },
     );
-  }, [router, loadTry]);
+  }, [router, clearAll]);
 
-  // 화면을 켜 둔 채 정오·자정을 넘기면 서버에 다시 물어 위의 규칙대로 따라간다(1분마다 시계만 본다)
+  useEffect(() => {
+    atMe(); // 작은 화면에서 돌아왔다
+    ask();
+  }, [ask, loadTry]);
+
+  // 기기 시계로 정오·자정을 넘겼으면(서버가 마지막으로 알려 준 것과 다르면) 서버에 다시 묻는다.
+  // 기기 시계가 서버와 어긋나 있으면 같은 경계로는 몇 번만(RETRY). force(깨어남·연결 돌아옴·카드로·말로)는 기다리지 않고 묻되 15초에 한 번까지.
+  const recheck = useCallback((force: boolean) => {
+    const last = lastServer.current;
+    if (!last || asking.current) return;
+    const key = `${slotNow()}|${kToday()}`;
+    if (key === `${last.slot}|${last.today}`) return;
+    const now = Date.now();
+    const a = asked.current;
+    if (force) {
+      if (now - forcedAt.current < 15_000) return;
+      forcedAt.current = now;
+    } else if (a.key === key && (a.n >= RETRY.length || now - a.at < RETRY[a.n])) return;
+    asked.current = a.key === key ? { key, n: a.n + 1, at: now } : { key, n: 1, at: now };
+    ask();
+  }, [ask]);
+
+  // 화면을 켜 둔 채 정오·자정을 넘기면 위의 규칙대로 따라간다(1분마다 시계만 본다)
   useEffect(() => {
     const id = setInterval(() => {
-      const last = lastServer.current;
-      if (!last || document.visibilityState !== "visible") return;
-      if (slotNow() !== last.slot || kToday() !== last.today) setLoadTry((n) => n + 1);
+      if (document.visibilityState === "visible") recheck(false);
     }, 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [recheck]);
+  // 잠자던 태블릿이 깨어나거나 다른 앱에서 돌아오거나 와이파이가 다시 붙으면 1분을 기다리지 않고 바로 본다
+  useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState === "visible") recheck(true);
+    };
+    const on = ["pageshow", "focus", "online"] as const;
+    document.addEventListener("visibilitychange", wake);
+    for (const ev of on) window.addEventListener(ev, wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      for (const ev of on) window.removeEventListener(ev, wake);
+    };
+  }, [recheck]);
 
   useEffect(() => {
     if (step === "ask") speak(qa.question, false, lang);
   }, [step, qa.question, lang]);
 
-  // 담아 둔 기록이 있으면 들어올 때와 연결이 돌아올 때 보낸다
+  // 담아 둔 기록이 있으면 들어올 때와 연결이 돌아올 때 보낸다.
+  // 연결이 돌아오면 「인터넷이 연결되면 다시 눌러 주세요」(다음 친구 차례를 못 했을 때) 안내도 내린다.
   useEffect(() => {
     const send = () => flushQueue().then(({ sent, dropped: d }) => {
       if (sent) setFlushed(sent);
       if (d) setDropped(d);
     }, () => {});
+    const online = () => {
+      setNote((n) => (n === "logoutFail" ? "" : n));
+      send();
+    };
     send();
-    window.addEventListener("online", send);
-    return () => window.removeEventListener("online", send);
+    window.addEventListener("online", online);
+    return () => window.removeEventListener("online", online);
   }, []);
+
+  // 단계가 바뀌거나 안내(위험한 말에 고맙다는 말 등)가 나왔는데 카드 머리가 위로 밀려 안 보이면 화면 안으로(360px 휴대폰)
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = panel.current;
+    if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [step, note, calm]);
 
   const flowDepth =
     step === "card" ? 1 + stepDepth(pickNav, pick.emotion)
@@ -291,6 +371,8 @@ export default function MePage() {
         flowers: [...me!.flowers.filter((f) => f.date !== today), { date: today, emotion: record.emotion }],
       });
       setStep("done");
+      manual.current = false; // 손수 고른 시간은 이번 기록으로 다 썼다(정오가 지나면 다시 시계를 따라감)
+      flowStale.current = false;
       setCheer((n) => n + 1);
       // 힘든 마음(슬픔·화남·불안)이면 마음 다스리기 도구 상자를 권한다
       setCalm(["sad", "angry", "fear"].includes(groupOf(record.emotion)) ? "offer" : "off");
@@ -299,6 +381,25 @@ export default function MePage() {
       setNote((e as Error).message);
     }
     setBusy("");
+  }
+
+  // 되묻기 칸에 써 둔 말은 어느 단추로 저장하든 함께 보낸다(건너뛰기·고르는 답을 눌러도 버리지 않고, 서버가 위험한 말을 살피게)
+  function withTyped(preset: string) {
+    const typed = answer.trim();
+    if (!typed || typed === preset) return preset;
+    const both = preset ? `${preset} · ${typed}` : typed;
+    return both.length > 120 ? typed : both;
+  }
+
+  // 카드로·말로: 기기 시계가 서버가 마지막으로 알려 준 시간을 지났으면(자고 깬 태블릿 등) 서버에 다시 묻고,
+  // 그 답이 오면 이번 기록의 시간(아침·하교 전)을 바로잡는다(학생이 손수 고른 시간은 그대로)
+  function begin(m: "card" | "voice") {
+    recheck(true);
+    flowStale.current = !manual.current && asking.current;
+    setNote("");
+    setMethod(m);
+    setStep(m);
+    say(tt(m));
   }
 
   // 도구를 써 본 느낌은 이 시간(아침·하교 전)에 남긴 기록에 붙인다. 아직 기록이 없으면 남기지 않는다.
@@ -316,12 +417,15 @@ export default function MePage() {
   // (Next.js는 지나온 화면을 숨겨 두고 상태를 그대로 살려 두므로, 같은 태블릿을 돌려 쓸 때는 통째로 비운다)
   // 나가기를 서버에 알리지 못하면(와이파이 끊김) 그대로 머문다. 그냥 넘어가면 다음 친구가 이 학생으로 들어오게 된다.
   async function nextFriend() {
+    if (busy || leaving) return; // 저장하는 중에 나가면 그 기록이 어디로 갔는지 모르게 된다
+    setLeaving(true);
     try {
       await api("student", "logout");
       forgetToken(); // 담아 둔 기록은 저마다 표를 들고 있으니, 이 학생의 새 표만 지운다
     } catch {
       setNote("logoutFail");
       setBackHint(false);
+      setLeaving(false);
       return;
     }
     window.location.replace("/");
@@ -367,7 +471,7 @@ export default function MePage() {
             <p className="text-sm text-soft">{me.className} · {me.no} {me.alias}</p>
             <h1 className="line-clamp-2 font-display text-2xl break-keep sm:text-3xl">{tt("title", { alias: me.alias })}</h1>
           </div>
-          <button onClick={nextFriend} className="btn-sub min-h-12 shrink-0 px-4">{tt("next")}</button>
+          <button onClick={nextFriend} disabled={!!busy || leaving} className="btn-sub min-h-12 shrink-0 px-4">{tt("next")}</button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div role="group" aria-label={`${slotName("am")} / ${slotName("pm")}`} className="flex rounded-2xl border border-line bg-card p-1">
@@ -376,6 +480,7 @@ export default function MePage() {
                 key={s}
                 aria-pressed={slot === s}
                 onClick={() => {
+                  if (s !== slot) manual.current = true;
                   setSlot(s);
                   if (step === "done") reset();
                 }}
@@ -397,7 +502,7 @@ export default function MePage() {
           </button>
           <label className="flex min-h-12 items-center gap-1 rounded-2xl border border-line bg-card px-2 text-base" title="Language">
             <Doodle name="globe" size={26} />
-            <select value={lang} onChange={(e) => setLang(e.target.value === "ko" ? "" : e.target.value)} className="h-11 max-w-28 bg-transparent font-bold outline-none" aria-label="Language">
+            <select value={lang} onChange={(e) => setLang(isLang(e.target.value) ? e.target.value : "ko")} className="h-11 max-w-28 bg-transparent font-bold outline-none" aria-label="Language">
               {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
           </label>
@@ -405,7 +510,7 @@ export default function MePage() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_300px] lg:grid-rows-[auto_1fr_auto] lg:gap-5">
-        <section className="card min-h-[420px] sm:p-7 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:self-start">
+        <section ref={panel} className="card min-h-[420px] scroll-mt-3 sm:p-7 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:self-start">
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{tt(busy)}</p>
           ) : calm === "open" ? (
@@ -420,7 +525,7 @@ export default function MePage() {
                 </p>
               )}
               <div className="grid gap-4 sm:grid-cols-2">
-                <button onClick={() => { setMethod("card"); setStep("card"); say(tt("card")); }} className="chip flex flex-col items-center gap-3 p-7 hover:border-leaf">
+                <button onClick={() => begin("card")} className="chip flex flex-col items-center gap-3 p-7 hover:border-leaf">
                   <span className="flex -space-x-3">
                     <EmotionArt name="기뻐요" size={52} />
                     <EmotionArt name="슬퍼요" size={52} />
@@ -429,7 +534,7 @@ export default function MePage() {
                   <span className="font-display text-2xl">{tt("card")}</span>
                   <span className="text-sm text-soft">{tt("cardSub")}</span>
                 </button>
-                <button onClick={() => { setMethod("voice"); setStep("voice"); say(tt("voice")); }} className="chip flex flex-col items-center gap-3 p-7 hover:border-leaf">
+                <button onClick={() => begin("voice")} className="chip flex flex-col items-center gap-3 p-7 hover:border-leaf">
                   <span className="grid size-[60px] place-items-center rounded-full bg-leaf-soft"><Doodle name="mic" size={42} /></span>
                   <span className="font-display text-2xl">{tt("voice")}</span>
                   <span className="text-sm text-soft">{tt("voiceSub")}</span>
@@ -497,7 +602,7 @@ export default function MePage() {
               <p className="text-soft">{tt("okNoAnswer")}</p>
               <div className="grid gap-2 sm:grid-cols-3">
                 {qa.options.map((o, i) => (
-                  <button key={o} onClick={() => save(i === qa.options.length - 1 ? "" : o)} className="chip px-4 py-4 text-lg font-bold hover:border-leaf">
+                  <button key={o} onClick={() => save(withTyped(i === qa.options.length - 1 ? "" : o))} className="chip px-4 py-4 text-lg font-bold hover:border-leaf">
                     {o}
                   </button>
                 ))}
@@ -512,7 +617,7 @@ export default function MePage() {
               </div>
               {note && <p className="text-alert">{msg(note)}</p>}
               <div className="flex justify-between gap-3">
-                <button onClick={() => save("")} className="btn-sub">{tt("skipSave")}</button>
+                <button onClick={() => save(withTyped(""))} className="btn-sub">{tt("skipSave")}</button>
                 <button onClick={() => save(answer)} disabled={!answer.trim()} className="btn-main px-8">{tt("answerSave")}</button>
               </div>
             </div>
@@ -520,7 +625,7 @@ export default function MePage() {
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="rounded-full bg-leaf-soft px-4 py-1 text-sm font-bold text-leaf">{tt("saved")}</p>
               {offline && <p className="rounded-2xl bg-[#fff8e1] p-3 text-sm"><Doodle name="signal" /> {tt("offlineSaved")}</p>}
-              {unlocked && <Link href="/me/buddy" className="flex items-center gap-2 rounded-2xl bg-sun/30 px-4 py-2 font-bold"><Doodle name="gift" size={28} />{tt("newUnlock")}</Link>}
+              {unlocked && <Link href="/me/buddy" onClick={leftMe} className="flex items-center gap-2 rounded-2xl bg-sun/30 px-4 py-2 font-bold"><Doodle name="gift" size={28} />{tt("newUnlock")}</Link>}
               <h2 className="font-display text-3xl">{tt("thanks", { alias: me.alias })}</h2>
               {pick.emotion && <EmotionArt name={pick.word || pick.emotion} size={110} />}
               <p className="text-lg">
@@ -538,8 +643,8 @@ export default function MePage() {
                 </div>
               )}
               <div className="mt-2 flex flex-wrap justify-center gap-3">
-                <Link href="/me/calendar" className="btn-sub min-h-12"><Doodle name="calendar" size={24} />{tt("calendar")}</Link>
-                <button onClick={nextFriend} className="btn-main min-h-12 px-8">{tt("next")}</button>
+                <Link href="/me/calendar" onClick={leftMe} className="btn-sub min-h-12"><Doodle name="calendar" size={24} />{tt("calendar")}</Link>
+                <button onClick={nextFriend} disabled={leaving} className="btn-main min-h-12 px-8">{tt("next")}</button>
               </div>
             </div>
           )}
