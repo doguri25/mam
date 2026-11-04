@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, accountName, aiConfig, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -104,6 +104,8 @@ async function handle(req: NextRequest) {
         db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)), isDemo() ? demoAiUsed() : 0,
       ]);
       const aiSource = isDemo() ? await trialAiSource() : null;
+      // 실제 학급: 공용 업스테이지 키를 오늘 몇 번 빌려 썼는지(키를 넣지 않은 학급도 AI가 돌게)
+      const sharedAi = !isDemo() && hasSharedAi() ? { used: await sharedAiUsed(), cap: SHARED_AI_PER_DAY } : null;
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
         today: date,
@@ -126,6 +128,7 @@ async function handle(req: NextRequest) {
         letters: newest(letters).slice(0, 150),
         reflects, // 이번 주·지난주 한 주 돌아보기
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
+        sharedAi,
         space: spaceId(), // 이 기기의 실명 명렬표를 학급마다 따로 두는 열쇠
         account: await accountName(),
         settings: publicSettings(isDemo() ? { ...settings, provider: await demoProvider() } : settings),
@@ -246,7 +249,7 @@ async function handle(req: NextRequest) {
 
     if (body.action === "testAI") {
       const ai = await aiConfig(body.provider as Provider);
-      if (!ai) return bad("이 AI의 키가 아직 없어요.");
+      if (!ai) return bad(body.provider === "upstage" && hasSharedAi() ? "오늘 공용 키 몫을 다 썼어요. 내일 다시 하거나 업스테이지 키를 넣어 주세요." : "이 AI의 키가 아직 없어요.");
       try {
         return NextResponse.json({ ok: await ping(ai), model: ai.model });
       } catch (e) {

@@ -78,7 +78,9 @@ npm test           # 살펴볼 학생·위험 표현 규칙 테스트
 - 비밀번호·학생 코드 없이 가짜 반(가명 25명, 최근 7일)으로 들어간다. `mb_demo` 쿠키가 있는 요청은 `inSpace("demo")`(AsyncLocalStorage)로 돌아 모음 이름 앞에 `demo_`가 붙는다 → 실제 반과 저장 공간부터 따로.
 - 선생님 표에 공간 표시(`:d`)가 있어 체험 표로 실제 반을, 실제 반 표로 체험 공간을 열 수 없다(`lib/auth.test.ts`).
 - 체험에서는 비밀번호·AI 키 바꾸기와 휴대폰 알림을 막는다. AI는 하루 200번까지(`DEMO_AI_PER_DAY`). 날짜가 바뀌거나 연습 데이터의 판(`PRACTICE_VERSION`)이 바뀌면 처음 판으로(새 버전을 올린 날에도 역량 진단 회차 같은 새 연습 데이터가 바로 보이게).
-- 체험 전용 AI 키: Vercel 환경 변수 `TRIAL_AI_KEY`(필수)·`TRIAL_AI_PROVIDER`(upstage·claude·openai·gemini, 기본 upstage)·`TRIAL_AI_MODEL`(선택). 있으면 그 키만 쓰고, 없으면 실제 반에 넣은 키를 빌려 쓴다. 교과서 읽기(Document Parse)는 업스테이지 키일 때만.
+- 체험이 쓰는 AI 순서: ① 공용 업스테이지 키 `UPSTAGE_API_KEY`(모델 `UPSTAGE_MODEL`, 비우면 기본 Solar) → ② 체험 전용 키 `TRIAL_AI_KEY`·`TRIAL_AI_PROVIDER`(upstage·claude·openai·gemini)·`TRIAL_AI_MODEL` → ③ 홍북초 반에 넣은 키를 빌려 씀. 교과서 읽기(Document Parse)는 업스테이지 키일 때만.
+- 공용 업스테이지 키는 실제 학급도 함께 쓴다: 「설정」에 고른 AI의 키가 없으면 학급마다 하루 `SHARED_AI_PER_DAY`번(비우면 100, 0이면 끔)까지 이 키로 돈다(`meta/sharedAiUsage`). 선생님이 넣은 키가 있으면 그 키를 먼저, 제한 없이. 다른 AI를 콕 집어 부르는 기능(Gemini 음성 듣기)은 빌리지 않는다. 「설정」의 AI 연결에 오늘 쓴 횟수가 보인다(`lib/shared-ai.test.ts`).
+- 비밀 키는 Vercel의 Production과 Preview에 함께 체크해 두면 PR 미리보기의 체험·학급도 같은 키로 돈다(미리보기 사용 횟수는 미리보기 데이터베이스에서 따로 센다).
 - 연습 데이터는 기록을 한꺼번에 저장(`setMany`)해 몇 초면 만들어진다.
 
 ## 그림은 모두 마음 친구 그림체로
