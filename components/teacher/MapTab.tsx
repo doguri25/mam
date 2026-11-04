@@ -10,6 +10,7 @@ import Notes from "./Notes";
 import Timeline from "./Timeline";
 import Weather from "./Weather";
 import type { NameOf, Overview, Reload } from "./types";
+import { flagChecked, flagKey } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { isHard } from "@/lib/shared";
@@ -20,11 +21,12 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
   const { students, records, today, flags, settings, absent } = data;
   const todays = records.filter((r) => r.date === today);
   const alerts = records.filter((r) => r.risk && !r.riskChecked).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const flagKey = (no: number) => `${no}_${data.weekStart}`;
-  const openFlags = flags.filter((f) => !settings.checks[flagKey(f.no)]);
+  // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
+  const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
+  const openFlags = flags.filter((f) => !checkedAt(f.no));
 
   async function checkFlag(no: number) {
-    await api("teacher", "checkFlag", { key: flagKey(no) });
+    await api("teacher", "checkFlag", { key: flagKey(no, today) });
     await reload();
   }
 
@@ -122,7 +124,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
             {flags.length === 0 && <p className="text-soft">이번 주는 신호가 없어요.</p>}
             <ul className="space-y-2">
               {flags.map((f) => {
-                const checked = settings.checks[flagKey(f.no)];
+                const checked = checkedAt(f.no);
                 return (
                   <li key={f.no} className={`rounded-2xl border p-3 ${checked ? "border-line opacity-60" : "border-sun"}`}>
                     <button onClick={() => setOpen(f.no)} className="font-bold underline-offset-4 hover:underline">{f.no}번 {nameOf(f.no)}</button>

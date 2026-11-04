@@ -6,7 +6,7 @@ import { kindsText } from "./RiskActions";
 import StyleNote from "./StyleNote";
 import { Bars, Legend } from "./Weather";
 import type { NameOf, Overview, Reload, Weekly } from "./types";
-import { kday } from "./when";
+import { flagChecked, kday } from "./when";
 import { api } from "@/lib/api";
 import { addDays, label, weekday } from "@/lib/date";
 import { calmStats } from "@/lib/rules";
@@ -156,7 +156,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
                   <tr key={f.no} className="border-t border-line align-top">
                     <td className="w-28 py-1.5 font-bold">{who(f.no)}</td>
                     <td className="py-1.5">{f.reasons.join(" / ")}</td>
-                    <td className="w-24 py-1.5 text-right text-soft">{settings.checks[`${f.no}_${weekStart}`] ? "✓ 살펴봄" : "아직"}</td>
+                    <td className="w-24 py-1.5 text-right text-soft">{flagChecked(settings.checks, f.no, today) ? "✓ 살펴봄" : "아직"}</td>
                   </tr>
                 ))}
               </tbody>
