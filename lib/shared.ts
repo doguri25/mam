@@ -172,6 +172,9 @@ export interface RiskAction {
   note: string; // 짧은 메모(선생님만)
   createdAt: string;
   demo?: boolean;
+  // 무엇을 살펴봤나(없으면 마음 기록). recordId 앞머리: 「draft:」 마치지 않은 기록 · 「reflect:」 돌아보기 · 「letter:」 쪽지
+  kind?: "record" | "draft" | "reflect" | "letter";
+  text?: string; // 살펴볼 때의 글(마치지 않은 기록·돌아보기·쪽지는 나중에 지워지거나 바뀌어도 조치 기록에 남게)
 }
 export const riskKinds = (x: unknown): RiskActionKind[] =>
   Array.isArray(x) ? RISK_ACTIONS.filter((k) => x.includes(k)) : [];
@@ -324,6 +327,7 @@ export interface Letter {
   id: string; from: number; to: number; text: string; showName: boolean;
   status: "wait" | "ok" | "no"; createdAt: string; checkedAt?: string; readAt?: string;
   risk?: boolean; lang?: string; demo?: boolean;
+  riskChecked?: string | null; // 위험 표현 쪽지를 선생님이 「살펴봤어요」한 시각
 }
 
 // 한 주 돌아보기: 학생이 이번 주(월요일부터)를 돌아보며 쓴 한 줄과 마음 친구의 답
@@ -331,7 +335,8 @@ export interface Reflect {
   id: string; no: number; weekStart: string; text: string; reply: string; createdAt: string;
   lang?: string; risk?: boolean; demo?: boolean;
   riskChecked?: string | null; // 선생님이 「살펴봤어요」를 누른 시각
-  prev?: { text: string; risk: boolean; createdAt: string }[]; // 고쳐 쓰기 전 글(선생님만 봄)
+  riskSelf?: boolean; // 지금 글 자체에 위험 표현이 있나(risk는 앞 글의 살펴보지 않은 위험까지 이어받음)
+  prev?: { text: string; risk: boolean; createdAt: string }[]; // 고쳐 쓰기 전 글(risk는 그 글 자체의 위험, 선생님만 봄)
 }
 
 // 마치지 않은 위험 표현: 말로 쓴 문장에 위험 표현이 있었는데 학생이 기록을 마치지 않고 나간 것.
