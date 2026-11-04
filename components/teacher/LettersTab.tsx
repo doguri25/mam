@@ -14,10 +14,20 @@ const when = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: 
 function Card({ l, nameOf, reload }: { l: Letter; nameOf: NameOf; reload: Reload }) {
   const [text, setText] = useState(l.text);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   async function check(status: "ok" | "no") {
     setBusy(true);
-    await api("teacher", "letterCheck", { id: l.id, status, text }).catch(() => {});
+    setErr("");
+    try {
+      await api("teacher", "letterCheck", { id: l.id, status, text });
+    } catch (e) {
+      // 실패하면 단추를 다시 쓸 수 있게 하고 까닭을 보여 준다
+      setErr(`${status === "ok" ? "전하지" : "돌려보내지"} 못했어요: ${(e as Error).message}`);
+      setBusy(false);
+      return;
+    }
     await reload();
+    setBusy(false); // 보통은 다른 목록으로 옮겨 가 사라지지만, 다시 불러오지 못했을 때 단추가 묶이지 않게
   }
   return (
     <article className={`card space-y-3 ${l.risk ? "border-alert bg-alert-soft" : ""}`}>
@@ -31,6 +41,7 @@ function Card({ l, nameOf, reload }: { l: Letter; nameOf: NameOf; reload: Reload
       {l.status === "wait" ? (
         <>
           <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 120))} rows={2} className="field text-lg" aria-label="쪽지 내용(고쳐서 전할 수 있어요)" />
+          {err && <p role="alert" className="text-sm text-alert">{err}</p>}
           <div className="flex flex-wrap justify-end gap-2">
             <button onClick={() => check("no")} disabled={busy} className="btn-sub min-h-11">돌려보내기</button>
             <button onClick={() => check("ok")} disabled={busy || text.trim().length < 2} className="btn-main min-h-11 px-6">✓ 친구에게 전하기</button>
