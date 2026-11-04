@@ -293,7 +293,7 @@ export async function reflectReply(ai: AI, input: { lang: Lang; text: string; we
   const out = await callJSON(ai, REFLECT_SYSTEM, JSON.stringify({ ...input, lang: langOf(input.lang).ai }), "reflect", obj({ reply: { type: "string" } }));
   const raw = String(out.reply ?? "").trim();
   const reply = (input.lang === "ko" ? polish(raw) : raw).slice(0, 160);
-  if (!reply || leaks(reply)) throw new Error("답이 알맞지 않아요");
+  if (!reply || leaks(reply).length) throw new Error("답이 알맞지 않아요"); // 빈 배열도 참이라 .length로 본다
   return reply;
 }
 
