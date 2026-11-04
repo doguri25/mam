@@ -2,7 +2,7 @@
 // 감정 낱말 카드 72장 중 고를 때마다 무작위 12장(긍정·보통·부정 4장씩, 마음에 드는 게 없으면 한 번만 다른 12장으로) → (큰 감정이면 더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개.
 // 고른 낱말은 기록에서 큰 감정 12가지 아래로 묶인다(선생님 화면·규칙은 그대로). 처음엔 아무것도 골라 두지 않는다.
 // stepwise: 한 화면에 질문 하나씩, 누르면 바로 다음으로(초등학생용). 아니면 세 가지를 한 화면에(말로 한 뒤 고쳐 볼 때).
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Doodle from "./Doodle";
 import { EmotionArt, EMOTION_COLOR, ReasonArt, cardColor } from "./Art";
 import { t, w, type Lang } from "@/lib/i18n";
@@ -16,31 +16,56 @@ export interface Pick {
   word?: string;
 }
 
-export default function MoodPicker({ value, onChange, vocab, lang, stepwise, onDone, onBack }: {
+// 한 화면에 하나씩 고를 때 지금 몇째 질문인지(stage)와 「더 꼭 맞는 말」을 건너뛰었는지(direct).
+// 부모가 쥐고 있으면(nav) 되묻기에서 돌아와도 같은 질문으로 돌아오고, 브라우저 뒤로 가기도 같은 단계를 따른다.
+export interface StepNav { stage: number; direct: boolean }
+export const STEP_START: StepNav = { stage: 0, direct: false };
+const skipsNuance = (nav: StepNav, emotion?: string) => nav.direct || !NUANCE[emotion ?? ""];
+// 한 단계 앞(첫 질문이면 null)
+export function stepBack(nav: StepNav, emotion?: string): StepNav | null {
+  if (nav.stage === 0) return null;
+  return { ...nav, stage: nav.stage === 2 && skipsNuance(nav, emotion) ? 0 : nav.stage - 1 };
+}
+// 지나온 질문 수(건너뛴 「더 꼭 맞는 말」은 세지 않음)
+export const stepDepth = (nav: StepNav, emotion?: string) => (nav.stage <= 1 ? nav.stage : nav.stage - (skipsNuance(nav, emotion) ? 1 : 0));
+
+export default function MoodPicker({ value, onChange, vocab, lang, stepwise, onDone, onBack, nav, onNav }: {
   value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; stepwise?: boolean; onDone?: (v: Pick) => void; onBack?: () => void;
+  nav?: StepNav; onNav?: (n: StepNav) => void;
 }) {
-  if (stepwise) return <Steps value={value} onChange={onChange} vocab={vocab} lang={lang} onDone={onDone} onBack={onBack} />;
+  if (stepwise) return <Steps value={value} onChange={onChange} vocab={vocab} lang={lang} onDone={onDone} onBack={onBack} nav={nav} onNav={onNav} />;
   return <All value={value} onChange={onChange} vocab={vocab} lang={lang} />;
 }
 
 // 한 화면에 하나씩: ① 감정 카드 → (더 꼭 맞는 말) → ② 마음 크기 → ③ 까닭. 누르면 잠깐 뒤 다음 화면.
-function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; onDone?: (v: Pick) => void; onBack?: () => void }) {
-  const [stage, setStage] = useState(0);
+function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
+  value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; onDone?: (v: Pick) => void; onBack?: () => void; nav?: StepNav; onNav?: (n: StepNav) => void;
+}) {
+  const [own, setOwn] = useState<StepNav>(STEP_START);
+  const cur = nav ?? own;
+  const setNav = onNav ?? setOwn;
+  const { stage } = cur;
+  const latest = useRef(cur); // 잠깐 뒤에 넘어갈 때(setTimeout) 그때의 값을 쓰게
+  useEffect(() => { latest.current = cur; });
+  const setStage = (n: number) => setNav({ ...latest.current, stage: n });
   const [deck, setDeck] = useState(() => drawCards()); // 열 때마다 새로 뽑은 12장
   const [rerolled, setRerolled] = useState(false); // 다른 카드로 바꾸기는 한 번만(처음 12장과 겹치지 않게)
-  const [direct, setDirect] = useState(false); // 낱말 카드를 바로 골라 「더 꼭 맞는 말」을 건너뜀
   const color = value.emotion ? cardColor(value.word ?? value.emotion) : "#f2b705";
   const say = (ko: string) => speak(w(lang, ko), false, lang);
   const go = (n: number, delay = 260) => setTimeout(() => setStage(n), delay);
   const dots = [0, 1, 2, 3];
-  const back = () => (stage === 0 ? onBack?.() : setStage(stage === 2 && (direct || !NUANCE[value.emotion ?? ""]) ? 0 : stage - 1));
+  const back = () => {
+    const prev = stepBack(cur, value.emotion);
+    if (prev) setNav(prev);
+    else onBack?.();
+  };
   const pickCard = (word: string) => {
     const parent = parentEmotion(word);
     const isBig = parent === word;
     onChange({ ...value, emotion: parent, word: isBig ? undefined : word });
-    setDirect(!isBig);
     say(word);
-    go(isBig && NUANCE[word] ? 1 : 2);
+    const next = isBig && NUANCE[word] ? 1 : 2;
+    setTimeout(() => setNav({ stage: next, direct: !isBig }), 260);
   };
   const head = (title: string) => (
     <div className="mb-4 flex items-center gap-3">

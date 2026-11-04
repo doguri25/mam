@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { t, type Lang } from "@/lib/i18n";
 import { speak } from "@/lib/local";
 import { SELF_ANSWER, SELF_ITEMS, SELF_SCALE } from "@/lib/selfcheck";
+import { useBackSteps } from "@/lib/back";
 
 type Open = { round: { id: string; title: string } | null; answers: number[] | null };
 
@@ -37,13 +38,15 @@ export default function CheckPage() {
   const item = step >= 0 && step < SELF_ITEMS.length ? SELF_ITEMS[step] : null;
   const line = item ? item.text[lang] : "";
   useEffect(() => { if (line) speak(line, false, lang); }, [line, lang]); // 「읽어 주기」를 켠 학생에게만
+  // 브라우저 뒤로 가기 = 앞 문장으로(첫 문장이면 시작 화면으로). 다 보낸 뒤에는 마음 점검을 나간다.
+  useBackSteps(step >= 0 && step < SELF_ITEMS.length ? step + 1 : 0, () => setStep((n) => n - 1), "check");
 
   if (!me || !open) return <Loading />;
   const title = tt("tileCheck");
 
   if (!open.round)
     return (
-      <StudentFrame title={title} lang={lang}>
+      <StudentFrame title={title} lang={lang} root="check">
         <div className="card flex flex-col items-center gap-4 py-8 text-center">
           <BuddyLazy look={me.look} size={160} />
           <p className="text-lg">{tt("checkClosed")}</p>
@@ -74,7 +77,7 @@ export default function CheckPage() {
   if (step < 0 || step >= SELF_ITEMS.length) {
     const done = step >= SELF_ITEMS.length || !!open.answers;
     return (
-      <StudentFrame title={`${title} · ${open.round.title}`} lang={lang}>
+      <StudentFrame title={`${title} · ${open.round.title}`} lang={lang} root="check">
         <div className="card flex flex-col items-center gap-4 py-6 text-center">
           <BuddyLazy look={me.look} emotion={done ? "뿌듯해요" : "반가워요"} cheer={cheer} size={200} className="size-44 sm:size-[200px]" scene />
           <p className="max-w-xl font-display text-2xl leading-snug">
@@ -97,7 +100,7 @@ export default function CheckPage() {
   }
 
   return (
-    <StudentFrame title={`${title} · ${open.round.title}`} lang={lang}>
+    <StudentFrame title={`${title} · ${open.round.title}`} lang={lang} root="check">
       <div className="card space-y-6 py-6">
         <div className="flex items-center justify-center gap-1.5" aria-label={`${step + 1} / ${SELF_ITEMS.length}`}>
           {SELF_ITEMS.map((_, i) => <span key={i} className={`h-2.5 w-6 rounded-full sm:w-8 ${i <= step ? "bg-leaf" : "bg-line"}`} />)}
