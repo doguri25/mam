@@ -2,6 +2,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, setConsent } from "@/lib/data";
+import { clientIp, passwordAttempt, waitText } from "@/lib/limit";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
   DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, saveRiskActions, getSelfRounds, saveSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
 
 // 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
 const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush"]);
+const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
 async function handle(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -48,14 +50,18 @@ async function handle(req: NextRequest) {
       res.cookies.delete(TEACHER_COOKIE);
       return res;
     }
-    // 로그인: 이름으로 학급을 찾고 그 학급 공간에서 비밀번호를 맞춰 본다(어느 쪽이 틀렸는지는 알려 주지 않음)
+    // 로그인: 이름으로 학급을 찾고 그 학급 공간에서 비밀번호를 맞춰 본다(어느 쪽이 틀렸는지는 알려 주지 않음).
+    // 너무 많이 틀리면 그 학급 × 이 IP만 잠시 막는다(passwordAttempt — 저장소에 세므로 서버가 여러 대여도 같이 셈).
     if (body.action === "login") {
       const acc = await findAccount(String(body.name ?? ""));
       if (!acc) return bad("이름이나 비밀번호가 맞지 않아요.", 401);
+      const ip = clientIp(req.headers);
       return inSpace(acc.space, async () => {
+        const gate = await passwordAttempt(ip);
+        if (gate.wait) return tooMany(gate.wait);
         const pin = await getPin();
         const r = checkPassword(String(body.password ?? ""), pin);
-        if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
+        await gate.done(r.ok);
         if (!r.ok) return bad("이름이나 비밀번호가 맞지 않아요.", 401);
         return withTeacherCookie(pin?.v ?? 0);
       });
@@ -75,8 +81,10 @@ async function handle(req: NextRequest) {
     if (body.action === "changePin") {
       const next = String(body.next ?? "");
       if (!validPin(next)) return bad("새 비밀번호는 숫자 4~12자리로 해 주세요.");
+      const gate = await passwordAttempt(clientIp(req.headers));
+      if (gate.wait) return tooMany(gate.wait);
       const r = checkPassword(String(body.current ?? ""), pin);
-      if (r.wait) return bad(`너무 많이 틀렸어요. ${r.wait}초 뒤에 다시 해 주세요.`, 429);
+      await gate.done(r.ok);
       if (!r.ok) return bad("지금 비밀번호가 맞지 않아요.", 401);
       const np = makePin(next, (pin?.v ?? 0) + 1);
       await savePin(np);
