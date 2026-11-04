@@ -377,7 +377,9 @@ function Result({ check, items, onItems, onEdit, onBack, onOpen }: {
 
       <section className="card space-y-2">
         <h3 className="flex items-center gap-2 font-bold"><span aria-hidden><Doodle name="memo" /></span> 메모</h3>
-        <textarea className="field min-h-28" maxLength={1000} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="특이 사항, 다음 프로그램 계획 등을 자유롭게 적어 주세요." />
+        <textarea className="field min-h-28 print:hidden" maxLength={1000} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="특이 사항, 다음 프로그램 계획 등을 자유롭게 적어 주세요." />
+        {/* 인쇄할 때는 칸 높이에 잘리지 않게 글 전체를 */}
+        <p className="hidden min-h-[3em] whitespace-pre-wrap text-sm leading-relaxed print:block">{memo}</p>
         <div className="no-print flex justify-end">
           <button className="btn-sub min-h-10 px-4 text-sm" disabled={memo === check.memo || memoBusy} onClick={saveMemo}>{memoBusy ? "저장하는 중…" : memo === check.memo ? "저장됨" : "메모 저장"}</button>
         </div>

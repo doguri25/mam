@@ -50,10 +50,12 @@ export default function NewsletterTab({ data }: { data: Overview }) {
     setBusy(false);
   }
 
+  // 인쇄할 때는 입력 칸(줄 수가 정해져 글이 잘림) 대신 글 전체를 보인다
   const field = (name: string, value: string, set: (v: string) => void, rows = 3) => (
     <label className="block">
       <span className="text-sm font-bold">■ {name}</span>
-      <textarea value={value} onChange={(e) => set(e.target.value)} rows={rows} className="field mt-1 print:border-0 print:p-0" />
+      <textarea value={value} onChange={(e) => set(e.target.value)} rows={rows} className="field mt-1 print:hidden" />
+      <span className="mt-1 hidden whitespace-pre-wrap leading-relaxed print:block">{value}</span>
     </label>
   );
 
@@ -90,7 +92,8 @@ export default function NewsletterTab({ data }: { data: Overview }) {
         <article className="card mx-auto max-w-[210mm] whitespace-pre-wrap bg-white p-6 text-lg leading-relaxed sm:p-8 print:border-0 print:p-0">{translated}</article>
       )}
       <article className={`card mx-auto max-w-[210mm] space-y-4 bg-white p-6 sm:p-8 print:border-0 print:p-0 ${translated ? "print:hidden" : ""}`}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full border-b-2 border-ink pb-2 font-display text-2xl outline-none sm:text-3xl" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="소식지 제목" className="w-full border-b-2 border-ink pb-2 font-display text-2xl outline-none sm:text-3xl print:hidden" />
+        <h2 className="hidden border-b-2 border-ink pb-2 font-display text-3xl print:block">{title}</h2>
         {field("이번 주 우리 반 마음", mood, setMood)}
         {field("이번 주 배운 감정 단어", wordsText, setWordsText, 1)}
         {field("교실에서 한 활동", acts, setActs)}
