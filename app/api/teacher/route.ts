@@ -1,6 +1,7 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
+import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, setConsent } from "@/lib/data";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
   DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, saveRiskActions, getSelfRounds, saveSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
@@ -14,7 +15,7 @@ import { isLang } from "@/lib/i18n";
 import { cleanCheck } from "@/lib/selcheck";
 import type { SelfRound } from "@/lib/selfcheck";
 import { cutoffOf, isRetention } from "@/lib/retention";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun, type Student } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
@@ -232,17 +233,8 @@ async function handle(req: NextRequest) {
 
     // 보호자 동의서 받음 표시(기록을 막지는 않음): nos 여럿을 한꺼번에 켜거나 끈다
     if (body.action === "consent") {
-      const nos = new Set((Array.isArray(body.nos) ? body.nos : []).map(Number));
-      const doc = await db().get<{ students: Student[]; demo?: boolean }>("meta", "roster");
-      const students = (doc?.students ?? []).map((s) => {
-        if (!nos.has(s.no)) return s;
-        const { consent: _old, ...rest } = s;
-        void _old;
-        return body.on === true ? { ...rest, consent: today() } : rest;
-      });
-      await db().set("meta", "roster", { students, demo: doc?.demo ?? false });
-      await touch("other");
-      return NextResponse.json({ students });
+      const nos = (Array.isArray(body.nos) ? body.nos : []).map(Number).filter(Number.isInteger);
+      return NextResponse.json({ students: await setConsent(nos, body.on === true) });
     }
 
     if (body.action === "newCode") {
@@ -334,11 +326,11 @@ async function handle(req: NextRequest) {
         date: isDay(body.date) && body.date <= today() ? body.date : today(), kinds, note: String(body.note ?? "").trim().slice(0, 300),
         createdAt: new Date().toISOString(),
       };
-      await saveRiskActions([...items, act]);
+      await addRiskAction(act); // 목록을 읽고 고쳐 쓰기를 한 번에(두 기기에서 같은 순간 적어도 둘 다 남음)
       return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
     }
     if (body.action === "riskActionDelete") {
-      await saveRiskActions((await getRiskActions()).filter((x) => x.id !== String(body.id)));
+      await deleteRiskAction(String(body.id));
       return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
     }
 
@@ -418,26 +410,36 @@ async function handle(req: NextRequest) {
       const [rounds, answers, sel] = await Promise.all([getSelfRounds(), getSelfAnswers(), getSelChecks()]);
       return NextResponse.json({ rounds, answers, sel });
     }
+    // 회차 목록은 읽고 고쳐 쓰기를 한 번에(editSelfRounds): 두 기기에서 같은 순간 열어도 열린 회차가 둘이 되지 않는다
     if (["selfOpen", "selfClose", "selfReopen", "selfDelete"].includes(body.action)) {
-      const rounds = await getSelfRounds();
       const id = String(body.id ?? "");
-      const open = rounds.find((r) => !r.closedAt);
-      if (body.action === "selfOpen" || body.action === "selfReopen") {
-        if (open && open.id !== id) return bad(`「${open.title}」 회차가 열려 있어요. 먼저 닫아 주세요.`);
-      }
-      if (body.action === "selfOpen") {
-        const title = String(body.title ?? "").replace(/[<>]/g, "").trim().slice(0, 20);
-        if (!title) return bad("회차 이름을 써 주세요.");
-        const r: SelfRound = { id: `self${Date.now()}`, title, openedAt: today(), closedAt: null };
-        await saveSelfRounds([...rounds, r]);
-      } else if (!rounds.some((r) => r.id === id)) {
-        return bad("회차를 찾지 못했어요.", 404);
-      } else if (body.action === "selfDelete") {
-        await deleteSelfAnswers((a) => a.round !== id);
-        await saveSelfRounds(rounds.filter((r) => r.id !== id));
-      } else {
-        await saveSelfRounds(rounds.map((r) => (r.id === id ? { ...r, closedAt: body.action === "selfClose" ? today() : null } : r)));
-      }
+      const title = String(body.title ?? "").replace(/[<>]/g, "").trim().slice(0, 20);
+      if (body.action === "selfOpen" && !title) return bad("회차 이름을 써 주세요.");
+      const out: { err?: [string, number] } = {};
+      await editSelfRounds((rounds) => {
+        out.err = undefined;
+        const open = rounds.find((r) => !r.closedAt);
+        if ((body.action === "selfOpen" || body.action === "selfReopen") && open && open.id !== id) {
+          out.err = [`「${open.title}」 회차가 열려 있어요. 먼저 닫아 주세요.`, 400];
+          return undefined;
+        }
+        if (body.action === "selfOpen") {
+          if (rounds.length >= SELF_ROUNDS_MAX) {
+            out.err = [`자기진단 회차가 ${SELF_ROUNDS_MAX}개로 꽉 찼어요. 지난 회차를 지운 뒤 새로 열어 주세요.`, 409];
+            return undefined;
+          }
+          const r: SelfRound = { id: `self${Date.now()}`, title, openedAt: today(), closedAt: null };
+          return [...rounds, r];
+        }
+        if (!rounds.some((r) => r.id === id)) {
+          out.err = ["회차를 찾지 못했어요.", 404];
+          return undefined;
+        }
+        if (body.action === "selfDelete") return rounds.filter((r) => r.id !== id);
+        return rounds.map((r) => (r.id === id ? { ...r, closedAt: body.action === "selfClose" ? today() : null } : r));
+      });
+      if (out.err) return bad(...out.err);
+      if (body.action === "selfDelete") await deleteSelfAnswers((a) => a.round !== id); // 회차를 목록에서 뺀 뒤 답을 지운다(그사이 새 답이 남지 않게)
       return NextResponse.json({ rounds: await getSelfRounds(), answers: await getSelfAnswers() });
     }
     if (body.action === "selSave") {
