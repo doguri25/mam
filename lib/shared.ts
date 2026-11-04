@@ -173,6 +173,25 @@ export interface MoodRecord {
   summaryKo?: string; // 한국어가 아닌 말이면 선생님이 읽을 한국어 정리
   toneBy?: "device" | "gemini" | null;
   calm?: CalmUse[]; // 마음 다스리기 도구를 써 본 뒤 학생이 고른 느낌
+  prev?: PrevVersion[]; // 같은 칸에 다시 남기기 전의 기록(오래된 것부터, 최대 PREV_MAX개) — 선생님만 봄
+}
+
+// 같은 칸(아침·하교 전)에 다시 남기면 앞 기록은 지우지 않고 여기에 모아 둔다
+export const PREV_MAX = 5;
+export interface PrevVersion {
+  method: "card" | "voice";
+  emotion: string;
+  intensity: number;
+  reason: string;
+  word?: string;
+  summary: string;
+  summaryKo?: string;
+  question: string;
+  answer: string;
+  risk: boolean;
+  riskHits: string[];
+  lang?: string;
+  createdAt: string;
 }
 
 // 마음 다스리기 도구 상자: 숨 고르기 · 꼭 쥐었다 펴기 · 5-4-3-2-1 찾기 · 마음 그리기
