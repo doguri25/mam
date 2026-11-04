@@ -1,8 +1,9 @@
-// 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 위험 표현은 22번만 나오게 짠다.
+// 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 아직 안 살핀 위험 표현은 22번만(17번은 사흘 전 일·조치 기록 있음).
 import { addDays, monday } from "./date.ts";
 import { matchRisk } from "./rules.ts";
 import type { SelCheck } from "./selcheck.ts";
-import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, REASON_NAMES, SUB_WORDS, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type SheetItem, type SheetRun, type Slot, type Student } from "./shared.ts";
+import type { SelfAnswer, SelfRound } from "./selfcheck.ts";
+import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, REASON_NAMES, SUB_WORDS, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type RiskAction, type SheetItem, type SheetRun, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -86,7 +87,8 @@ export function demoRecords(today: string): MoodRecord[] {
   set(11, addDays(today, -2), "pm", "억울해요", 4, "친구", "피구할 때 내 차례를 자꾸 빼먹었어요");
   // 17번: 「친구」 때문에 힘든 마음 세 번
   set(17, addDays(today, -5), "am", "억울해요", 3, "친구");
-  set(17, addDays(today, -3), "am", "화나요", 3, "친구");
+  set(17, addDays(today, -3), "am", "화나요", 3, "친구", "쉬는 시간에 친구가 자꾸 괴롭혀서 화났어요");
+  out[out.length - 1].riskChecked = `${addDays(today, -3)}T10:20:00+09:00`; // 그날 바로 살펴봄(조치 기록은 demoRiskActions)
   set(17, addDays(today, -1), "am", "속상해요", 2, "친구", "쉬는 시간에 혼자 있었어요");
   // 9번: 베트남어로 남긴 기록(선생님 화면엔 한국어 요약)
   set(9, today, "am", "슬퍼요", 3, "친구", "Em nhớ bạn bè ở Việt Nam");
@@ -207,4 +209,41 @@ export function demoSelChecks(today: string): SelCheck[] {
     C("selp3", -3, "담임", [4, 4, 4, 4, 4, 4, 4, 3, 5, 4, 4, 4, 4, 5, 4, 3, 3, 3, 3, 3],
       "공감 쪽지가 자리 잡아 위로·축하가 자연스러움. 책임 행동은 제자리 — 행동 약속 만들기 해 볼 것."),
   ];
+}
+
+// 위험 표현 조치 기록 연습: 17번이 사흘 전 「괴롭혀서」라고 남긴 날 이야기 나누고 담당 선생님께 알림 → 다음 날 보호자 연락
+export function demoRiskActions(today: string): RiskAction[] {
+  const day = addDays(today, -3);
+  const A = (id: string, d: number, kinds: RiskAction["kinds"], note: string): RiskAction => ({
+    id, no: 17, recordId: `17_${day}_am`, recordDate: day, date: addDays(today, d), kinds, note,
+    createdAt: `${addDays(today, d)}T15:00:00+09:00`, demo: true,
+  });
+  return [
+    A("riskp1", -3, ["talk", "admin"], "쉬는 시간 놀이에서 자꾸 빠지게 된 일. 두 학생과 따로 이야기 나누고 학교폭력 담당 선생님께 알림"),
+    A("riskp2", -2, ["parent", "watch"], "보호자와 통화. 집에서도 이야기 들어 보기로 함. 일주일 동안 쉬는 시간 살펴보기"),
+  ];
+}
+
+// 학생 자기진단 연습: 학기 초(닫힘, 25명 모두) → 학기 말(열려 있음, 20명 답함). 공감·정서는 오르고 책임 행동은 제자리.
+// 3번은 지난 회차보다 크게 내려가고, 17번은 「관계」 두 문항 모두 아니에요 → 먼저 살펴볼 학생.
+export function demoSelfChecks(today: string): { rounds: SelfRound[]; answers: SelfAnswer[] } {
+  const rounds: SelfRound[] = [
+    { id: "selfp1", title: "학기 초", openedAt: addDays(today, -63), closedAt: addDays(today, -56), demo: true },
+    { id: "selfp2", title: "학기 말", openedAt: addDays(today, -2), closedAt: null, demo: true },
+  ];
+  // 역량 순서: 정서 · 자기관리 · 공감 · 관계 · 책임 (문항 2개씩)
+  const MEAN = { selfp1: [2.0, 2.3, 1.9, 2.3, 2.4], selfp2: [2.5, 2.4, 2.5, 2.5, 2.4] } as const;
+  const rand = rng(20261104);
+  const answers: SelfAnswer[] = [];
+  for (const r of rounds) {
+    for (let no = 1; no <= 25; no++) {
+      if (r.id === "selfp2" && [5, 8, 13, 15, 24].includes(no)) continue; // 아직 안 한 학생
+      const a = Array.from({ length: 10 }, (_, i) => Math.min(3, Math.max(1, Math.round(MEAN[r.id as keyof typeof MEAN][Math.floor(i / 2)] + (rand() - 0.5) * 1.6))));
+      if (no === 3) a.splice(0, 10, ...(r.id === "selfp1" ? [3, 3, 3, 2, 3, 3, 3, 3, 3, 2] : [2, 1, 2, 2, 2, 2, 2, 2, 2, 2]));
+      if (no === 17 && r.id === "selfp2") a.splice(6, 2, 1, 1);
+      const day = r.id === "selfp1" ? addDays(today, -62) : addDays(today, -1);
+      answers.push({ kind: "selfAnswer", round: r.id, no, answers: a, at: `${day}T09:${String(10 + no).padStart(2, "0")}:00+09:00`, demo: true });
+    }
+  }
+  return { rounds, answers };
 }

@@ -1,7 +1,7 @@
 // 실행: node --test lib/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { demoRecords } from "./demo.ts";
+import { demoRecords, demoRiskActions } from "./demo.ts";
 import { absentStudents, calmStats, classWeather, leaks, matchRisk, parseNums, sheetGroups, watchFlags, weekStats } from "./rules.ts";
 import { DEFAULT_RISK_WORDS, type MoodRecord } from "./shared.ts";
 
@@ -14,10 +14,14 @@ function rec(no: number, date: string, slot: "am" | "pm", emotion: string, inten
   };
 }
 
-test("시연 데이터는 3·11·17번만 살펴볼 학생, 22번만 위험 표현", () => {
+test("시연 데이터는 3·11·17번만 살펴볼 학생, 아직 안 살핀 위험 표현은 22번만(17번은 지난 일·조치 기록 있음)", () => {
   const records = demoRecords(TODAY);
   assert.deepEqual(watchFlags(records, TODAY).map((f) => f.no), [3, 11, 17]);
-  assert.deepEqual([...new Set(records.filter((r) => r.risk).map((r) => r.no))], [22]);
+  assert.deepEqual([...new Set(records.filter((r) => r.risk && !r.riskChecked).map((r) => r.no))], [22]);
+  const past = records.filter((r) => r.risk && r.riskChecked);
+  assert.deepEqual(past.map((r) => r.no), [17]);
+  const acts = demoRiskActions(TODAY);
+  assert.ok(acts.length >= 2 && acts.every((a) => a.recordId === past[0].id && a.kinds.length > 0));
 });
 
 test("오늘 좋은 마음이면 힘든 날 연속이 끊긴다", () => {

@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, saveRiskActions, getSelfRounds, saveSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -13,9 +13,12 @@ import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
 import { cleanCheck } from "@/lib/selcheck";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type Rules, type SheetRun } from "@/lib/shared";
+import type { SelfRound } from "@/lib/selfcheck";
+import { cutoffOf, isRetention } from "@/lib/retention";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun, type Student } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
+const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
 const strList = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).slice(0, 60) : null);
 const lean = (r: MoodRecord) => ({ ...r, voice: undefined }); // 목소리 숫자는 화면에 필요 없음
 const DAYS = 34; // 교사 화면이 들고 있는 기록 범위(월간 그래프 30일 + 여유)
@@ -98,11 +101,14 @@ async function handle(req: NextRequest) {
       // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
       const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
       const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from)) : recordsFrom(from);
-      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks, letters, reflects, aiUsed] = await Promise.all([
+      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks, letters, reflects, aiUsed, riskActions] = await Promise.all([
         getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
         getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
         db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)), isDemo() ? demoAiUsed() : 0,
+        getRiskActions(),
       ]);
+      // 보관 기한이 지난 마음 기록 수(세기만): 있으면 선생님 화면에 「정리할 기록」 알림
+      const expired = await db().count("records", "date", "<", cutoffOf(settings.retention, date));
       const aiSource = isDemo() ? await trialAiSource() : null;
       // 실제 학급: 공용 업스테이지 키를 오늘 몇 번 빌려 썼는지(키를 넣지 않은 학급도 AI가 돌게)
       const sharedAi = !isDemo() && hasSharedAi() ? { used: await sharedAiUsed(), cap: SHARED_AI_PER_DAY } : null;
@@ -127,6 +133,8 @@ async function handle(req: NextRequest) {
         weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
         letters: newest(letters).slice(0, 150),
         reflects, // 이번 주·지난주 한 주 돌아보기
+        riskActions, // 위험 표현 조치 기록(선생님만)
+        expired,
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
         sharedAi,
         space: spaceId(), // 이 기기의 실명 명렬표를 학급마다 따로 두는 열쇠
@@ -217,6 +225,21 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ students: await saveRoster(students) });
     }
 
+    // 보호자 동의서 받음 표시(기록을 막지는 않음): nos 여럿을 한꺼번에 켜거나 끈다
+    if (body.action === "consent") {
+      const nos = new Set((Array.isArray(body.nos) ? body.nos : []).map(Number));
+      const doc = await db().get<{ students: Student[]; demo?: boolean }>("meta", "roster");
+      const students = (doc?.students ?? []).map((s) => {
+        if (!nos.has(s.no)) return s;
+        const { consent: _old, ...rest } = s;
+        void _old;
+        return body.on === true ? { ...rest, consent: today() } : rest;
+      });
+      await db().set("meta", "roster", { students, demo: doc?.demo ?? false });
+      await touch("other");
+      return NextResponse.json({ students });
+    }
+
     if (body.action === "newCode") {
       const roster = await getRoster();
       const s = roster.find((x) => x.no === Number(body.no));
@@ -239,6 +262,7 @@ async function handle(req: NextRequest) {
       next.vocab = strList(body.vocab) ?? next.vocab;
       next.riskWords = strList(body.riskWords) ?? next.riskWords;
       if (["off", "device", "gemini"].includes(body.voiceMode)) next.voiceMode = body.voiceMode;
+      if (isRetention(body.retention)) next.retention = body.retention;
       if (body.rules && typeof body.rules === "object") {
         const n = (k: keyof Rules, max: number) => Math.min(max, Math.max(1, Math.round(Number(body.rules[k]) || next.rules[k])));
         next.rules = { streakDays: n("streakDays", 7), dropDays: n("dropDays", 7), reasonTimes: n("reasonTimes", 14), absentDays: n("absentDays", 10) };
@@ -288,11 +312,28 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    if (body.action === "checkAlert") {
-      const r = await db().get<MoodRecord>("records", String(body.id));
-      if (!r) return bad("기록이 없어요.");
-      await putRecord({ ...r, riskChecked: new Date().toISOString() });
-      return NextResponse.json({ ok: true });
+    // 위험 표현 「살펴봤어요」: 무엇을 했는지(여럿 고름)·한 날·짧은 메모를 조치 기록에 남기고 알림을 닫는다.
+    // 그 뒤에 더 한 일(보호자 연락 등)은 riskAction으로 같은 기록에 이어 적는다. 메모는 AI에 보내지 않는다.
+    if (body.action === "checkAlert" || body.action === "riskAction") {
+      const kinds = riskKinds(body.kinds);
+      if (!kinds.length) return bad("한 일을 하나 이상 골라 주세요.");
+      const id = String(body.action === "checkAlert" ? body.id : body.recordId);
+      const items = await getRiskActions();
+      const r = await db().get<MoodRecord>("records", id);
+      const before = items.find((x) => x.recordId === id); // 보관 기한이 지나 기록을 지운 뒤에도 이어 적을 수 있게
+      if (!r && !before) return bad("기록이 없어요.");
+      if (body.action === "checkAlert" && r) await putRecord({ ...r, riskChecked: new Date().toISOString() });
+      const act: RiskAction = {
+        id: `${Date.now()}_${r?.no ?? before!.no}`, no: r?.no ?? before!.no, recordId: id, recordDate: r?.date ?? before!.recordDate,
+        date: isDay(body.date) && body.date <= today() ? body.date : today(), kinds, note: String(body.note ?? "").trim().slice(0, 300),
+        createdAt: new Date().toISOString(),
+      };
+      await saveRiskActions([...items, act]);
+      return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
+    }
+    if (body.action === "riskActionDelete") {
+      await saveRiskActions((await getRiskActions()).filter((x) => x.id !== String(body.id)));
+      return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
     }
 
     // 교과서에서 고른 감정 단어·활동 저장 → 반 감정 단어에 더하고, 활동은 주간 추천 후보로
@@ -317,17 +358,20 @@ async function handle(req: NextRequest) {
     if (body.action === "studentAll") {
       const no = Number(body.no);
       if (!Number.isInteger(no)) return bad("학생 번호가 필요해요.");
-      const [records, cheers, notes, sent, got, reflects, runs] = await Promise.all([
+      const [records, cheers, notes, sent, got, reflects, runs, actions] = await Promise.all([
         recordsOf(no), db().find<Cheer>("cheers", "no", "==", no), db().find<Note>("notes", "no", "==", no),
         db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no),
-        db().find<Reflect>("reflects", "no", "==", no), db().all<SheetRun>("sheets"),
+        db().find<Reflect>("reflects", "no", "==", no), db().all<SheetRun>("sheets"), getRiskActions(),
       ]);
+      const [rounds, selfs] = await Promise.all([getSelfRounds(), getSelfAnswers()]);
       const sheets = runs.flatMap((r) => r.items.filter((x) => x.no === no).map((x) => ({ ...x, runId: r.id, date: r.createdAt.slice(0, 10) })));
       const byDate = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
         records: records.map(lean).sort((a, b) => a.id.localeCompare(b.id)),
         cheers: byDate(cheers), notes: byDate(notes), sent: byDate(sent), got: byDate(got), reflects: byDate(reflects),
         sheets: sheets.sort((a, b) => b.date.localeCompare(a.date)),
+        riskActions: actions.filter((x) => x.no === no),
+        self: rounds.flatMap((r) => selfs.filter((a) => a.round === r.id && a.no === no).map((a) => ({ round: r.id, title: r.title, openedAt: r.openedAt, answers: a.answers }))),
       });
     }
 
@@ -350,6 +394,46 @@ async function handle(req: NextRequest) {
 
     // 학급 사회·정서역량 진단: 회차 목록 · 저장(새로 또는 메모 고치기) · 지우기
     if (body.action === "selChecks") return NextResponse.json({ items: await getSelChecks() });
+
+    // ── 기록 보관 기한: 지난 것 세기 / 선생님이 눌러 지우기(화면이 본 기준 날짜와 지금 기준이 같을 때만) ──
+    if (body.action === "retentionInfo") {
+      const cutoff = await cutoffNow();
+      return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs() });
+    }
+    if (body.action === "purgeOld") {
+      const cutoff = await cutoffNow();
+      if (body.cutoff !== cutoff) return bad("보관 기한이 바뀌었어요. 화면을 다시 열어 확인해 주세요.", 409);
+      const log = await purgeBefore(cutoff);
+      return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs(), done: log });
+    }
+
+    // ── 학생 자기진단(마음 점검): 회차 열기·닫기·다시 열기·지우기. 열린 회차는 하나만, 학생 화면에 그 회차만 보인다 ──
+    if (body.action === "selfChecks") {
+      const [rounds, answers, sel] = await Promise.all([getSelfRounds(), getSelfAnswers(), getSelChecks()]);
+      return NextResponse.json({ rounds, answers, sel });
+    }
+    if (["selfOpen", "selfClose", "selfReopen", "selfDelete"].includes(body.action)) {
+      const rounds = await getSelfRounds();
+      const id = String(body.id ?? "");
+      const open = rounds.find((r) => !r.closedAt);
+      if (body.action === "selfOpen" || body.action === "selfReopen") {
+        if (open && open.id !== id) return bad(`「${open.title}」 회차가 열려 있어요. 먼저 닫아 주세요.`);
+      }
+      if (body.action === "selfOpen") {
+        const title = String(body.title ?? "").replace(/[<>]/g, "").trim().slice(0, 20);
+        if (!title) return bad("회차 이름을 써 주세요.");
+        const r: SelfRound = { id: `self${Date.now()}`, title, openedAt: today(), closedAt: null };
+        await saveSelfRounds([...rounds, r]);
+      } else if (!rounds.some((r) => r.id === id)) {
+        return bad("회차를 찾지 못했어요.", 404);
+      } else if (body.action === "selfDelete") {
+        await deleteSelfAnswers((a) => a.round !== id);
+        await saveSelfRounds(rounds.filter((r) => r.id !== id));
+      } else {
+        await saveSelfRounds(rounds.map((r) => (r.id === id ? { ...r, closedAt: body.action === "selfClose" ? today() : null } : r)));
+      }
+      return NextResponse.json({ rounds: await getSelfRounds(), answers: await getSelfAnswers() });
+    }
     if (body.action === "selSave") {
       const c = cleanCheck(body.check);
       if (!c) return bad("20문항에 모두 답했는지, 날짜가 맞는지 확인해 주세요.");
@@ -413,6 +497,9 @@ async function handle(req: NextRequest) {
         for (const r of demoRecs) await db().del("records", r.id);
         await db().del("sheets", PRACTICE_SHEET);
         await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
+        await saveRiskActions((await getRiskActions()).filter((a) => !a.demo));
+        await deleteSelfAnswers((a) => !a.demo);
+        await saveSelfRounds((await getSelfRounds()).filter((r) => !r.demo));
         if (await rosterIsDemo()) {
           for (const col of ["cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
           await db().del("meta", "looks");
@@ -426,6 +513,9 @@ async function handle(req: NextRequest) {
         for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
         await db().del("meta", "looks");
         await db().del("meta", "selChecks");
+        await db().del("meta", "riskActions");
+        await deleteSelfAnswers(() => false);
+        await db().del("meta", "selfRounds");
         await saveRoster([]);
         await saveSettings({ ...settings, checks: {} });
         await touch("wipe");

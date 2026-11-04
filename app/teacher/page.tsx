@@ -13,6 +13,7 @@ import ReferralTab from "@/components/teacher/ReferralTab";
 import MapTab from "@/components/teacher/MapTab";
 import ReportTab from "@/components/teacher/ReportTab";
 import SelCheckTab from "@/components/teacher/SelCheckTab";
+import SelfCheckTab from "@/components/teacher/SelfCheckTab";
 import SheetTab from "@/components/teacher/SheetTab";
 import StudentTab from "@/components/teacher/StudentTab";
 import RosterTab from "@/components/teacher/RosterTab";
@@ -28,11 +29,11 @@ import type { MoodRecord } from "@/lib/shared";
 const NAV: { title: string; items: [Tab, DoodleName, string][] }[] = [
   { title: "오늘", items: [["map", "map", "마음 지도"]] },
   { title: "아이 돌보기", items: [["cheer", "letter", "응원 한마디"], ["letters", "envelope", "공감 쪽지"], ["referral", "memo", "상담 의견서"]] },
-  { title: "기록·소통", items: [["student", "notebook", "학생별 누적 기록"], ["sel", "compass", "학급 역량 진단"], ["report", "page", "주간 리포트"], ["home", "house", "가정 소식지"]] },
+  { title: "기록·소통", items: [["student", "notebook", "학생별 누적 기록"], ["sel", "compass", "학급 역량 진단"], ["self", "clipboard", "학생 자기진단"], ["report", "page", "주간 리포트"], ["home", "house", "가정 소식지"]] },
   { title: "수업", items: [["lesson", "books", "교과서 연결"], ["sheet", "crayon", "활동지 피드백"]] },
   { title: "관리", items: [["roster", "key", "학생 코드·QR"], ["settings", "gear", "설정"], ["guide", "book", "사용 설명서"]] },
 ];
-const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
+const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "self", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
 // 교사 기기에 최근 기록을 저장해 두고, 다음에 열 때는 그 뒤에 바뀐 기록만 받는다(Firestore 읽기 줄이기). 잠그면 지운다.
@@ -245,12 +246,19 @@ export default function TeacherPage() {
               <button onClick={clearDemo} className="btn-sub min-h-9 px-3 text-sm">연습 데이터 지우기</button>
             </div>
           )}
+          {tab === "map" && data.expired > 0 && (
+            <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-3 text-sm">
+              <span><Doodle name="clipboard" /> 보관 기한이 지난 마음 기록이 <b>{data.expired}건</b> 있어요. 필요하면 내려받은 뒤 지워 주세요.</span>
+              <button onClick={() => setTab("settings")} className="btn-sub min-h-9 px-3 text-sm">기록 보관·정리 열기</button>
+            </div>
+          )}
           {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} />}
           {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
           {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}
           {tab === "student" && <StudentTab data={data} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} />}
           {tab === "sel" && <SelCheckTab data={data} />}
+          {tab === "self" && <SelfCheckTab data={data} nameOf={nameOf} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
           {tab === "home" && <NewsletterTab data={data} />}
           {tab === "lesson" && <LessonTab data={data} reload={load} />}
@@ -333,9 +341,10 @@ function Login({ onDone }: { onDone: () => Promise<void> }) {
         <button type="button" onClick={() => { setMode(signup ? "login" : "signup"); setError(""); }} className="text-sm font-bold text-leaf underline underline-offset-4">
           {signup ? "이미 학급이 있어요 · 들어가기" : "처음이신가요? 새 학급 만들기"}
         </button>
-        <p className="flex justify-center gap-4 text-sm text-soft">
+        <p className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-soft">
           <Link href="/" className="underline underline-offset-4">학생 화면으로</Link>
           <Link href="/try" className="underline underline-offset-4">비밀번호 없이 체험하기</Link>
+          <Link href="/privacy" className="underline underline-offset-4">개인정보 처리 안내</Link>
         </p>
       </form>
     </main>

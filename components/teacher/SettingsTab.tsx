@@ -2,12 +2,13 @@
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
 import { useState } from "react";
 import Doodle from "../Doodle";
+import RetentionCard from "./RetentionCard";
 import PinCard from "./PinCard";
 import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
-import { PROVIDERS, PROVIDER_IDS, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
+import { PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
 
 const LINKS: Record<Provider, string> = {
   upstage: "https://console.upstage.ai/api-keys",
@@ -48,10 +49,11 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     const { records, students } = await api<{ records: MoodRecord[]; students: { no: number; alias: string }[] }>("teacher", "export");
     const alias = (no: number) => students.find((x) => x.no === no)?.alias ?? "";
     const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각"];
+    const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각", "한 일(조치)"];
+    const did = (id: string) => data.riskActions.filter((x) => x.recordId === id).map((x) => `${x.date} ${x.kinds.map((k) => RISK_ACTION_KO[k]).join("·")}${x.note ? ` (${x.note})` : ""}`).join(" / ");
     const rows = records
       .sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.slot.localeCompare(b.slot))
-      .map((r) => [r.date, r.slot === "am" ? "아침" : "하교 전", r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? ""]);
+      .map((r) => [r.date, r.slot === "am" ? "아침" : "하교 전", r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id)]);
     const csv = "﻿" + [head, ...rows].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -161,12 +163,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
         </div>
       </section>
 
-      <section className="card space-y-3">
-        <h2 className="font-display text-xl">기록 내보내기 · 보관</h2>
-        <p className="text-sm text-soft">모든 기록을 엑셀에서 열 수 있는 CSV로 받아요(가명 기준, 녹음·목소리 숫자는 빠짐). 학년도가 끝나면 내보낸 뒤 「자세한 설정」의 「모두 지우기」로 지워 주세요.</p>
-        <button onClick={exportCsv} className="btn-sub"><Doodle name="download" /> 기록 CSV 내보내기</button>
-        <span className="ml-3 text-sm">{msg.export}</span>
-      </section>
+      <RetentionCard data={data} reload={reload} onExport={exportCsv} exportMsg={msg.export ?? ""} />
 
       <button onClick={() => setAdv(adv ? "" : "1")} aria-expanded={adv} className="btn-sub w-full">
         {adv ? "▴ 자세한 설정 접기" : "▾ 자세한 설정 펼치기 (휴대폰 알림 · 단어 목록 · 말투 · 살펴볼 학생 규칙 · 연습 데이터)"}

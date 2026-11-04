@@ -332,6 +332,15 @@ const UI = {
   lockedHint: { ko: "감정 단어 {n}개를 쓰면 열려요", en: "Unlocks after {n} feeling words", zh: "用过{n}个情绪词语后解锁", vi: "Mở khi em dùng {n} từ cảm xúc", ja: "きもちことばを {n}こ つかうと ひらくよ" },
   growWords: { ko: "지금까지 써 본 감정 단어 {n}개", en: "Feeling words you've used: {n}", zh: "已经用过{n}个情绪词语", vi: "Em đã dùng {n} từ cảm xúc", ja: "これまで つかった きもちことば {n}こ" },
   newUnlock: { ko: "새 꾸미개가 열렸어요!", en: "A new accessory unlocked!", zh: "解锁了新装饰！", vi: "Mở khóa phụ kiện mới!", ja: "あたらしい かざりが ひらいたよ！" },
+  tileCheck: { ko: "마음 점검", en: "My heart check", zh: "心灵小检查", vi: "Kiểm tra tâm hồn", ja: "こころ チェック" },
+  checkIntro: { ko: "요즘 나와 가장 가까운 것을 골라요. 정답은 없어요. 선생님만 봐요.", en: "Pick what is closest to you these days. There are no right answers. Only your teacher sees it.", zh: "选出最像最近的自己的答案。没有标准答案，只有老师能看到。", vi: "Chọn điều giống em nhất dạo này. Không có đáp án đúng. Chỉ thầy cô xem.", ja: "さいきんの じぶんに いちばん ちかいものを えらんでね。こたえは ないよ。せんせいだけが みるよ。" },
+  checkStart: { ko: "시작하기 (10문제)", en: "Start (10 questions)", zh: "开始（10题）", vi: "Bắt đầu (10 câu)", ja: "はじめる (10もん)" },
+  checkRedo: { ko: "다시 고르기", en: "Change my answers", zh: "重新选择", vi: "Chọn lại", ja: "えらびなおす" },
+  checkPrev: { ko: "앞 문장으로", en: "Back", zh: "上一题", vi: "Quay lại", ja: "まえへ" },
+  checkSending: { ko: "보내는 중…", en: "Sending…", zh: "正在发送…", vi: "Đang gửi…", ja: "おくっているよ…" },
+  checkThanks: { ko: "고마워요! 선생님이 우리 반을 더 잘 도울 수 있어요.", en: "Thank you! This helps your teacher take care of our class.", zh: "谢谢你！这样老师能更好地帮助我们班。", vi: "Cảm ơn em! Thầy cô sẽ giúp lớp mình tốt hơn.", ja: "ありがとう！せんせいが クラスを もっと たすけられるよ。" },
+  checkDone: { ko: "이번 마음 점검을 마쳤어요.", en: "You finished this heart check.", zh: "这次心灵小检查完成了。", vi: "Em đã hoàn thành lần kiểm tra này.", ja: "こんかいの こころ チェックは おわったよ。" },
+  checkClosed: { ko: "지금은 마음 점검을 하는 때가 아니에요.", en: "There is no heart check right now.", zh: "现在不是做心灵小检查的时候。", vi: "Bây giờ chưa có kiểm tra tâm hồn.", ja: "いまは こころ チェックの じかんじゃ ないよ。" },
 } satisfies Record<string, Record<Lang, string>>;
 export type UIKey = keyof typeof UI;
 

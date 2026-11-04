@@ -1,10 +1,12 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
-import { today } from "./date.ts";
-import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoSelChecks, demoSheetRun, demoStudents } from "./demo.ts";
+import { addDays, today } from "./date.ts";
+import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelChecks, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import type { SelCheck } from "./selcheck.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
+import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -16,6 +18,7 @@ export interface Settings {
   checks: Record<string, string>; // 「살펴봤어요」 표시: `${no}_${주 시작일}` → 시각
   voiceMode: VoiceMode; // 말투: 끄기 · 기기 안에서 재기 · Gemini가 듣기
   rules: Rules;
+  retention: Retention; // 기록 보관 기한(지나면 「정리할 기록」으로 알림)
 }
 
 export function defaultSettings(): Settings {
@@ -29,6 +32,7 @@ export function defaultSettings(): Settings {
     checks: {},
     voiceMode: "device",
     rules: DEFAULT_RULES,
+    retention: "year",
   };
 }
 
@@ -141,7 +145,7 @@ export function parseRoster(text: string, old: Student[]): Student[] {
     if (seen.has(no)) continue;
     seen.add(no);
     const prev = old.find((s) => s.no === no);
-    out.push({ no, alias: m[2].trim(), code: prev?.code ?? newCode(taken) });
+    out.push({ no, alias: m[2].trim(), code: prev?.code ?? newCode(taken), ...(prev?.consent ? { consent: prev.consent } : {}) });
     taken.add(out.at(-1)!.code);
   }
   return out;
@@ -296,8 +300,73 @@ export async function saveSelChecks(items: SelCheck[]) {
   await db().set("meta", "selChecks", { items: items.slice(-80) });
 }
 
+// 위험 표현 조치 기록(선생님만). 학급마다 한 해 수십 건이라 문서 하나에 모은다(모음을 늘리지 않음).
+export async function getRiskActions(): Promise<RiskAction[]> {
+  const items = (await db().get<{ items: RiskAction[] }>("meta", "riskActions"))?.items ?? [];
+  return items.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+}
+export async function saveRiskActions(items: RiskAction[]) {
+  await db().set("meta", "riskActions", { items: items.slice(-500) });
+  await touch("other");
+}
+
+// 학생 자기진단: 회차 목록은 문서 하나, 학생 답은 학생마다 문서 하나(meta 모음 안, kind로 찾음)
+export async function getSelfRounds(): Promise<SelfRound[]> {
+  return ((await db().get<{ items: SelfRound[] }>("meta", "selfRounds"))?.items ?? []).sort((a, b) => a.openedAt.localeCompare(b.openedAt));
+}
+export async function saveSelfRounds(items: SelfRound[]) {
+  await db().set("meta", "selfRounds", { items: items.slice(-40) });
+  await touch("other");
+}
+export const getSelfAnswers = () => db().find<SelfAnswer>("meta", "kind", "==", "selfAnswer");
+export async function deleteSelfAnswers(keep: (a: SelfAnswer) => boolean) {
+  for (const a of await getSelfAnswers()) if (!keep(a)) await db().del("meta", selfDocId(a.round, a.no));
+}
+// 연습 회차 넣기: 이미 열린 실제 회차가 있으면 연습 「학기 말」은 닫힌 채로 넣는다(열린 회차는 하나만)
+async function seedSelfChecks(date: string) {
+  await deleteSelfAnswers((a) => !a.demo);
+  const real = (await getSelfRounds()).filter((r) => !r.demo);
+  const demo = demoSelfChecks(date);
+  const openReal = real.some((r) => !r.closedAt);
+  await saveSelfRounds([...real, ...demo.rounds.map((r) => (openReal && !r.closedAt ? { ...r, closedAt: date } : r))]);
+  await db().setMany("meta", demo.answers.map((a) => [selfDocId(a.round, a.no), { ...a }]));
+}
+
+// 보관 기한이 지난 것 세기 · 지우기(선생님이 눌러야만). 학급 역량 진단은 학생 이름·번호가 없어 그대로 둔다.
+const DATED = [["records", "date"], ["cheers", "createdAt"], ["notes", "createdAt"], ["letters", "createdAt"], ["reflects", "createdAt"], ["sheets", "createdAt"]] as const;
+export const cutoffNow = async () => cutoffOf((await getSettings()).retention, today());
+export async function expiredCounts(cut: string) {
+  const counts: Record<string, number> = {};
+  for (const [col, field] of DATED) counts[col] = await db().count(col, field, "<", cut);
+  counts.self = (await getSelfAnswers()).filter((a) => a.at < cut).length;
+  counts.risk = (await getRiskActions()).filter((a) => a.date < cut).length;
+  return counts;
+}
+export async function purgeLogs(): Promise<PurgeLog[]> {
+  return (await db().get<{ items: PurgeLog[] }>("meta", "purges"))?.items ?? [];
+}
+export async function purgeBefore(cut: string): Promise<PurgeLog> {
+  const counts: Record<string, number> = {};
+  for (const [col, field] of DATED) counts[col] = await db().delWhere(col, field, "<", cut);
+  const selfs = await getSelfAnswers();
+  counts.self = selfs.filter((a) => a.at < cut).length;
+  await deleteSelfAnswers((a) => a.at >= cut);
+  const rounds = await getSelfRounds();
+  const left = new Set(selfs.filter((a) => a.at >= cut).map((a) => a.round));
+  if (rounds.some((r) => r.closedAt && r.openedAt < cut && !left.has(r.id))) await saveSelfRounds(rounds.filter((r) => !(r.closedAt && r.openedAt < cut && !left.has(r.id))));
+  const acts = await getRiskActions();
+  counts.risk = acts.filter((a) => a.date < cut).length;
+  if (counts.risk) await saveRiskActions(acts.filter((a) => a.date >= cut));
+  // 무엇을 언제 정리했는지는 남긴다(내용 없이 수만)
+  const log: PurgeLog = { at: new Date().toISOString(), cutoff: cut, counts };
+  await db().set("meta", "purges", { items: [...(await purgeLogs()), log].slice(-20) });
+  await touch("wipe");
+  await touch("records");
+  return log;
+}
+
 // 연습 데이터의 판: 연습 데이터에 새 내용(예: 역량 진단 회차)을 더하면 올린다 → 체험 반이 그날 안에도 새 판으로 다시 만들어진다
-export const PRACTICE_VERSION = 3;
+export const PRACTICE_VERSION = 4;
 
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
 export async function seedPractice() {
@@ -305,11 +374,12 @@ export async function seedPractice() {
   if (isDemo()) await db().clear("sheets"); // 체험 공간은 여럿이 함께 쓰므로 하루마다 비움(실제 반의 활동지 피드백은 그대로)
   const date = today();
   const taken = new Set<string>();
+  // 보호자 동의서: 3명(4·12·19번)만 아직 받지 않은 반
   await saveRoster(demoStudents(() => {
     const c = newCode(taken);
     taken.add(c);
     return c;
-  }), true);
+  }).map((s) => ([4, 12, 19].includes(s.no) ? s : { ...s, consent: addDays(date, -60) })), true);
   await saveLooks(demoLooks());
   const now = Date.now();
   await db().setMany("records", demoRecords(date).map((r) => [r.id, { ...r, updatedAt: now }]));
@@ -318,6 +388,8 @@ export async function seedPractice() {
   await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
   await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
   await saveSelChecks([...(await getSelChecks()).filter((c) => !c.demo), ...demoSelChecks(date)]); // 역량 진단 연습 회차(실제 회차는 그대로)
+  await saveRiskActions([...(await getRiskActions()).filter((a) => !a.demo), ...demoRiskActions(date)]); // 위험 표현 조치 연습 기록
+  await seedSelfChecks(date); // 학생 자기진단 연습 회차(실제 회차는 그대로)
   await saveSettings({ ...(await getSettings()), checks: {} });
   await db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION });
   await touch("wipe");

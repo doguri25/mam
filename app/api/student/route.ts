@@ -4,11 +4,12 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { aiConfig, getLooks, getRoster, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, saveLooks, touch, type Settings } from "@/lib/data";
+import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, saveLooks, touch, type Settings } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
+import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
 import {
   ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, isWordOf,
   type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type Student,
@@ -87,9 +88,11 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "me") {
       const date = today();
       const week = monday(date);
-      const [mine, looks, inbox, ref] = await Promise.all([
+      const [mine, looks, inbox, ref, round] = await Promise.all([
         recordsOf(s.no), getLooks(), db().find<Letter>("letters", "to", "==", s.no), db().get<Reflect>("reflects", `${s.no}_${week}`),
+        getSelfRounds().then((rs) => rs.find((r) => !r.closedAt)),
       ]);
+      const answered = round ? !!(await db().get("meta", selfDocId(round.id, s.no))) : false;
       // 마음 꽃: 이번 달 기록한 날마다 한 송이(그날 마지막 마음 색)
       const month = new Map<string, string>();
       for (const r of mine.filter((r) => r.date.startsWith(date.slice(0, 7))).sort((a, b) => a.id.localeCompare(b.id))) month.set(r.date, r.emotion);
@@ -101,8 +104,26 @@ async function handle(req: NextRequest, body: Body) {
         words: wordsOf(mine), // 마음 친구 성장: 써 본 서로 다른 감정 단어
         unread: inbox.filter((l) => l.status === "ok" && !l.readAt).length,
         reflected: !!ref,
+        selfCheck: round ? { id: round.id, title: round.title, done: answered } : null, // 선생님이 연 마음 점검 회차
         demo: isDemo(),
       });
+    }
+
+    // 마음 점검(학생 자기진단): 열린 회차와 내가 낸 답 / 내기(회차가 열려 있는 동안은 다시 내면 고쳐짐)
+    if (body.action === "selfCheck" || body.action === "selfSave") {
+      const round = (await getSelfRounds()).find((r) => !r.closedAt);
+      if (!round) return body.action === "selfCheck" ? NextResponse.json({ round: null, answers: null }) : bad("지금은 마음 점검을 하는 때가 아니에요.", 409);
+      const id = selfDocId(round.id, s.no);
+      if (body.action === "selfCheck") {
+        const mineAns = await db().get<SelfAnswer>("meta", id);
+        return NextResponse.json({ round: { id: round.id, title: round.title }, answers: mineAns?.answers ?? null });
+      }
+      const answers = cleanSelfAnswers(body.answers);
+      if (!answers || body.round !== round.id) return bad("답이 다 채워지지 않았어요.");
+      const a: SelfAnswer = { kind: "selfAnswer", round: round.id, no: s.no, answers, at: new Date().toISOString(), ...(isDemo() ? { demo: true } : {}) };
+      await db().set("meta", id, { ...a });
+      await touch("other");
+      return NextResponse.json({ ok: true });
     }
 
     // 마음 다스리기 도구를 써 본 느낌을 이 시간의 기록에 붙인다(선생님이 어떤 도구가 도움이 되는지 보게)

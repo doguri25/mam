@@ -59,6 +59,7 @@ export default function Home() {
         <Link href="/teacher" className="underline underline-offset-4">선생님 화면</Link>
         <Link href="/try" className="underline underline-offset-4">처음이세요? 체험해 보기</Link>
       </div>
+      <Link href="/privacy" className="text-xs text-soft underline underline-offset-4">개인정보 처리 안내</Link>
     </main>
   );
 }

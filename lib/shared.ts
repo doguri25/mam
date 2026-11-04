@@ -124,7 +124,28 @@ export interface Student {
   no: number;
   alias: string;
   code: string;
+  consent?: string; // 보호자 동의서를 받은 날(YYYY-MM-DD). 기록을 막지는 않고 명단에 표시만
 }
+
+// 위험 표현 조치 기록: 「살펴봤어요」를 누를 때와 그 뒤에 선생님이 한 일(선생님만 봄, AI에 보내지 않음)
+export const RISK_ACTIONS = ["talk", "parent", "wee", "admin", "watch", "none"] as const;
+export type RiskActionKind = (typeof RISK_ACTIONS)[number];
+export const RISK_ACTION_KO: Record<RiskActionKind, string> = {
+  talk: "학생과 이야기 나눔", parent: "보호자 연락", wee: "Wee클래스·상담교사 연계", admin: "관리자·담당 교사 보고", watch: "계속 지켜보기", none: "걱정할 내용이 아니었음",
+};
+export interface RiskAction {
+  id: string;
+  no: number;
+  recordId: string; // 어떤 위험 표현 기록에 대한 일인지
+  recordDate: string;
+  date: string; // 한 날(YYYY-MM-DD)
+  kinds: RiskActionKind[];
+  note: string; // 짧은 메모(선생님만)
+  createdAt: string;
+  demo?: boolean;
+}
+export const riskKinds = (x: unknown): RiskActionKind[] =>
+  Array.isArray(x) ? RISK_ACTIONS.filter((k) => x.includes(k)) : [];
 
 export interface MoodRecord {
   id: string; // `${no}_${date}_${slot}` — 같은 시점에 다시 기록하면 덮어씀

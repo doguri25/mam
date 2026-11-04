@@ -13,7 +13,7 @@ import { MongoClient } from "mongodb";
 
 export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets" | "accounts" | "codes";
 type Doc = Record<string, unknown>;
-type Op = "==" | ">" | ">=";
+type Op = "==" | ">" | ">=" | "<";
 
 interface Store {
   kind: "mongo" | "firestore" | "local";
@@ -21,11 +21,13 @@ interface Store {
   all<T>(col: Col): Promise<T[]>;
   // 한 필드 조건으로 좁혀 읽기(Firestore 단일 필드 색인만 써서 따로 색인을 만들 필요 없음)
   find<T>(col: Col, field: string, op: Op, value: string | number | boolean): Promise<T[]>;
+  count(col: Col, field: string, op: Op, value: string | number | boolean): Promise<number>; // 세기만(문서는 받지 않음)
   get<T>(col: Col, id: string): Promise<T | null>;
   set(col: Col, id: string, data: Doc): Promise<void>;
   setMany(col: Col, items: [string, Doc][]): Promise<void>; // 한 번에 여러 개(연습 데이터 만들기)
   del(col: Col, id: string): Promise<void>;
   clear(col: Col): Promise<void>;
+  delWhere(col: Col, field: string, op: Op, value: string | number | boolean): Promise<number>; // 조건에 맞는 것만 지우고 지운 수
 }
 
 const PREFIX = process.env.DATA_PREFIX || "maeumbit_";
@@ -37,7 +39,8 @@ export const spaceId = () => space.getStore() ?? "";
 export const isDemo = () => spaceId() === "demo";
 const prefix = () => (spaceId() ? `${PREFIX}${spaceId()}_` : PREFIX);
 const match = (v: unknown, op: Op, x: string | number | boolean) =>
-  op === "==" ? v === x : typeof v === typeof x && (op === ">" ? (v as number) > (x as number) : (v as number) >= (x as number));
+  op === "==" ? v === x : typeof v === typeof x && (op === ">" ? (v as number) > (x as number) : op === "<" ? (v as number) < (x as number) : (v as number) >= (x as number));
+const MONGO_OP = { ">": "$gt", ">=": "$gte", "<": "$lt" } as const;
 
 function firestore(sa: string): Store {
   const app = getApps()[0] ?? initializeApp({ credential: cert(JSON.parse(sa)) });
@@ -49,6 +52,7 @@ function firestore(sa: string): Store {
     all: async <T,>(col: Col) => (await c(col).get()).docs.map((d) => d.data() as T),
     find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
       (await c(col).where(field, op, value).get()).docs.map((d) => d.data() as T),
+    count: async (col, field, op, value) => (await c(col).where(field, op, value).count().get()).data().count,
     get: async <T,>(col: Col, id: string) => ((await c(col).doc(id).get()).data() as T) ?? null,
     set: async (col, id, data) => void (await c(col).doc(id).set(data)),
     setMany: async (col, items) => {
@@ -59,6 +63,15 @@ function firestore(sa: string): Store {
       }
     },
     del: async (col, id) => void (await c(col).doc(id).delete()),
+    delWhere: async (col, field, op, value) => {
+      const snap = await c(col).where(field, op, value).get();
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = db.batch();
+        snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+      return snap.size;
+    },
     clear: async (col) => {
       const snap = await c(col).get();
       for (let i = 0; i < snap.docs.length; i += 400) {
@@ -81,10 +94,9 @@ function mongo(uri: string): Store {
     kind: "mongo",
     get prefix() { return prefix(); },
     all: async <T,>(col: Col) => (await (await c(col)).find().toArray()).map(plain<T>),
-    find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) => {
-      const cond = op === "==" ? value : { [op === ">" ? "$gt" : "$gte"]: value };
-      return (await (await c(col)).find({ [field]: cond }).toArray()).map(plain<T>);
-    },
+    find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
+      (await (await c(col)).find({ [field]: op === "==" ? value : { [MONGO_OP[op]]: value } }).toArray()).map(plain<T>),
+    count: async (col, field, op, value) => (await c(col)).countDocuments({ [field]: op === "==" ? value : { [MONGO_OP[op]]: value } }),
     get: async <T,>(col: Col, id: string) => {
       const d = await (await c(col)).findOne({ _id: id });
       return d ? plain<T>(d) : null;
@@ -95,6 +107,7 @@ function mongo(uri: string): Store {
     },
     del: async (col, id) => void (await (await c(col)).deleteOne({ _id: id })),
     clear: async (col) => void (await (await c(col)).deleteMany({})),
+    delWhere: async (col, field, op, value) => (await (await c(col)).deleteMany({ [field]: op === "==" ? value : { [MONGO_OP[op]]: value } })).deletedCount,
   };
 }
 
@@ -126,11 +139,17 @@ function local(): Store {
     all: async <T,>(col: Col) => Object.values(rows(col)) as T[],
     find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
       Object.values(rows(col)).filter((d) => match(d[field], op, value)) as T[],
+    count: async (col, field, op, value) => Object.values(rows(col)).filter((d) => match(d[field], op, value)).length,
     get: async <T,>(col: Col, id: string) => (rows(col)[id] as T) ?? null,
     set: async (col, id, data) => edit(col, (r) => { r[id] = data; }),
     setMany: async (col, items) => edit(col, (r) => { for (const [id, data] of items) r[id] = data; }),
     del: async (col, id) => edit(col, (r) => { delete r[id]; }),
     clear: async (col) => edit(col, (r) => { for (const id of Object.keys(r)) delete r[id]; }),
+    delWhere: async (col, field, op, value) => {
+      let n = 0;
+      edit(col, (r) => { for (const [id, d] of Object.entries(r)) if (match(d[field], op, value)) { delete r[id]; n++; } });
+      return n;
+    },
   };
 }
 

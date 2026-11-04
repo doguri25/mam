@@ -23,6 +23,7 @@ type Me = {
   no: number; alias: string; className: string; vocab: string[]; voiceMode: VoiceMode; slot: Slot; today: string;
   records: MoodRecord[]; flowers: { date: string; emotion: string }[]; look: BuddyLook;
   words: string[]; unread: number; reflected: boolean; demo: boolean;
+  selfCheck: { id: string; title: string; done: boolean } | null; // 선생님이 연 마음 점검
 };
 type Step = "choose" | "card" | "voice" | "confirm" | "ask" | "done";
 type Tone = { tone: string | null; toneWhy: string; toneBy: string | null; voice: VoiceFeatures | null };
@@ -219,6 +220,8 @@ export default function MePage() {
 
   const friday = new Date(`${me.today}T00:00:00Z`).getUTCDay() >= 5 || new Date(`${me.today}T00:00:00Z`).getUTCDay() === 0;
   const tiles: { href?: string; onClick?: () => void; icon: DoodleName; label: string; badge?: string }[] = [
+    // 선생님이 마음 점검을 열었을 때만 맨 앞에(아직 안 했으면 「!」)
+    ...(me.selfCheck ? [{ href: "/me/check", icon: "clipboard" as DoodleName, label: tt("tileCheck"), badge: me.selfCheck.done ? undefined : "!" }] : []),
     { href: "/me/week", icon: "memo", label: tt("tileWeek"), badge: friday && !me.reflected ? "!" : undefined },
     { href: "/me/game", icon: "dice", label: tt("tileGame") },
     { href: "/me/words", icon: "bookOpen", label: tt("tileWords") },
