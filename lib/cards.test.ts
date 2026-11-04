@@ -38,3 +38,13 @@ test("한 번 뽑으면 12장: 긍정 4 · 보통 4 · 부정 4, 겹치지 않�
   }
   assert.equal(seen.size, 72); // 여러 번 뽑으면 모든 카드가 나온다
 });
+
+test("다른 카드로 바꾸면 처음 12장과 겹치지 않고 비율은 그대로", () => {
+  for (let i = 0; i < 100; i++) {
+    const first = drawCards();
+    const second = drawCards(4, Math.random, first);
+    assert.equal(second.length, 12);
+    assert.ok(second.every((x) => !first.includes(x)));
+    for (const p of ["pos", "mid", "neg"]) assert.equal(second.filter((x) => POLARITY[parentEmotion(x)] === p).length, 4);
+  }
+});

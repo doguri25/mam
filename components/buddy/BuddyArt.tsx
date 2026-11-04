@@ -103,7 +103,7 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
   return (
     <div className={className} style={{ position: "relative", width: className ? undefined : size, height: className ? undefined : size, borderRadius: "11%", overflow: "hidden", isolation: "isolate" }} aria-hidden>
       <SceneStill id={`${id}s`} kit={kit} mood={mood} />
-      <SceneClouds id={`${id}c`} kit={kit} mood={mood} step={Math.floor(t * 2)} />
+      <SceneClouds id={`${id}c`} kit={kit} mood={mood} step={Math.floor(t * CLOUD_STEPS)} />
       {person}
       <SceneFront kit={kit} mood={mood} t={t} />
       <SceneLight id={`${id}l`} kit={kit} />
@@ -111,6 +111,7 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
   );
 }
 const LAYER = { position: "absolute", inset: 0, width: "100%", height: "100%" } as const;
+const CLOUD_STEPS = 4; // 구름 층은 물감 번짐 필터가 무거워 1초 4번만 다시 그린다
 const STILL = { ...LAYER, willChange: "transform" } as const;
 
 type Pal = ReturnType<typeof paints>;
@@ -1105,15 +1106,18 @@ const SceneStill = memo(function SceneStill({ id, kit, mood }: { id: string; kit
 });
 
 // 구름은 0.5초마다 한 칸씩(배경은 천천히, 끊어서 흘러가는 리미티드 애니메이션)
+// 구름: 왼쪽→오른쪽(1) · 오른쪽→왼쪽(-1) · 제자리에서 살짝 떠 있기(0)가 섞여 흐른다
 const SceneClouds = memo(function SceneClouds({ id, kit, mood, step }: { id: string; kit: Kit; mood: Group; step: number }) {
-  const t = step / 2;
+  const t = step / CLOUD_STEPS;
   const heavy = mood === "sad";
-  const drift = (base: number) => ((base + t * (heavy ? 1.6 : 2.4)) % 270) - 35;
-  const clouds: [number, number, number, number, number][] = heavy
-    ? [[10, 34, 90, 26, 1], [120, 26, 110, 30, 2], [60, 64, 80, 20, 3], [170, 70, 70, 18, 4]]
+  const pace = heavy ? 1.6 : 2.4;
+  // [x, y, 너비, 높이, 씨앗, 방향, 빠르기]
+  const clouds: [number, number, number, number, number, -1 | 0 | 1, number][] = heavy
+    ? [[10, 34, 90, 26, 1, 1, 1], [120, 26, 110, 30, 2, -1, 0.8], [60, 64, 80, 20, 3, 0, 0], [170, 70, 70, 18, 4, -1, 1.2]]
     : mood === "fear"
-      ? [[40, 70, 70, 16, 1], [150, 92, 60, 14, 2]]
-      : [[20, 48, 70, 22, 1], [130, 34, 84, 26, 2], [210, 78, 56, 16, 3]];
+      ? [[40, 70, 70, 16, 1, 1, 0.9], [150, 92, 60, 14, 2, -1, 0.7], [104, 40, 50, 12, 3, 0, 0]]
+      : [[20, 48, 70, 22, 1, 1, 1], [130, 34, 84, 26, 2, -1, 0.75], [150, 76, 52, 15, 3, 0, 0], [60, 18, 44, 12, 5, 1, 0.55]];
+  const at = (x: number, dir: number, speed: number) => (dir ? ((((x + 35 + dir * t * pace * speed) % 270) + 270) % 270) - 35 : x);
   return (
     <svg viewBox="0 0 200 200" style={LAYER} aria-hidden>
       <defs><Wash id={`${id}wash`} /></defs>
@@ -1121,7 +1125,9 @@ const SceneClouds = memo(function SceneClouds({ id, kit, mood, step }: { id: str
         <circle key={i} cx={(i * 53) % 190 + 5} cy={(i * 37) % 90 + 6} r={0.9 + (i % 3) * 0.4} fill="#fff8d8" opacity={0.4 + 0.6 * Math.abs(Math.sin(t * 1.7 + i))} />
       ))}
       <g filter={`url(#${id}wash)`}>
-        {clouds.map(([x, y, w, h, s]) => <Cloud key={s} x={drift(x)} y={y} w={w} h={h} kit={kit} seed={s} />)}
+        {clouds.map(([x, y, w, h, s, dir, speed]) => (
+          <Cloud key={s} x={at(x, dir, speed)} y={dir ? y : y + Math.sin(t * 0.9 + s) * 1.4} w={w} h={h} kit={kit} seed={s} />
+        ))}
       </g>
     </svg>
   );

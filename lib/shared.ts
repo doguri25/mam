@@ -83,13 +83,14 @@ export const POLARITY: Record<string, Polarity> = {
 export const CARD_WORDS: { word: string; parent: string; polarity: Polarity }[] = Object.entries(SUB_WORDS).flatMap(([p, ws]) =>
   [p, ...ws].map((word) => ({ word, parent: p, polarity: POLARITY[p] })),
 );
-export function drawCards(per = 4, rand = Math.random): string[] {
+// avoid: 방금 본 카드(다시 뽑을 때 겹치지 않게)
+export function drawCards(per = 4, rand = Math.random, avoid: readonly string[] = []): string[] {
   const shuffle = <T,>(xs: T[]) => { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const out: string[] = [];
   for (const pol of ["pos", "mid", "neg"] as Polarity[]) {
     const taken = new Map<string, number>();
     const picked: string[] = [];
-    for (const c of shuffle(CARD_WORDS.filter((x) => x.polarity === pol))) {
+    for (const c of shuffle(CARD_WORDS.filter((x) => x.polarity === pol && !avoid.includes(x.word)))) {
       if (picked.length >= per) break;
       const n = taken.get(c.parent) ?? 0;
       // 큰 감정이 둘뿐인 「보통」은 낱말이 한쪽에 몰려 있어 한도를 넉넉히

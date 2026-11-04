@@ -1,5 +1,5 @@
 "use client";
-// 감정 낱말 카드 72장 중 고를 때마다 무작위 12장(긍정·보통·부정 4장씩) → (큰 감정이면 더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개.
+// 감정 낱말 카드 72장 중 고를 때마다 무작위 12장(긍정·보통·부정 4장씩, 마음에 드는 게 없으면 한 번만 다른 12장으로) → (큰 감정이면 더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개.
 // 고른 낱말은 기록에서 큰 감정 12가지 아래로 묶인다(선생님 화면·규칙은 그대로). 처음엔 아무것도 골라 두지 않는다.
 // stepwise: 한 화면에 질문 하나씩, 누르면 바로 다음으로(초등학생용). 아니면 세 가지를 한 화면에(말로 한 뒤 고쳐 볼 때).
 import { useState } from "react";
@@ -27,6 +27,7 @@ export default function MoodPicker({ value, onChange, vocab, lang, stepwise, onD
 function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; onDone?: (v: Pick) => void; onBack?: () => void }) {
   const [stage, setStage] = useState(0);
   const [deck, setDeck] = useState(() => drawCards()); // 열 때마다 새로 뽑은 12장
+  const [rerolled, setRerolled] = useState(false); // 다른 카드로 바꾸기는 한 번만(처음 12장과 겹치지 않게)
   const [direct, setDirect] = useState(false); // 낱말 카드를 바로 골라 「더 꼭 맞는 말」을 건너뜀
   const color = value.emotion ? cardColor(value.word ?? value.emotion) : "#f2b705";
   const say = (ko: string) => speak(w(lang, ko), false, lang);
@@ -73,9 +74,11 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; 
             );
           })}
         </div>
-        <button type="button" onClick={() => setDeck(drawCards())} className="btn-sub mt-3 min-h-12 w-full">
-          <Doodle name="dice" size={24} /> {t(lang, "reshuffle")}
-        </button>
+        {!rerolled && (
+          <button type="button" onClick={() => { setDeck(drawCards(4, Math.random, deck)); setRerolled(true); }} className="btn-sub mt-3 min-h-12 w-full">
+            <Doodle name="dice" size={24} /> {t(lang, "reshuffle")}
+          </button>
+        )}
       </section>
     );
 
