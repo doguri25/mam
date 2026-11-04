@@ -34,7 +34,8 @@ export interface OverviewRaw {
   looks: Record<number, BuddyLook>;
   letters: Letter[];
   reflects: Reflect[];
-  trial: { aiUsed: number; aiCap: number; aiSource: "trial" | "class" | "none" | null } | null; // 심사용 체험 공간이면
+  trial: { aiUsed: number; aiCap: number; aiSource: "upstage" | "trial" | "class" | "none" | null } | null; // 심사용 체험 공간이면
+  sharedAi: { used: number; cap: number } | null; // 실제 학급이 빌려 쓰는 공용 업스테이지 키(서버에 있을 때만)
   space: string; // 학급 공간(""=홍북초, demo=체험, c…=가입한 학급)
   account: string; // 로그인한 이름
   settings: {

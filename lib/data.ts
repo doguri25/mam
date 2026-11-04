@@ -164,9 +164,37 @@ async function spendDemoAi() {
   return true;
 }
 
-// 체험 전용 AI 키(Vercel 환경 변수 TRIAL_AI_KEY · TRIAL_AI_PROVIDER · TRIAL_AI_MODEL).
-// 있으면 체험 공간은 실제 반의 키를 빌리지 않고 이 키만 쓴다(하루 제한은 그대로).
+// 공용 업스테이지 키(Vercel 환경 변수 UPSTAGE_API_KEY · 모델은 UPSTAGE_MODEL, 없으면 기본 Solar).
+// 체험은 이 키가 있으면 업스테이지로만 돈다. 실제 학급은 「설정」에 그 AI의 키가 없을 때만
+// 학급마다 하루 SHARED_AI_PER_DAY번(기본 100, Vercel 환경 변수로 바꿈)까지 빌려 쓴다. 선생님이 넣은 키는 제한 없이 먼저.
+const sharedUpstage = () => process.env.UPSTAGE_API_KEY?.trim() || null;
+export function sharedAiCap(v: string | undefined) {
+  const n = Number(v);
+  return v?.trim() && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 100;
+}
+export const SHARED_AI_PER_DAY = sharedAiCap(process.env.SHARED_AI_PER_DAY);
+export const hasSharedAi = () => !!sharedUpstage();
+export async function sharedAiUsed() {
+  const u = await db().get<{ date: string; n: number }>("meta", "sharedAiUsage");
+  return u?.date === today() ? u.n : 0;
+}
+async function spendSharedAi() {
+  const n = await sharedAiUsed();
+  if (n >= SHARED_AI_PER_DAY) return false;
+  await db().set("meta", "sharedAiUsage", { date: today(), n: n + 1 });
+  return true;
+}
+// 실제 학급이 빌려 쓰는 공용 키(체험 공간은 trialKey로 따로)
+async function borrowShared(p: Provider) {
+  const up = sharedUpstage();
+  return !isDemo() && up && p === "upstage" && (await spendSharedAi()) ? up : null;
+}
+
+// 체험이 쓰는 AI: 공용 업스테이지 키 → 체험 전용 키(TRIAL_AI_KEY · TRIAL_AI_PROVIDER · TRIAL_AI_MODEL) 순서.
+// 둘 중 하나라도 있으면 체험 공간은 실제 반의 키를 빌리지 않는다(하루 제한은 그대로).
 function trialKey(): { provider: Provider; key: string; model: string } | null {
+  const up = sharedUpstage();
+  if (up) return { provider: "upstage", key: up, model: process.env.UPSTAGE_MODEL?.trim() || PROVIDERS.upstage.model };
   const key = process.env.TRIAL_AI_KEY?.trim();
   if (!key) return null;
   const want = process.env.TRIAL_AI_PROVIDER?.trim() as Provider;
@@ -174,8 +202,9 @@ function trialKey(): { provider: Provider; key: string; model: string } | null {
   return { provider, key, model: process.env.TRIAL_AI_MODEL?.trim() || PROVIDERS[provider].model };
 }
 
-// 체험 화면에 보여 줄 AI 출처: 체험 전용 키 / 실제 반 키 빌려 씀 / 없음
-export async function trialAiSource(): Promise<"trial" | "class" | "none"> {
+// 체험 화면에 보여 줄 AI 출처: 공용 업스테이지 키 / 체험 전용 키 / 실제 반 키 빌려 씀 / 없음
+export async function trialAiSource(): Promise<"upstage" | "trial" | "class" | "none"> {
+  if (sharedUpstage()) return "upstage";
   if (trialKey()) return "trial";
   const s = await outOfSpace(() => getSettings());
   return s.keys[s.provider] ? "class" : "none";
@@ -192,7 +221,8 @@ export async function rawKey(p: Provider) {
   if (tk) return tk.provider === p && (await spendDemoAi()) ? tk.key : null;
   const box = (await keySettings()).keys[p];
   const key = box ? decrypt(box) : null;
-  return key && (await spendDemoAi()) ? key : null;
+  if (key) return (await spendDemoAi()) ? key : null;
+  return borrowShared(p); // 실제 학급: 그 키가 없으면 공용 업스테이지 키(하루 제한)
 }
 
 export async function aiConfig(provider?: Provider) {
@@ -202,7 +232,10 @@ export async function aiConfig(provider?: Provider) {
   const p = provider ?? s.provider;
   const box = s.keys[p];
   const key = box ? decrypt(box) : null;
-  return key && (await spendDemoAi()) ? { provider: p, model: s.models[p], key } : null;
+  if (key) return (await spendDemoAi()) ? { provider: p, model: s.models[p], key } : null;
+  // 실제 학급: 고른 AI의 키가 없으면 공용 업스테이지 키로(따로 다른 AI를 콕 집어 부를 때는 빌리지 않음)
+  const shared = provider && provider !== "upstage" ? null : await borrowShared("upstage");
+  return shared ? { provider: "upstage" as Provider, model: s.models.upstage, key: shared } : null;
 }
 
 // ── 기록 읽기: 통째로 읽지 않고 필요한 만큼만(Firestore 읽기 횟수 = 돌려받은 문서 수) ──

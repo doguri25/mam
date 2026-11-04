@@ -18,6 +18,7 @@ const LINKS: Record<Provider, string> = {
 
 export default function SettingsTab({ data, reload }: { data: Overview; reload: Reload }) {
   const s = data.settings;
+  const shared = data.sharedAi; // 서버의 공용 업스테이지 키(있으면 키 없이도 하루 정해진 번까지)
   const [provider, setProvider] = useState<Provider>(s.provider);
   const [className, setClassName] = useState(s.className);
   const [models, setModels] = useState(s.models);
@@ -93,6 +94,11 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
           <p className="text-sm text-soft">
             쓸 AI를 하나 고르고 키를 넣어요. 키는 서버에 암호화해 저장되고 화면에는 가려서만 보여요. 키가 없으면 카드 기록은 기본 질문으로, 말하기는 카드 고르기로 이어져요.
           </p>
+          {shared && (
+            <p className="mt-2 rounded-2xl bg-leaf-soft px-3 py-2 text-sm">
+              <b>키를 넣지 않아도</b> 업스테이지 공용 키로 하루 {shared.cap}번까지 AI가 돌아요(오늘 {shared.used}번 씀). 선생님 키를 넣으면 그 키를 먼저, 횟수 제한 없이 써요.
+            </p>
+          )}
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {PROVIDER_IDS.map((p) => (
@@ -100,7 +106,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
               <label className="flex items-center gap-2 font-bold">
                 <input type="radio" name="provider" checked={provider === p} onChange={() => setProvider(p)} className="size-4 accent-leaf" />
                 {PROVIDERS[p].label}
-                <span className="ml-auto text-xs font-normal text-soft">{s.keys[p] ? `저장됨 ${s.keys[p]}` : "키 없음"}</span>
+                <span className="ml-auto text-xs font-normal text-soft">{s.keys[p] ? `저장됨 ${s.keys[p]}` : p === "upstage" && shared ? `공용 키 · 오늘 ${shared.used}/${shared.cap}번` : "키 없음"}</span>
               </label>
               <label className="mt-3 block text-xs text-soft">
                 API 키 ({PROVIDERS[p].keyHint}) · <a href={LINKS[p]} target="_blank" rel="noreferrer" className="underline">발급받기</a>
@@ -120,7 +126,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
                 </label>
               )}
               <div className="mt-3 flex items-center gap-2">
-                <button onClick={() => test(p)} disabled={!s.keys[p] && !keys[p]} className="btn-sub min-h-9 px-3 text-sm">연결 확인</button>
+                <button onClick={() => test(p)} disabled={!s.keys[p] && !keys[p] && !(p === "upstage" && shared)} className="btn-sub min-h-9 px-3 text-sm">연결 확인</button>
                 {s.keys[p] && (
                   <button onClick={() => confirm("이 키를 지울까요?") && save({ [p]: "" })} className="text-xs text-soft underline">키 지우기</button>
                 )}
@@ -129,6 +135,9 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
             </div>
           ))}
         </div>
+        {shared && provider !== "upstage" && !s.keys[provider] && (
+          <p className="text-sm text-soft">{PROVIDERS[provider].label} 키가 없어서 지금은 업스테이지 공용 키로 돌아요.</p>
+        )}
       </section>
 
       <section className="card grid gap-4 md:grid-cols-2">
