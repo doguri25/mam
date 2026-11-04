@@ -5,7 +5,7 @@ import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysi
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
-import { dropRiskDraft, putRiskDraft, saveLook } from "@/lib/data";
+import { dropRiskDraft, getRiskDrafts, putRiskDraft, saveLook } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -132,6 +132,7 @@ async function handle(req: NextRequest, body: Body) {
         selfCheck: round ? { id: round.id, title: round.title, done: answered } : null, // 선생님이 연 마음 점검 회차
         demo: isDemo(),
         qtoken: queueToken(s.no, s.code, date), // 끊김 대비 그날 표(쿠키로 바로 들어온 날에도)
+        space: spaceId(), // 같은 태블릿을 여러 반이 쓸 때 학생 화면 언어 같은 기기 설정을 반마다 따로
       });
     }
 
@@ -255,10 +256,17 @@ async function handle(req: NextRequest, body: Body) {
       const id = `${s.no}_${ws}`;
       await db().update<Reflect>("reflects", id, (old) => {
         const carry = !!old?.risk && !old.riskChecked;
+        // 앞 글마다 그 글 자체의 위험만 적고(이어받은 표시는 빼고), 넘치면 위험하지 않은 오래된 글부터 뺀다
+        const prev = old ? [...(old.prev ?? []), { text: old.text, risk: old.riskSelf ?? !!old.risk, createdAt: old.createdAt }] : [];
+        while (prev.length > 5) {
+          const i = prev.findIndex((p) => !p.risk);
+          if (i < 0) break;
+          prev.splice(i, 1);
+        }
         return {
           id, no: s.no, weekStart: ws, text, reply, createdAt: new Date().toISOString(), lang,
-          risk: risk || carry, riskChecked: risk || carry ? null : (old?.riskChecked ?? null),
-          ...(old ? { prev: [...(old.prev ?? []), { text: old.text, risk: !!old.risk, createdAt: old.createdAt }].slice(-5) } : {}),
+          risk: risk || carry, riskSelf: risk, riskChecked: risk || carry ? null : (old?.riskChecked ?? null),
+          ...(prev.length ? { prev: prev.slice(-10) } : {}),
           ...(isDemo() || s.demo ? { demo: true } : {}),
         };
       });
@@ -293,21 +301,32 @@ async function handle(req: NextRequest, body: Body) {
       const ruleRisk = ruleHits.length > 0;
       const slot = body.slot === "am" || body.slot === "pm" ? body.slot : slotNow();
       // 쓴 문장에 위험한 말이 있으면 기록을 마치기 전에 바로 남기고 선생님께 알린다(학생이 중간에 나가도 놓치지 않게).
-      // 그 칸 기록을 저장하면 saveRecord가 지운다.
+      // 그 칸을 저장하면 saveRecord가 이 글을 기록에 접어 넣는다. 남기다 실패해도 정리하기는 이어 간다(알림은 저장 때 다시).
+      let drafted = false;
       const draft = async (summaryKo = "", hits = ruleHits) => {
-        if (!text) return;
+        if (!text || drafted) return;
+        drafted = true;
         const d: RiskDraft = {
           id: `${s.no}_${today()}_${slot}`, no: s.no, date: today(), slot, text, hits, lang, at: new Date().toISOString(), checked: null,
           ...(lang !== "ko" && summaryKo ? { summaryKo: summaryKo.slice(0, 120) } : {}), ...(isDemo() || s.demo ? { demo: true } : {}),
         };
-        await putRiskDraft(d);
-        alertTeacher(s.no, "기록", `risk-${d.id}`);
+        try {
+          await putRiskDraft(d);
+          alertTeacher(s.no, "기록", `risk-${d.id}`);
+        } catch (e) {
+          console.error("마치지 않은 위험 표현 남기기 실패", e);
+        }
       };
-      // 위험한 마음이면 되묻지 않고 고맙다는 말만 남긴 채 바로 저장(skipAsk)
+      // 규칙에 걸리면 AI를 기다리지 않고 먼저 남긴다(AI가 오래 걸리거나 실패해도 놓치지 않게)
+      if (ruleRisk) await draft();
+      // 위험한 마음이면 되묻지 않고 고맙다는 말만 남긴 채 바로 저장(skipAsk).
+      // 외국어 글은 AI가 쓴 한국어 정리도 규칙으로 살핀다(AI가 위험을 놓쳐도). 카드만 고른 경우(글 없음)는 AI 판단만으로 위험이라 하지 않는다.
       const finish = async (r: Analysis, ai: boolean) => {
         const out = { ...r, ai, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features };
-        if (!(r.risk || ruleRisk)) return NextResponse.json(out);
-        await draft(r.summary ?? "", ruleHits.length ? ruleHits : matchRisk(r.summary ?? "", settings.riskWords));
+        const koHits = lang !== "ko" && r.summary ? matchRisk(r.summary, settings.riskWords) : [];
+        const risky = ruleRisk || koHits.length > 0 || (r.risk === true && !!text);
+        if (!risky) return NextResponse.json({ ...out, risk: false });
+        await draft(r.summary ?? "", ruleHits.length ? ruleHits : koHits);
         return NextResponse.json({ ...out, risk: true, question: RISK_REPLY[lang], options: [], skipAsk: true });
       };
       const input = { text: text || undefined, card, vocab: settings.vocab, voiceTone: tone ? `${tone.tone} · ${tone.why}` : undefined, lang };
@@ -336,7 +355,6 @@ async function handle(req: NextRequest, body: Body) {
       // AI가 없거나 실패: 카드는 기본 되묻기로, 문장은 카드 단계로 돌려 학생이 직접 고르게
       // 문장만 있고 AI가 정리하지 못함: 카드로 고르게 한다. 위험한 말이 있었으면 바로 남기고 고맙다는 말을 보여 준다.
       if (!card) {
-        if (ruleRisk) await draft();
         return NextResponse.json({ needCard: true, risk: ruleRisk, summary: text, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features });
       }
       return finish({ ...card, summary: "", ...fallbackQuestion(card.reason, card.emotion, lang), risk: false, word: "" }, false);
@@ -383,26 +401,46 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     ...(isDemo() || s.demo ? { demo: true } : {}),
   };
   const old = await db().get<MoodRecord>("records", id);
-  let saved = rec;
+  let saved: MoodRecord = own ? { ...rec, riskAt: createdAt } : rec;
   if (old && opt.madeAt && old.createdAt > createdAt) {
-    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다
-    const prev = [...(old.prev ?? []), toPrev(rec)].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-PREV_MAX);
+    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로)
+    const prev = trimPrev([...(old.prev ?? []), toPrev(rec)].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
     saved = own
-      ? { ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])] }
+      ? { ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])], riskAt: new Date().toISOString() }
       : { ...old, prev };
   } else if (old) {
     const carry = old.risk && !old.riskChecked; // 아직 살펴보지 않은 위험 표시
     saved = {
-      ...rec,
-      prev: [...(old.prev ?? []), toPrev(old)].slice(-PREV_MAX),
+      ...saved,
+      prev: trimPrev([...(old.prev ?? []), toPrev(old)]),
       ...(old.calm?.length ? { calm: old.calm } : {}),
-      ...(carry ? { risk: true, riskHits: [...new Set([...hits, ...old.riskHits])] } : {}),
+      // 새 글이 위험하지 않으면 위험 내용은 그대로(선생님이 보던 버전 그대로) — 새 글이 위험하면 위에서 riskAt을 새로 적었다
+      ...(carry ? { risk: true, riskHits: [...new Set([...hits, ...old.riskHits])], ...(own ? {} : { riskAt: old.riskAt ?? old.createdAt }) } : {}),
     };
   }
   await putRecord(saved);
-  await dropRiskDraft(saved.id); // 마치지 않은 위험 표현은 이제 이 기록에 담겼다
+  // 마치지 않은 위험 표현: 이번에 저장한 글이 바로 그 글(위험 표시까지)이면 기록에 담긴 것이니 지운다.
+  // 다른 글이나 카드만 저장했으면 그대로 둔다(선생님 알림에 「기록을 마치지 않고 나감」으로 남아, 알림만 가고 글이 사라지지 않게).
+  try {
+    const d = (await getRiskDrafts()).find((x) => x.id === saved.id && !x.checked);
+    const kept = (t: string) => !!t && (summary.includes(t) || answer.includes(t));
+    if (d && own && [d.text, ...(d.earlier ?? []).map((e) => e.text)].every(kept)) await dropRiskDraft(d.id);
+  } catch (e) {
+    console.error("마치지 않은 위험 표현 정리 실패", e);
+  }
   if (own) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
   return NextResponse.json({ record: publicRecord(saved) });
+}
+
+// 앞 기록은 PREV_MAX개까지. 넘치면 위험하지 않은 오래된 것부터 뺀다(위험한 글이 다시 남기기로 밀려나 사라지지 않게, 위험한 글은 두 배까지)
+function trimPrev(list: PrevVersion[]): PrevVersion[] {
+  const out = [...list];
+  while (out.length > PREV_MAX) {
+    const i = out.findIndex((p) => !p.risk);
+    if (i < 0) break;
+    out.splice(i, 1);
+  }
+  return out.slice(-PREV_MAX * 2);
 }
 
 // 앞 기록으로 넘길 때 남길 것(말투 숫자·목소리 특징은 빼고, 그 기록 자체의 위험 여부만)
@@ -422,5 +460,5 @@ function validCard(c: { emotion?: unknown; intensity?: unknown; reason?: unknown
 
 // 학생 화면에는 위험 표시와 말투 판단을 보내지 않는다
 function publicRecord(r: MoodRecord) {
-  return { ...r, prev: undefined, riskSelf: undefined, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
+  return { ...r, prev: undefined, riskSelf: undefined, riskAt: undefined, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
 }

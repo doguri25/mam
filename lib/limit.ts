@@ -160,7 +160,7 @@ export function resetWait(ip: string, now = Date.now()): Promise<number> {
 
 // ── 체험 반에서 여럿이 함께 쓰는 것 바꾸기(연습 데이터 다시 만들기는 resetWait, 명단 저장·코드 새로 받기는 이것) ──
 // IP마다 10분에 TRIAL_EDITS번까지. 체험 반 문서를 마구 다시 쓰거나(무료 저장소 부담) 다른 사람을 내보내지 못하게.
-export const TRIAL_EDITS = 10;
+export const TRIAL_EDITS = 30; // 심사하며 여러 기능을 눌러 보는 정도는 넉넉히
 export function trialEditWait(ip: string, now = Date.now()): Promise<number> {
   return outOfSpace(async () => {
     const span = 10 * MIN;
