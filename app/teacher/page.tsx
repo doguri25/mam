@@ -169,19 +169,23 @@ export default function TeacherPage() {
     await load();
   }
 
-  // 잠그기: 이 기기가 휴대폰 알림을 받고 있으면 끌지 먼저 묻는다(말없이 끄면 위험 알림을 놓친다).
+  // 잠그기·「학생 화면」: 이 기기가 휴대폰 알림을 받고 있으면 끌지 먼저 묻는다(말없이 끄면 위험 알림을 놓친다).
   // 「취소」= 알림은 계속 받기(선생님 휴대폰·교무실 컴퓨터), 「확인」= 이 기기 알림도 끄기(함께 쓰는 기기)
-  const lock = async () => {
+  const signOut = async (then: string, why = "") => {
     const sub = await navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).catch(() => null);
-    const off = !!sub && confirm("이 기기의 위험 표현 휴대폰 알림도 끌까요?\n\n확인: 알림도 끄고 잠가요(여럿이 함께 쓰는 기기)\n취소: 알림은 계속 받고 잠가요(선생님 휴대폰·개인 컴퓨터)");
+    const off = !!sub && confirm(`이 기기의 위험 표현 휴대폰 알림도 끌까요?${why}\n\n확인: 알림도 끄고 ${then}(여럿이 함께 쓰는 기기)\n취소: 알림은 계속 받고 ${then}(선생님 휴대폰·개인 컴퓨터)`);
     await api("teacher", "logout", off ? { endpoint: sub.endpoint } : {}).catch(() => {});
     if (off) await sub.unsubscribe().catch(() => false);
+  };
+  const lock = async () => {
+    await signOut("잠가요");
     lockOut();
   };
-  // 「학생 화면」: 실제 학급이면 선생님 화면을 잠그고 넘어간다(학생이 그 기기로 선생님 화면에 들어오지 않게). 휴대폰 알림은 그대로.
+  // 「학생 화면」: 실제 학급이면 선생님 화면을 잠그고 넘어간다(학생이 그 기기로 선생님 화면에 들어오지 않게).
+  // 학생과 함께 쓰는 태블릿이면 「N번 학생…」 위험 표현 알림이 학생 눈에 띌 수 있어 잠그기처럼 알림을 끌지 묻는다.
   const toStudent = async () => {
     if (!data.trial) {
-      await api("teacher", "logout").catch(() => {});
+      await signOut("학생 화면으로 가요", "\n학생들이 함께 쓰는 기기라면 「⚠️ ○번 학생…」 위험 표현 알림이 학생 화면 위에 뜰 수 있어요.");
       writeCache(null);
     }
     window.location.replace("/"); // 화면을 통째로 새로 불러 숨겨 둔 선생님 화면(위험 표현 글)이 남지 않게
