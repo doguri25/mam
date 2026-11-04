@@ -1,6 +1,6 @@
 "use client";
 // 응원 한마디: 위 학생 명단 → 왼쪽 최근 2주 기록(고정)을 보며 오른쪽에서 AI 초안을 고쳐 복사·저장 (학생에게 자동으로 보내지 않음)
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Doodle from "../Doodle";
 import StyleNote from "./StyleNote";
 import Notes from "./Notes";
@@ -20,17 +20,32 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
   const [msg, setMsg] = useState("");
   const s = data.students.find((x) => x.no === no);
   const saved = data.cheers.filter((c) => c.no === no);
+  // AI 초안을 기다리는 동안 다른 학생을 고르면 늦게 온 앞 학생 초안은 버린다(다른 아이 칸에 들어가지 않게)
+  const req = useRef(0);
+  function pick(n: number) {
+    req.current++;
+    setNo(n);
+    setDrafts([]);
+    setWarns([]);
+    setStyles([]);
+    setText("");
+    setMsg("");
+    setBusy(false);
+  }
 
   async function draft() {
+    const mine = ++req.current;
     setBusy(true);
     setMsg("");
     try {
       const r = await api<{ drafts: string[]; warns: string[]; styles?: string[][] }>("teacher", "cheer", { no });
+      if (mine !== req.current) return;
       setWarns(r.warns ?? []);
       setStyles(r.styles ?? []);
       setDrafts(r.drafts);
       setText(r.drafts[0] ?? "");
     } catch (e) {
+      if (mine !== req.current) return;
       setMsg((e as Error).message);
     }
     setBusy(false);
@@ -45,7 +60,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
 
   return (
     <div className="space-y-4">
-      <StudentStrip data={data} no={no} nameOf={nameOf} onPick={(n) => { setNo(n); setDrafts([]); setText(""); setMsg(""); }} />
+      <StudentStrip data={data} no={no} nameOf={nameOf} onPick={pick} />
       {!s ? (
         <div className="card text-soft">위에서 학생을 골라 주세요. <Doodle name="dotYellow" /> 표시는 이번 주 먼저 살펴볼 학생이에요.</div>
       ) : (

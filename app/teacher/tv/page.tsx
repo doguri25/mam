@@ -75,8 +75,10 @@ export default function ClassTV() {
   const parade = ORDER.flatMap((g) => Array.from({ length: data.groups[g] }, () => g));
 
   return (
-    // 글자·그림 크기를 화면 높이(vh)에 맞춰 1280×720 프로젝터에서도 한 화면에 다 들어오게
-    <main className={`flex h-dvh flex-col gap-[clamp(0.6rem,2vh,1.5rem)] overflow-hidden bg-gradient-to-br ${enough ? w.bg : "from-paper to-leaf-soft"} p-[clamp(1rem,3vh,2.5rem)]`}>
+    // 넓은 가로 화면(1280×720 프로젝터·TV): 글자·그림 크기를 화면 높이(vh)에 맞춰 한 화면에 다 들어오게, 두 칸으로.
+    // 세로 태블릿·휴대폰: 한 칸으로 쌓고 아래로 넘겨 본다(두 칸에 끼워 넣으면 카드가 겹치고 숫자가 잘림).
+    // 높이를 화면에 묶지 않는다(min-h): 낮은 가로 화면(1024×768)에서 넘치면 카드끼리 겹치지 않고 조금 내려 보게
+    <main className={`flex min-h-dvh flex-col gap-[clamp(0.6rem,2vh,1.5rem)] bg-gradient-to-br ${enough ? w.bg : "from-paper to-leaf-soft"} p-[clamp(1rem,3vh,2.5rem)]`}>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[clamp(1rem,2.4vh,1.5rem)] text-soft">{data.className} · {label(data.date)}</p>
@@ -130,22 +132,22 @@ export default function ClassTV() {
         </section>
       ) : (
         <>
-          <section className="grid min-h-0 flex-1 grid-cols-[1.3fr_1fr] items-center gap-[clamp(0.75rem,2vh,1.5rem)]">
+          <section className="grid min-h-0 flex-1 grid-cols-1 items-center gap-[clamp(0.75rem,2vh,1.5rem)] lg:landscape:grid-cols-[1.3fr_1fr]">
             <div className="space-y-[clamp(0.5rem,1.6vh,1rem)] rounded-[2rem] bg-card/80 p-[clamp(1rem,3.5vh,2.5rem)] shadow-sm">
-              <p className="flex items-center gap-4">
-                <span className="block size-[clamp(5rem,17vh,12rem)] leading-none"><Doodle name={w.icon} size="100%" className="block" wobble /></span>
-                <span className="font-display text-[clamp(3rem,8vh,6rem)] leading-none">{w.name}</span>
+              <p className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="block size-[clamp(4rem,min(17vh,24vw),12rem)] shrink-0 leading-none"><Doodle name={w.icon} size="100%" className="block" wobble /></span>
+                <span className="font-display text-[clamp(2.5rem,min(8vh,13vw),6rem)] leading-none">{w.name}</span>
               </p>
-              <p className="font-display text-[clamp(1.5rem,4.2vh,3rem)] leading-snug">{w.line}</p>
+              <p className="font-display text-[clamp(1.25rem,min(4.2vh,7vw),3rem)] leading-snug">{w.line}</p>
               {w.heavy && <p className="text-[clamp(1rem,2.4vh,1.5rem)] text-soft"><Doodle name="calm" /> 마음이 힘들면 마음 친구의 「마음 다스리기」를 해 봐요.</p>}
             </div>
-            <div className="flex flex-col items-center gap-2">
-              <BuddyLazy emotion={FACE_OF[top]} intensity={3} size={300} className="size-[clamp(140px,30vh,320px)]" scene />
-              <p className="font-display text-[clamp(1.5rem,3.6vh,2.25rem)]">마음을 남긴 친구 <b className="text-leaf">{data.n}</b> / {data.students}명</p>
+            <div className="flex min-w-0 flex-col items-center gap-2">
+              <BuddyLazy emotion={FACE_OF[top]} intensity={3} size={300} className="size-[clamp(140px,min(30vh,70vw),320px)]" scene />
+              <p className="text-center font-display text-[clamp(1.5rem,3.6vh,2.25rem)]">마음을 남긴 친구 <span className="whitespace-nowrap"><b className="text-leaf">{data.n}</b> / {data.students}명</span></p>
             </div>
           </section>
 
-          <section className="grid grid-cols-[1.3fr_1fr] gap-[clamp(0.75rem,2vh,1.5rem)]">
+          <section className="grid grid-cols-1 gap-[clamp(0.75rem,2vh,1.5rem)] sm:grid-cols-2 lg:landscape:grid-cols-[1.3fr_1fr]">
             <div className="rounded-[2rem] bg-card/80 p-[clamp(0.75rem,2.2vh,1.5rem)]">
               <div className="flex h-[clamp(1.5rem,5vh,3.5rem)] overflow-hidden rounded-full">
                 {ORDER.filter((g) => data.groups[g]).map((g) => (
