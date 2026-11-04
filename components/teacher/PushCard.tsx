@@ -16,6 +16,7 @@ type State = "checking" | "unsupported" | "ios-install" | "off" | "on" | "denied
 export default function PushCard({ data, reload }: { data: Overview; reload: Reload }) {
   const [state, setState] = useState<State>("checking");
   const [msg, setMsg] = useState("");
+  const [clearing, setClearing] = useState(false);
   const { ready, key, devices } = data.push;
 
   useEffect(() => {
@@ -49,20 +50,51 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
   }
 
   async function turnOff() {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) {
-      await api("teacher", "unsubscribe", { endpoint: sub.endpoint });
-      await sub.unsubscribe();
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await api("teacher", "unsubscribe", { endpoint: sub.endpoint });
+        await sub.unsubscribe();
+      }
+      setState("off");
+      setMsg("이 기기 알림을 껐어요.");
+      await reload();
+    } catch (e) {
+      setMsg(`끄지 못했어요: ${(e as Error).message}`);
     }
-    setState("off");
-    setMsg("이 기기 알림을 껐어요.");
-    await reload();
   }
 
   async function test() {
-    const r = await api<{ sent: number; failed: number }>("teacher", "testPush");
-    setMsg(r.sent ? `시험 알림을 ${r.sent}대에 보냈어요. 잠시 뒤 휴대폰을 확인해 주세요.` : "알림을 받을 기기가 없어요.");
+    try {
+      const r = await api<{ sent: number; failed: number }>("teacher", "testPush");
+      setMsg(r.sent ? `시험 알림을 ${r.sent}대에 보냈어요. 잠시 뒤 휴대폰을 확인해 주세요.` : "알림을 받을 기기가 없어요.");
+    } catch (e) {
+      setMsg(`시험 알림을 보내지 못했어요: ${(e as Error).message}`);
+    }
+  }
+
+  // 잃어버렸거나 더 쓰지 않는 기기까지, 이 학급에 알림을 받게 해 둔 기기를 모두 끈다
+  async function clearAll() {
+    if (!confirm(`이 학급 알림을 받는 기기 ${devices}대의 알림을 모두 끌까요? 잃어버린 휴대폰이나 더 쓰지 않는 기기도 함께 꺼져요. 계속 받을 기기는 그 기기에서 다시 켜 주세요.`)) return;
+    setClearing(true);
+    setMsg("");
+    try {
+      const r = await api<{ removed?: number }>("teacher", "pushClear");
+      // 이 기기의 브라우저 쪽 구독도 함께 정리해 「받는 중」으로 잘못 보이지 않게(실패해도 서버에서는 이미 꺼짐)
+      try {
+        const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+        const sub = await reg?.pushManager?.getSubscription();
+        await sub?.unsubscribe();
+      } catch { /* 이 기기 정리는 못 해도 괜찮다 */ }
+      if (state === "on") setState("off");
+      const n = Number(r.removed) || 0;
+      setMsg(n ? `기기 ${n}대의 알림을 모두 껐어요.` : "알림을 받는 기기가 없었어요.");
+      await reload();
+    } catch (e) {
+      setMsg(`모든 기기 알림을 끄지 못했어요: ${(e as Error).message}`);
+    }
+    setClearing(false);
   }
 
   return (
@@ -96,7 +128,13 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
           )}
         </div>
       )}
-      {msg && <p className="text-sm">{msg}</p>}
+      {devices > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+          <button onClick={clearAll} disabled={clearing} className="btn-sub min-h-10 px-3 text-sm">{clearing ? "끄는 중…" : `모든 기기 알림 끄기 (${devices}대)`}</button>
+          <span className="text-xs text-soft">휴대폰을 잃어버렸거나 바꿨을 때 눌러 주세요.</span>
+        </div>
+      )}
+      {msg && <p role="status" className="text-sm">{msg}</p>}
     </section>
   );
 }
