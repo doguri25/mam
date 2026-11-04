@@ -78,7 +78,7 @@ export function selfWatch(now: SelfAnswer[], before: SelfAnswer[]): { no: number
     const b = before.find((x) => x.no === a.no);
     if (b) {
       const d = r2(mean(a.answers)! - mean(b.answers)!);
-      if (d <= -0.5) why.push(`지난 회차보다 평균 ${Math.abs(d)}점 내려감`);
+      if (d < -0.5) why.push(`지난 회차보다 평균 ${Math.abs(d)}점 내려감`); // 「0.5 넘게」: 딱 0.5는 넣지 않음
     }
     if (why.length) out.push({ no: a.no, why });
   }
