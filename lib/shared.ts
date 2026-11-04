@@ -381,6 +381,7 @@ export interface Letter {
   status: "wait" | "ok" | "no"; createdAt: string; checkedAt?: string; readAt?: string;
   risk?: boolean; lang?: string; demo?: boolean;
   riskChecked?: string | null; // 위험 표현 쪽지를 선생님이 「살펴봤어요」한 시각
+  original?: string; // 선생님이 다듬어 전한 쪽지면 학생이 처음 쓴 글(선생님만 봄)
 }
 
 // 한 주 돌아보기: 학생이 이번 주(월요일부터)를 돌아보며 쓴 한 줄과 마음 친구의 답

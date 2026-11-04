@@ -66,7 +66,10 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   }
 
   async function exportCsv() {
-    let got: { records: MoodRecord[]; students: { no: number; alias: string }[]; riskActions?: RiskAction[] };
+    let got: {
+      records: MoodRecord[]; students: { no: number; alias: string }[]; riskActions?: RiskAction[];
+      riskDrafts?: Overview["riskDrafts"]; reflects?: Overview["reflects"]; letters?: Overview["letters"];
+    };
     try {
       got = await api("teacher", "export");
     } catch (e) {
@@ -105,14 +108,15 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     });
     const extra: Row[] = [];
     const done = new Set<string>();
-    for (const d of data.riskDrafts ?? []) {
+    // 서버가 보낸 전체(오래된 것까지)를 쓰고, 예전 서버면 화면에 있는 것
+    for (const d of got.riskDrafts ?? data.riskDrafts ?? []) {
       done.add(`draft:${d.id}`);
       extra.push(other({
         id: `draft:${d.id}`, date: d.date, slot: d.slot, no: d.no, method: "마치지 않은 기록", line: d.text, risk: d.hits.join(" ") || "AI 판단", checked: d.checked,
         summaryKo: d.summaryKo, lang: d.lang, earlier: (d.earlier ?? []).map((e) => `${ktime(e.at)} “${e.text}” ${e.hits.join(" ") || "AI 판단"}`).join(" / "),
       }));
     }
-    for (const x of data.reflects.filter(reflectEverRisk)) {
+    for (const x of (got.reflects ?? data.reflects).filter(reflectEverRisk)) {
       done.add(`reflect:${x.id}`);
       const src = reflectSource(x, s.riskWords);
       extra.push(other({
@@ -120,10 +124,10 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
         earlier: (x.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.text}” ${hitsOf(p.text)}`).join(" / "),
       }));
     }
-    for (const l of data.letters.filter((l) => l.risk)) {
+    for (const l of (got.letters ?? data.letters).filter((l) => l.risk)) {
       done.add(`letter:${l.id}`);
       const status = { wait: "허락 기다림", ok: "전함", no: "돌려보냄" }[l.status];
-      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}) ${l.text}`, risk: hitsOf(l.text), checked: l.riskChecked, lang: l.lang }));
+      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}) ${l.text}${l.original ? ` (처음 쓴 글: ${l.original})` : ""}`, risk: hitsOf(l.original ?? l.text), checked: l.riskChecked, lang: l.lang }));
     }
     // 화면에 없는(오래됐거나 지워진) 것은 조치 기록에 남긴 글로
     const METHOD = { draft: "마치지 않은 기록", reflect: "돌아보기", letter: "쪽지" } as const;
