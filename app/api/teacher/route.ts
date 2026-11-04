@@ -2,11 +2,11 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, noteTeacherLogin, setConsent } from "@/lib/data";
-import { clientIp, passwordAttempt, waitText } from "@/lib/limit";
+import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@/lib/limit";
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, getSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -115,12 +115,15 @@ async function handle(req: NextRequest) {
       // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
       const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
       const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from)) : recordsFrom(from);
-      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks, letters, reflects, aiUsed, riskActions] = await Promise.all([
+      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks, letters, recentReflects, riskyReflects, aiUsed, riskActions, drafts] = await Promise.all([
         getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
         getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
-        db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)), isDemo() ? demoAiUsed() : 0,
-        getRiskActions(),
+        db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)),
+        db().find<Reflect>("reflects", "risk", "==", true), isDemo() ? demoAiUsed() : 0,
+        getRiskActions(), getRiskDrafts(),
       ]);
+      // 위험 표현이 있는 돌아보기는 오래돼도 선생님이 살펴볼 때까지 보낸다
+      const reflects = [...recentReflects, ...riskyReflects.filter((x) => !x.riskChecked && !recentReflects.some((y) => y.id === x.id))];
       // 보관 기한이 지난 마음 기록 수(세기만): 있으면 선생님 화면에 「정리할 기록」 알림
       const expired = await db().count("records", "date", "<", cutoffOf(settings.retention, date));
       const aiSource = isDemo() ? await trialAiSource() : null;
@@ -145,9 +148,11 @@ async function handle(req: NextRequest) {
         // 마음 친구 이름은 학생이 실명을 쓸 수 있어 선생님 화면에 보내지 않는다
         looks: Object.fromEntries(Object.entries(looks).map(([no, l]) => [no, { ...l, name: "" }])),
         weekly: weekly?.weekStart === addDays(date, -6) ? weekly : null,
-        letters: newest(letters).slice(0, 150),
+        // 허락을 기다리는 쪽지(위험 표현 포함)는 모두, 나머지는 새것 150통까지
+        letters: [...newest(letters.filter((l) => l.status === "wait")), ...newest(letters.filter((l) => l.status !== "wait")).slice(0, 150)],
         reflects, // 이번 주·지난주 한 주 돌아보기
         riskActions, // 위험 표현 조치 기록(선생님만)
+        riskDrafts: drafts.filter((x) => !x.checked), // 학생이 기록을 마치지 않고 나간 위험 표현
         expired,
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
         sharedAi,
@@ -234,15 +239,34 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (isDemo() && (body.action === "roster" || body.action === "newCode")) {
+      const wait = await trialEditWait(clientIp(req.headers));
+      if (wait) return bad(`체험 반에서는 잠시 뒤에 다시 바꿔 주세요(${waitText(wait)}).`, 429);
+    }
     if (body.action === "roster") {
       const old = await getRoster();
       const { students, skipped } = readRoster(String(body.text ?? ""), old);
       if (!students.length) return bad("「번호 가명」 모양으로 한 줄에 한 명씩 적어 주세요.");
-      // 연습용 가짜 학생을 실제 학생으로 바꾸거나 뺀 번호는, 그 번호에 남은 연습 흔적을 바로 지운다
+      // 연습용 가짜 학생을 실제 학생으로 바꾸거나 뺀 번호는, 그 번호에 남은 연습 흔적만 바로 지운다(다른 연습 학생 것은 그대로).
+      // 바꾼 번호는 코드도 새로 준다(연습 때 나눠 준 코드로 실제 학생 화면에 들어오지 않게).
       const kept = new Set(students.filter((s) => s.demo).map((s) => s.no));
       const replaced = new Set(old.filter((s) => s.demo && !kept.has(s.no)).map((s) => s.no));
-      if (replaced.size) await purgePractice((no) => replaced.has(no));
-      return NextResponse.json({ students: await saveRoster(students, students.some((s) => s.demo)), skipped });
+      let list = students;
+      if (replaced.size) {
+        await purgePractice((no) => replaced.has(no), { onlyThese: true });
+        const taken = new Set(students.map((s) => s.code));
+        list = students.map((s) => {
+          if (!replaced.has(s.no)) return s;
+          const code = newCode(taken);
+          taken.add(code);
+          return { ...s, code };
+        });
+      }
+      const saved = await saveRoster(list, list.some((s) => s.demo));
+      // 마지막 연습 학생까지 바뀌었으면 학생에 매이지 않은 연습 자료(자기진단·역량 진단 연습 회차, 활동지 예시)도 정리
+      if (replaced.size && !saved.some((s) => s.demo)) await clearPractice();
+      if (replaced.size) await touch("wipe"); // 다른 기기 선생님 화면도 지운 기록을 버리고 다시 읽게
+      return NextResponse.json({ students: saved, skipped });
     }
 
     // 보호자 동의서 받음 표시(기록을 막지는 않음): nos 여럿을 한꺼번에 켜거나 끈다
@@ -329,18 +353,45 @@ async function handle(req: NextRequest) {
     if (body.action === "checkAlert" || body.action === "riskAction") {
       const kinds = riskKinds(body.kinds);
       if (!kinds.length) return bad("한 일을 하나 이상 골라 주세요.");
+      // 무엇을 살펴봤나: 마음 기록(기본) · 「reflect:」 한 주 돌아보기 · 「draft:」 마치지 않은 위험 표현
       const id = String(body.action === "checkAlert" ? body.id : body.recordId);
       const items = await getRiskActions();
-      const r = await db().get<MoodRecord>("records", id);
+      const reflectId = id.startsWith("reflect:") ? id.slice(8) : null;
+      const draftId = id.startsWith("draft:") ? id.slice(6) : null;
+      const r = reflectId || draftId ? null : await db().get<MoodRecord>("records", id);
+      const ref = reflectId ? await db().get<Reflect>("reflects", reflectId) : null;
       const before = items.find((x) => x.recordId === id); // 보관 기한이 지나 기록을 지운 뒤에도 이어 적을 수 있게
-      if (!r && !before) return bad("기록이 없어요.");
-      if (body.action === "checkAlert" && r) await putRecord({ ...r, riskChecked: new Date().toISOString() });
+      const d = draftId ? (await getRiskDrafts()).find((x) => x.id === draftId) : undefined;
+      const who = r ?? ref ?? d ?? before;
+      if (!who) return bad("기록이 없어요.");
+      const now = new Date().toISOString();
+      if (body.action === "checkAlert") {
+        if (r) {
+          // 선생님이 본 그 기록일 때만 닫는다. 그사이 학생이 같은 칸에 새로 남겼으면(위험한 말일 수도) 닫지 않고 다시 보게 한다.
+          const seen = typeof body.seen === "string" ? body.seen : null;
+          let stale = false;
+          await db().update<MoodRecord>("records", id, (cur) => {
+            if (!cur) return undefined;
+            if (seen && cur.createdAt !== seen) {
+              stale = true;
+              return undefined;
+            }
+            return { ...cur, riskChecked: now, updatedAt: Date.now() };
+          });
+          if (stale) return bad("학생이 그사이 같은 칸에 새로 남긴 기록이 있어요. 새 글을 먼저 읽어 주세요.", 409);
+          await touch("records");
+        } else if (ref) {
+          await db().update<Reflect>("reflects", reflectId!, (cur) => (cur ? { ...cur, riskChecked: now } : undefined));
+          await touch("other");
+        } else if (d) await checkRiskDraft(d.id);
+      }
+      const recordDate = r?.date ?? (ref ? today(new Date(ref.createdAt)) : undefined) ?? d?.date ?? before!.recordDate;
       const act: RiskAction = {
-        id: `${Date.now()}_${r?.no ?? before!.no}`, no: r?.no ?? before!.no, recordId: id, recordDate: r?.date ?? before!.recordDate,
+        id: `${Date.now()}_${who.no}`, no: who.no, recordId: id, recordDate,
         date: isDay(body.date) && body.date <= today() ? body.date : today(), kinds, note: String(body.note ?? "").trim().slice(0, 300),
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         // 연습(시연) 기록에 대한 조치면 연습 표시 → 「연습 데이터만 지우기」가 함께 지운다
-        ...((r ? r.demo : before?.demo) ? { demo: true } : {}),
+        ...(who.demo ? { demo: true } : {}),
       };
       await addRiskAction(act); // 목록을 읽고 고쳐 쓰기를 한 번에(두 기기에서 같은 순간 적어도 둘 다 남음)
       return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
@@ -518,7 +569,12 @@ async function handle(req: NextRequest) {
 
     // 시연 데이터 만들기 / 연습 데이터만 지우기 / 모두 지우기
     if (body.action === "demo") {
-      // 체험 공간에서는 지우지 않고 언제나 처음 판으로 되돌린다(여러 사람이 함께 쓰는 공간이라)
+      // 체험 공간에서는 지우지 않고 언제나 처음 판으로 되돌린다(여러 사람이 함께 쓰는 공간이라).
+      // 체험 안내의 「처음 판으로」와 같은 횟수 제한을 건다(모두 합쳐 10분에 한 번, IP마다 1분에 한 번).
+      if (isDemo()) {
+        const wait = await resetWait(clientIp(req.headers));
+        if (wait) return bad(`체험 반은 조금 전에 처음 판으로 되돌렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
+      }
       const mode = isDemo() ? "seed" : body.mode;
       if (mode === "clearDemo") await clearPractice(); // 연습 표시가 붙은 것과 연습용 가짜 학생에게 매인 것만
       else if (mode === "seed") await seedPractice();

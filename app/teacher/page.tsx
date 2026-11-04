@@ -19,6 +19,7 @@ import StudentTab from "@/components/teacher/StudentTab";
 import RosterTab from "@/components/teacher/RosterTab";
 import SettingsTab from "@/components/teacher/SettingsTab";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
+import { riskAlertCount } from "@/components/teacher/alerts";
 import { api } from "@/lib/api";
 import { addDays, today as kToday } from "@/lib/date";
 import { useLocal, useNames } from "@/lib/local";
@@ -175,8 +176,16 @@ export default function TeacherPage() {
     await sub?.unsubscribe().catch(() => false);
     lockOut();
   };
+  // 「학생 화면」: 실제 학급이면 선생님 화면을 잠그고 넘어간다(학생이 그 기기로 선생님 화면에 들어오지 않게). 휴대폰 알림은 그대로.
+  const toStudent = async () => {
+    if (!data.trial) {
+      await api("teacher", "logout").catch(() => {});
+      writeCache(null);
+    }
+    window.location.replace("/"); // 화면을 통째로 새로 불러 숨겨 둔 선생님 화면(위험 표현 글)이 남지 않게
+  };
   const badge: Partial<Record<Tab, number>> = {
-    map: data.records.filter((r) => r.risk && !r.riskChecked).length,
+    map: riskAlertCount(data),
     letters: data.letters.filter((l) => l.status === "wait").length,
   };
   const current = NAV.flatMap((g) => g.items).find(([id]) => id === tab)!;
@@ -223,7 +232,7 @@ export default function TeacherPage() {
           </button>
         )}
         <div className="grid grid-cols-2 gap-2">
-          <Link href="/" className="btn-sub min-h-10 px-2 text-sm">학생 화면</Link>
+          <button onClick={toStudent} className="btn-sub min-h-10 px-2 text-sm" title={data.trial ? undefined : "선생님 화면을 잠그고 학생 화면으로 가요"}>학생 화면</button>
           <button onClick={lock} className="btn-sub min-h-10 px-2 text-sm"><Doodle name="lock" size={18} /> 잠그기</button>
         </div>
       </div>
@@ -271,7 +280,7 @@ export default function TeacherPage() {
               <button onClick={() => setTab("settings")} className="btn-sub min-h-9 px-3 text-sm">기록 보관·정리 열기</button>
             </div>
           )}
-          {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} />}
+          {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} onLetters={() => setTab("letters")} />}
           {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
           {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}

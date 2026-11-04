@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkPassword, isTeacher, makePin, queueToken, readQueueToken, sign, teacherSpace, teacherToken, validPin } from "./auth.ts";
+import { checkPassword, isTeacher, makePin, queueCodeOk, queueToken, readQueueToken, sign, teacherSpace, teacherToken, validPin } from "./auth.ts";
 import { inSpace } from "./db.ts";
 
 test("바꾼 비밀번호는 해시로만 맞춰 보고, 바꾸기 전에는 처음 비밀번호", () => {
@@ -40,9 +40,14 @@ test("처음 비밀번호 1324는 처음부터 있던 반에서만", () => {
   assert.equal(inSpace("c1a2b3c4", () => checkPassword("1324", null)).ok, false);
 });
 
-test("끊김 대비 표는 그 학생·그날만, 고치면 무효", () => {
+test("끊김 대비 표는 그 학생·그날만, 고치면 무효, 코드는 지문으로만", () => {
   const tk = queueToken(3, "ABC234", "2026-10-21", "c1a2b3c4");
-  assert.deepEqual(readQueueToken(tk), { no: 3, code: "ABC234", date: "2026-10-21", space: "c1a2b3c4" });
-  assert.equal(readQueueToken(tk.replace("ABC234", "ZZZ999")), null);
+  assert.ok(!tk.includes("ABC234")); // 공용 태블릿에 남아도 코드가 보이지 않게
+  const q = readQueueToken(tk)!;
+  assert.deepEqual({ ...q, code: "" }, { no: 3, code: "", date: "2026-10-21", space: "c1a2b3c4" });
+  assert.ok(queueCodeOk("ABC234", q.code));
+  assert.ok(!queueCodeOk("ZZZ999", q.code));
+  assert.ok(queueCodeOk("ABC234", "ABC234")); // 예전 표
+  assert.equal(readQueueToken(tk.replace("2026-10-21", "2026-10-22")), null);
   assert.equal(readQueueToken(teacherToken(0)), null);
 });

@@ -16,6 +16,14 @@ export default function ReflectBox({ reflects, no }: { reflects: Reflect[]; no: 
           </p>
           <p className="mt-1 text-base">“{r.text}”</p>
           <p className="mt-1 text-soft">↳ 마음 친구: {r.reply}</p>
+          {!!r.prev?.length && (
+            <details className="mt-1 text-xs">
+              <summary className="cursor-pointer text-soft">고쳐 쓰기 전 글 {r.prev.length}개{r.prev.some((p) => p.risk) && <span className="ml-1 rounded bg-alert px-1.5 text-white">위험 표현</span>}</summary>
+              <ul className="mt-1 space-y-0.5">
+                {r.prev.map((p) => <li key={p.createdAt} className={p.risk ? "text-alert" : "text-soft"}>“{p.text}”</li>)}
+              </ul>
+            </details>
+          )}
         </div>
       ))}
     </div>
