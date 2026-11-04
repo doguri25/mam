@@ -35,7 +35,7 @@ async function handle(req: NextRequest) {
   if (!ai) return bad("AI 키가 필요해요.");
 
   try {
-    const { markdown, pages } = await inTime(parseDocument(upKey, file, file.name), deadline);
+    const { markdown, pages } = await inTime(parseDocument(upKey, file, file.name, { signal: deadline }), deadline);
     if (markdown.trim().length < 10) return bad("파일에서 글자를 거의 찾지 못했어요. 더 또렷한 파일로 올려 주세요.");
     const lesson = await extractLesson(ai, markdown, deadline);
     return NextResponse.json({ ...lesson, pages, chars: markdown.length, preview: markdown.slice(0, 400) });
