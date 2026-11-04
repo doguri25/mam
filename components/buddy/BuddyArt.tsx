@@ -615,14 +615,21 @@ function FrontAcc({ acc, geo, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; geo: G
         <circle r="5.5" fill="#f6c445" {...st} strokeWidth={lw * 0.8} />
       </g>
     );
-  if (acc === "beret")
+  if (acc === "beret") {
+    // 베레모: 머리 폭이 모자 띠 폭만 한 높이에 얹어 띠 양 끝이 머리 윤곽에 닿게 한다.
+    // 위가 좁은 머리(알·물방울·서양배…)는 조금 더 아래에, 그래도 좁으면 모자를 작게. 띠 아랫선은 정수리를 따라 둥글게.
+    const BAND = 25;
+    let d = 0;
+    while (d < ry * 0.3 && geo.span(top + d + 2) < BAND) d++;
+    const k = Math.min(1, Math.max(0.72, geo.span(top + d + 2) / BAND));
     return (
-      <g transform={`translate(${rx * 0.1} ${top + 7}) rotate(${-14 + Math.sin(t * 1.5) * 2})`}>
-        <path d="M-30,2 Q-30,-17 0,-19 Q30,-17 31,0 Q16,8 -30,2Z" fill="#e25a52" {...st} />
-        {!tiny && <path d="M-22,-6 Q-6,-12 14,-10" fill="none" stroke="#ff9a8a" strokeWidth={lw * 0.9} strokeLinecap="round" />}
-        <path d="M1,-19 L3,-27" stroke={INK} strokeWidth={lw * 1.4} strokeLinecap="round" />
+      <g transform={`translate(${n2(rx * 0.03)} ${n2(top + d)}) rotate(${n2(-7 + Math.sin(t * 1.5) * 2)}) scale(${n2(k)})`}>
+        <path d="M-25,2 Q-37,-1 -33,-10 Q-26,-22 0,-22 Q28,-22 34,-10 Q37,-1 25,2 Q0,9 -25,2Z" fill="#e25a52" {...st} strokeWidth={n2(lw / k)} />
+        {!tiny && <path d="M-22,-9 Q-6,-17 16,-14" fill="none" stroke="#ff9a8a" strokeWidth={n2((lw * 0.9) / k)} strokeLinecap="round" />}
+        <path d="M1,-22 L3,-30" stroke={INK} strokeWidth={n2((lw * 1.4) / k)} strokeLinecap="round" />
       </g>
     );
+  }
   if (acc === "cap")
     return (
       <g transform={`translate(${-rx * 0.04} ${top + 9})`}>
