@@ -67,3 +67,13 @@ test("보관 정리는 한국 날짜로: 기한 날 아침(한국 0~9시)에 쓴
     assert.deepEqual((await db().all<{ id: string }>("cheers")).map((r) => r.id), ["early"]);
   });
 });
+
+test("명단 표시만 잘못 켜진 실제 명단은 「연습 데이터만 지우기」로 지우지 않는다", async () => {
+  await inSpace("cwrongflag", async () => {
+    await db().set("meta", "roster", { students: [{ no: 1, alias: "진짜", code: "REAL11" }, { no: 2, alias: "진짜둘", code: "REAL22" }], demo: true });
+    await db().set("records", "1_2026-11-03_am", { id: "1_2026-11-03_am", no: 1, date: "2026-11-03" });
+    await clearPractice();
+    assert.deepEqual((await getRoster()).map((s) => s.no), [1, 2]);
+    assert.deepEqual((await db().all<{ id: string }>("records")).map((r) => r.id), ["1_2026-11-03_am"]);
+  });
+});

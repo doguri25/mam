@@ -280,7 +280,9 @@ async function handle(req: NextRequest) {
       const s = roster.find((x) => x.no === Number(body.no));
       if (!s) return bad("없는 번호예요.");
       s.code = newCode(new Set(roster.map((x) => x.code)));
-      return NextResponse.json({ students: await saveRoster(roster, await rosterIsDemo()) });
+      // 명단 문서의 연습 표시는 그대로 둔다(rosterIsDemo는 남은 연습 회차까지 보므로, 그 값을 쓰면 실제 명단이 연습 명단으로 바뀐다)
+      const keep = (await db().get<{ demo?: boolean }>("meta", "roster"))?.demo === true;
+      return NextResponse.json({ students: await saveRoster(roster, keep) });
     }
 
     if (body.action === "settings") {
