@@ -106,6 +106,164 @@ test("베트남어는 성조 없이 써도 찾는다(「tu tu」는 빼고)", ()
   ]);
 });
 
+test("한국어: 남을 해치려는 말·집에 가기 싫은 말·맞은 말·스스로 사라지려는 말(4판)", () => {
+  check([
+    ["죽이고 싶어", ["죽이고 싶"]],
+    ["죽인다", ["죽인다"]],
+    ["집 가기 싫어", ["집 가기 싫"]],
+    ["집가기싫어", ["집 가기 싫"]],
+    ["집에 들어가기 싫어", ["집에 들어가기 싫"]],
+    ["집에 가고 싶지 않아", ["집에 가고 싶지 않"]],
+    ["집에 안 가고 싶어", ["집에 안 가고 싶"]],
+    ["집에 가기 무서워요", ["집에 가기 무서"]],
+    ["아빠가 발로 찼어", ["발로 차"]],
+    ["형이 발로 차요", ["발로 차"]],
+    ["뺨을 맞았어", ["뺨을 맞"]],
+    ["매를 맞았어", ["매를 맞"]],
+    ["주먹으로 맞았어", ["주먹으로 맞"]],
+    ["사는 게 싫어", ["사는 게 싫"]],
+    ["살고 싶지가 않아", ["살고 싶지가 않"]],
+    ["살기 실어", ["살기 실"]],
+    ["집에 가기 실타", ["집에 가기 실"]],
+    ["뒤지고 싶어", ["뒤지고 싶"]],
+    ["너 뒤질래", ["뒤질래"]],
+    ["디지고 싶어", ["디지고 싶"]],
+    ["그냥 없어졌으면 좋겠어", ["없어졌으면 좋겠"]],
+    ["태어나지 않았으면 좋겠어", ["태어나지 않았으면"]],
+    ["반에서 은따 당해요", ["은따"]],
+    ["떄려서 아파", ["떄려"]],
+  ]);
+  // 스스로 해치려는 말은 선생님이 목록을 비워도 찾는다
+  for (const text of ["사는 게 싫어", "뒤지고 싶어", "디지고 싶어", "살고 싶지가 않아", "없어졌으면 좋겠어", "태어나지 않았으면"]) {
+    assert.ok(matchRisk(text, []).length > 0, text);
+  }
+});
+
+test("중국어: 때린 사람이 끼어도(被…打, 네 글자까지)·죽음·집에 가기 싫은 말", () => {
+  check([
+    ["爸爸打了我", ["打了我"]],
+    ["他们打了我", ["打了我"]],
+    ["我被爸爸打了", ["被打"]],
+    ["我被他们狠狠打了", ["被打"]],
+    ["我被打了", ["被打"]],
+    ["我想去死", ["去死"]],
+    ["你去死吧", ["去死"]],
+    ["死了算了", ["死了算了"]],
+    ["活着没意思", ["活着没意思"]],
+    ["我不要回家", ["不要回家"]],
+    ["我想杀了他", ["想杀"]],
+  ]);
+  assert.deepEqual(matchRisk("我被老师批评了，然后打扫教室", DEFAULT_RISK_WORDS), []); // 被와 打 사이가 네 글자보다 멀다
+});
+
+test("베트남어: bị와 đánh 사이 두 낱말까지, 성조를 일부만 쳐도 찾는다", () => {
+  check([
+    ["Con bị bố đánh", ["bị đánh"]],
+    ["Em bị bạn đánh", ["bị đánh"]],
+    ["con bi bo danh", ["bị đánh"]],
+    ["Con bị các bạn đánh", ["bị đánh"]],
+    ["con muốn chet", ["muốn chết"]],
+    ["con muon chết", ["muốn chết"]],
+    ["Con muốn chêt", ["muốn chết"]],
+    ["con khong muon ve nhà", ["không muốn về nhà"]],
+  ]);
+  check([
+    ["Con bị bố mẹ hay đánh", []], // 세 낱말 넘게 떨어지면 찾지 않는다
+    ["Con bí đánh", []], // 다른 성조를 친 「bí」는 「bị」가 아니다
+    ["con từ tự", []],
+  ]);
+});
+
+test("일본어: 늘임표·「〜てしまいたい」·맞은 말·남을 해치려는 말", () => {
+  check([
+    ["しにたーい", ["しにたい"]],
+    ["死にたーい", ["死にたい"]],
+    ["きえたーい", ["きえたい"]],
+    ["しにたぁい", ["しにたい"]],
+    ["もうしにたいよう", ["しにたい"]],
+    ["死んじゃいたい", ["死んじゃいたい"]],
+    ["ママにぶたれた", ["ぶたれ"]],
+    ["しんでしまいたい", ["しんでしまいたい"]],
+    ["きえてしまいたい", ["きえてしまいたい"]],
+    ["生きていたくない", ["生きていたくない"]],
+    ["ころしたい", ["ころしたい"]],
+    ["しねっていわれた", ["しねって"]],
+    ["おうちかえりたくない", ["うちかえりたくない"]],
+    ["死にたくなる", ["死にたく"]],
+    ["なかまはずれにされた", ["なかまはずれ"]],
+  ]);
+});
+
+test("영어: 맞은 말·죽고 싶은 말, do not·wanna도 찾는다", () => {
+  check([
+    ["my dad punched me", ["punched me"]],
+    ["he kicked me", ["kicked me"]],
+    ["she slapped me", ["slapped me"]],
+    ["they pushed me", ["pushed me"]],
+    ["I want to be dead", ["want to be dead"]],
+    ["I wish I was dead", ["wish i was dead"]],
+    ["I hate my life", ["hate my life"]],
+    ["I want to end my life", ["end my life"]],
+    ["I don't want to be alive", ["don't want to be alive"]],
+    ["i do not want to go home", ["don't want to go home"]],
+    ["I don't wanna go home", ["don't want to go home"]],
+    ["I DO NOT WANT TO LIVE", ["don't want to live"]],
+    ["i wanna die", ["want to die"]],
+    ["they make fun of me", ["make fun of me"]],
+  ]);
+});
+
+test("보이지 않는 글자·한글 채움 문자가 끼어도 찾는다", () => {
+  const c = String.fromCodePoint;
+  for (const gap of [0x3164, 0xffa0, 0x115f, 0x1160, 0x2800, 0x200b, 0x200e, 0x200f, 0x061c, 0x202e, 0x2066, 0x2069, 0xfe0f, 0xe0041, 0xe007f]) {
+    assert.deepEqual(matchRisk(`죽${c(gap)}고${c(gap)}싶어`, DEFAULT_RISK_WORDS), ["죽고 싶"], gap.toString(16));
+  }
+  assert.deepEqual(matchRisk(["i", "dont", "want", "to", "go", "home"].join(c(0x3164)), DEFAULT_RISK_WORDS), ["don't want to go home"]);
+  assert.deepEqual(matchRisk(`ki${c(0x200e)}ll my${c(0x200b)}self`, DEFAULT_RISK_WORDS), ["kill myself"]);
+  assert.deepEqual(matchRisk(`자${c(0x3164)}해`, DEFAULT_RISK_WORDS), ["자해"]);
+});
+
+test("일본어 평범한 말이 「しにたい」에 걸리지 않는다(にたいよう+토씨, いっしょにたい…)", () => {
+  check([
+    ["わたしにたいようがあたった", []],
+    ["ほしにたいようがみえた", []],
+    ["いっしょにたいいくをした", []],
+    ["ともだちといっしょにたいこをたたいた", []],
+    ["いっしょにしにたい", ["しにたい"]],
+  ]);
+});
+
+// 위험 표현 찾기는 학생 글을 저장할 때마다 서버에서 돈다. 글이나 선생님 말이 짓궂어도 오래 붙잡히면 안 된다.
+test("짓궂은 글·선생님 말에도 빨리 끝난다(2,000자, 한 번에 100ms보다 훨씬 짧게)", () => {
+  const hostileWords = [
+    "ㅠㅠㅠ싫", "ㅠㅠㅠㅠ싫", "ㅠㅠㅠㅠㅠ싫", "💀💀💀💀💀죽", "죽♡♡♡♡고", "죽ㅠㅠ고ㅠㅠ싶ㅠㅠ다", "ㅠ!ㅠ!ㅠ!ㅠ!싫어",
+    `죽${"~".repeat(20)}고`, "ーーーーし", "ㅋㅋㅋㅋㅋㅋㅋㅋ싫", "!".repeat(20),
+  ];
+  const texts = [
+    "ㅠ".repeat(2000), "💀".repeat(1000), "♡".repeat(2000), `죽${"ㅠ".repeat(2000)}`, `죽${"!".repeat(2000)}`,
+    `죽${"♡".repeat(2000)}`, ("죽" + "ㅠ".repeat(30)).repeat(65), ("죽고" + "ㅠ".repeat(20)).repeat(90), "ㅠ!".repeat(1000),
+    " ".repeat(2000), "ー".repeat(2000), `し${"ー".repeat(2000)}`, "被".repeat(2000), "bị bố ".repeat(330), "con muon ".repeat(220),
+    `죽${String.fromCodePoint(0x301).repeat(2000)}`, ("죽" + String.fromCodePoint(0x3164)).repeat(1000), "ㅋ".repeat(2000),
+  ];
+  for (const words of [DEFAULT_RISK_WORDS, hostileWords]) {
+    // 정규식을 처음 쓸 때 드는 시간은 빼고 잰다(한 바이트·두 바이트 글을 따로 익힌다)
+    matchRisk("가나다 ".repeat(500), words);
+    matchRisk("abc ".repeat(500), words);
+    for (const text of texts) {
+      const t0 = performance.now();
+      matchRisk(text, words);
+      const ms = performance.now() - t0;
+      assert.ok(ms < 100, `${JSON.stringify(text.slice(0, 6))}… ${words === DEFAULT_RISK_WORDS ? "기본 목록" : "짓궂은 말"}: ${ms.toFixed(1)}ms`);
+    }
+  }
+  // 짓궂은 말도 제 글자로 쓰면 걸린다
+  assert.deepEqual(matchRisk("ㅠㅠㅠ싫어", ["ㅠㅠㅠ싫"]), ["ㅠㅠㅠ싫"]);
+  assert.deepEqual(matchRisk("죽♡♡♡♡고", ["죽♡♡♡♡고"]), ["죽♡♡♡♡고"]);
+  assert.ok(matchRisk("죽고 싶다", ["죽ㅠㅠ고ㅠㅠ싶ㅠㅠ다"]).includes("죽ㅠㅠ고ㅠㅠ싶ㅠㅠ다"));
+  // 선생님 말이 자바스크립트 속 이름과 같아도 엉뚱하게 걸리지 않는다
+  assert.deepEqual(matchRisk("hello", ["constructor", "__proto__", "toString", "hasOwnProperty"]), []);
+});
+
 // 아이·선생님이 흔히 쓰는 평범한 말: 하나도 걸리면 안 된다
 const CLEAN: Record<string, string[]> = {
   ko: [
@@ -119,6 +277,8 @@ const CLEAN: Record<string, string[]> = {
     "선생님이 다치지 않게 조심하라고 하셨어요", "가족과 캠핑을 가서 별을 봤어요", "숨바꼭질에서 술래가 됐어요",
     "때때로 조금 심심해요", "죽 먹고 싶어요", "사과를 따서 먹었어요", "소풍 가기 싫지 않아요", "놀이공원에 또 가고 싶어요",
     "엄마 아빠랑 집에서 쉬고 싶어요", "고양이가 귀여워서 계속 보고 싶어요", "오늘은 그냥 평범했어요",
+    "마음은따뜻해요", "물은따뜻했어요", "매일 맞춤법 공부를 해요", "집에 가고 싶어요", "집에 가서 쉬고 싶어요", "우리가 사는 곳이 좋아요",
+    "태어나서 처음으로 바다를 봤어요", "주먹밥을 먹었어요", "발로 공을 굴렸어요", "뺨이 빨개졌어요", "집에 가기 전에 숙제했어요",
   ],
   en: [
     "I had fun with my friend", "I ate white meat for dinner", "We played soccer at recess", "My mom made pancakes",
@@ -129,14 +289,16 @@ const CLEAN: Record<string, string[]> = {
     "My brother helped me with my homework", "I'm a little tired", "I don’t want to go to bed yet", "I saw a white bear at the zoo",
     "My cat sleeps all day", "I like math class", "I cut my paper into shapes", "We rolled the dice in a board game",
     "The magician made the coin disappear", "My friend lives near my house", "Self portraits were fun to draw",
-    "I want to live in a big house someday",
+    "I want to live in a big house someday", "I wish I could fly", "I do not like carrots", "I wanna play outside",
+    "We made a fun game", "I kicked the ball", "I pushed the swing", "I hate my homework", "My life is fun",
   ],
   zh: [
     "今天很开心", "我和朋友一起玩", "我打篮球了", "我吃了苹果", "妈妈做了饺子", "我喜欢画画", "我们去公园了", "老师表扬我了",
     "我想回家吃饭", "我想睡觉", "下雨了，我带了伞", "我的狗很可爱", "今天考试考得很好", "我们唱歌了", "我读了一本书",
     "打扫教室很累", "我给妈妈打电话", "我很平静", "我们一起做游戏", "弟弟哭了，我安慰他", "今天天气很好", "我学会了游泳",
     "我想快点长大", "我想吃冰淇淋", "我们班赢了比赛", "爸爸带我去动物园", "我帮奶奶打扫房间", "我们在操场上跑步",
-    "我画了一只猫", "明天要去旅行，我很期待",
+    "我画了一只猫", "明天要去旅行，我很期待", "我被老师表扬了", "我们一起去打篮球", "我想去公园玩", "我不要吃青菜",
+    "我被选为班长", "死去的金鱼让我想起了它", "活着的小鸟飞走了",
   ],
   ja: [
     "きょうはたのしかった", "ともだちとあそんだ", "おかあさんがケーキをつくってくれた", "がっこうでえをかいた", "先生にほめられた",
@@ -146,6 +308,8 @@ const CLEAN: Record<string, string[]> = {
     "たたかいごっこをした", "ゆきがきえた", "ねこににげられた", "今日は楽しかったです", "友だちと公園で遊びました",
     "おにごっこをしました", "本をよみました", "ねこがかわいい", "あしたもがっこうにいきたい", "しゅくだいをおわらせた",
     "えんそくがたのしみ", "いぬとさんぽした", "おとうとがわらった", "きゅうしょくがおいしかった", "いちじさつまいもほりをした",
+    "わたしにたいようがあたった", "ほしにたいようがみえた", "いっしょにたいそうをした", "ぶたのえをかいた", "ころころころがった",
+    "うちにかえりたい", "いきていくちからをまなんだ",
   ],
   vi: [
     "Hôm nay con rất vui", "Con chơi với bạn", "Mẹ bảo con làm từ từ", "me bao con lam tu tu", "Con thích ăn phở",
@@ -154,7 +318,7 @@ const CLEAN: Record<string, string[]> = {
     "Con học bài xong rồi", "bat dau hoc bai", "Con muốn biết thêm", "con muon choi", "Tự làm bài tập", "tu lam bai tap",
     "con tu sap xep do choi", "Em bị đau bụng", "em bi dau bung", "Con thích vẽ tranh", "Con giúp mẹ nấu cơm",
     "Bạn con rất tốt bụng", "Con muốn đi biển", "con muon song o day", "Con không muốn ngủ trưa", "con khong muon ngu trua",
-    "Con chơi trốn tìm với em",
+    "Con chơi trốn tìm với em", "Con bị ốm", "Con bị điểm thấp", "Bí danh của con là Bi",
   ],
 };
 
@@ -215,37 +379,78 @@ test("기록을 저장할 때마다 불러도 빠르다", () => {
   assert.ok(performance.now() - t0 < 3000, `${Math.round(performance.now() - t0)}ms`);
 });
 
+const addsOf = (v: number) => RISK_WORDS_BY_V[v].flatMap((g) => g.add);
+
 test("기본 목록 판: 판마다 더한 말은 기본 목록에도 있고, 저장한 판 뒤에 더한 말만 돌려준다", () => {
-  assert.equal(RISK_WORDS_V, 3);
-  for (const ws of Object.values(RISK_WORDS_BY_V)) for (const w of ws) assert.ok(DEFAULT_RISK_WORDS.includes(w), w);
-  assert.deepEqual(riskWordsAfter(2), RISK_WORDS_BY_V[3]);
-  assert.deepEqual(riskWordsAfter(1), [...RISK_WORDS_BY_V[2], ...RISK_WORDS_BY_V[3]]);
+  assert.equal(RISK_WORDS_V, 4);
+  for (const v of Object.keys(RISK_WORDS_BY_V).map(Number)) {
+    for (const g of RISK_WORDS_BY_V[v]) {
+      for (const w of g.add) assert.ok(DEFAULT_RISK_WORDS.includes(w), w);
+      // 줄기는 그 판보다 앞에 있던 기본 말이다
+      for (const p of g.from ?? []) assert.ok(DEFAULT_RISK_WORDS.includes(p) && !addsOf(v).includes(p), `${v}: ${p}`);
+    }
+  }
+  assert.equal(new Set(DEFAULT_RISK_WORDS).size, DEFAULT_RISK_WORDS.length);
+  assert.deepEqual(riskWordsAfter(3), addsOf(4));
+  assert.deepEqual(riskWordsAfter(2), [...addsOf(3), ...addsOf(4)]);
+  assert.deepEqual(riskWordsAfter(1), [...addsOf(2), ...addsOf(3), ...addsOf(4)]);
   assert.deepEqual(riskWordsAfter(RISK_WORDS_V), []);
 });
 
-test("설정 판 올리기: v2 반은 v3 말만 받고(지운 v2 말은 그대로 없음), 처음 반은 새 기본 목록", async () => {
+test("기본 목록 판: 선생님이 지운 줄기의 다른 꼴은 다시 넣지 않는다(줄기 없는 말은 늘 넣는다)", () => {
+  const v3 = DEFAULT_RISK_WORDS.filter((w) => !addsOf(4).includes(w));
+  // 고치지 않은 v3 목록은 v4 말을 모두 받는다
+  assert.deepEqual(riskWordsAfter(3, v3), addsOf(4));
+  // 「죽여」「죽일」「집에 가기 싫」「집에 가기 시러」「죽을래」를 지운 반
+  const trimmed = v3.filter((w) => !["죽여", "죽일", "집에 가기 싫", "집에 가기 시러", "죽을래"].includes(w));
+  const got = riskWordsAfter(3, trimmed);
+  for (const w of ["죽이고 싶", "죽인다", "집 가기 싫", "집에 들어가기 싫", "집에 가기 실", "뒤질래", "디질래"]) assert.ok(!got.includes(w), w);
+  for (const w of ["은따", "떄려", "집에 가기 무서", "발로 차", "뺨을 맞", "매를 맞", "주먹으로 맞"]) assert.ok(got.includes(w), w);
+  // 앞 판에서 함께 더한 말도 줄기로 친다: v1 목록에 「때렸」이 있으면 v2 「때리」 → v3 「때린」 → v4 「떄리」까지
+  assert.deepEqual(riskWordsAfter(1, ["때렸"]).filter((w) => /때|떄/.test(w)), ["때리", "때린", "때릴", "때림", "떄리", "떄려", "떄렸"]);
+  assert.deepEqual(riskWordsAfter(1, ["자해"]).filter((w) => /때|떄/.test(w)), []);
+  // 이미 있는 말은 다시 넣지 않고, 빈칸만 다른 줄기도 줄기로 친다
+  assert.deepEqual(riskWordsAfter(3, ["집에가기싫", "은따"]).filter((w) => w.startsWith("집") || w === "은따"), [
+    "집 가기 싫", "집에 들어가기 싫", "집 들어가기 싫", "집에 가고 싶지 않", "집에 안 가고 싶", "집에 가기 실", "집에 가기 무서",
+  ]);
+});
+
+test("설정 판 올리기: 뒤 판에 더한 말을 받되, 지운 줄기의 꼴은 받지 않는다. 처음 반은 새 기본 목록", async () => {
   const { inSpace, db } = await import("./db.ts");
   const { getSettings, saveSettings } = await import("./data.ts");
-  const v2List = ["죽고 싶", "자해", "자살", "왕따", "한테 맞"]; // 선생님이 「때리」 「에게 맞」 들을 지운 목록
+  const v2List = ["죽고 싶", "자해", "자살", "왕따", "한테 맞"]; // 선생님이 「때리」 「에게 맞」 「때렸」 「괴롭혀」 들을 지운 목록
   await inSpace("crisk2", async () => {
     await db().set("meta", "settings", { riskWords: v2List, riskWordsV: 2 });
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, [...v2List, ...RISK_WORDS_BY_V[3]]);
-    assert.ok(!s.riskWords.includes("때리") && !s.riskWords.includes("에게 맞"));
-    assert.equal(s.riskWordsV, 3);
+    // 때린·괴롭히·다치게 해·집에 가기 시러·죽이고 싶·뒤질래처럼 지운 줄기의 꼴은 들어오지 않는다
+    assert.deepEqual(s.riskWords, [
+      ...v2List, "따돌", "은따", "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
+    ]);
+    assert.equal(s.riskWordsV, 4);
     // 선생님이 설정을 저장하면 판도 같이 남아, 그 뒤에 지운 말은 다시 들어오지 않는다
-    await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "때린") });
-    assert.ok(!(await getSettings()).riskWords.includes("때린"));
+    await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "발로 차") });
+    assert.ok(!(await getSettings()).riskWords.includes("발로 차"));
+  });
+  await inSpace("crisk3", async () => {
+    const v3List = DEFAULT_RISK_WORDS.filter((w) => !addsOf(4).includes(w));
+    await db().set("meta", "settings", { riskWords: v3List, riskWordsV: 3 });
+    const s = await getSettings();
+    assert.deepEqual(s.riskWords, [...v3List, ...addsOf(4)]);
+    assert.equal(s.riskWordsV, 4);
   });
   await inSpace("crisk1", async () => {
-    await db().set("meta", "settings", { riskWords: ["죽고 싶", "왕따"] }); // 판이 없던 예전 저장
+    await db().set("meta", "settings", { riskWords: ["죽고 싶", "왕따", "때렸"] }); // 판이 없던 예전 저장
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, ["죽고 싶", "왕따", ...RISK_WORDS_BY_V[2], ...RISK_WORDS_BY_V[3]]);
-    assert.equal(s.riskWordsV, 3);
+    assert.deepEqual(s.riskWords, [
+      "죽고 싶", "왕따", "때렸", "자살", "살기 싫", "때리", "한테 맞", "에게 맞", "죽여", "죽일", "때린", "때릴", "때림", "따돌",
+      "죽이고 싶", "죽인다", "은따", "떄리", "떄려", "떄렸",
+      "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
+    ]);
+    assert.equal(s.riskWordsV, 4);
   });
   await inSpace("crisk0", async () => {
     const s = await getSettings(); // 설정을 한 번도 저장하지 않은 반
     assert.deepEqual(s.riskWords, DEFAULT_RISK_WORDS);
-    assert.equal(s.riskWordsV, 3);
+    assert.equal(s.riskWordsV, 4);
   });
 });

@@ -108,33 +108,83 @@ export const DEFAULT_RISK_WORDS = [
   "죽고 싶", "죽을래", "죽어버", "사라지고 싶", "없어지고 싶", "자해", "자살", "살기 싫",
   "때렸", "때려", "때리", "맞고 있", "한테 맞", "에게 맞", "괴롭혀", "괴롭힘", "왕따", "집에 가기 싫", "다치게 하", "죽여", "죽일",
   "때린", "때릴", "때림", "괴롭히", "괴롭혔", "다치게 해", "따돌", "집에 가기 시러",
+  "죽이고 싶", "죽인다", "집 가기 싫", "집에 들어가기 싫", "집 들어가기 싫", "집에 가고 싶지 않", "집에 안 가고 싶", "집에 가기 실",
+  "뒤질래", "디질래", "은따", "떄리", "떄려", "떄렸", "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
 ];
 // 예전 기본 목록에 나중에 더한 말(판마다) — 선생님이 목록을 고친 적이 있어도 그 판 뒤에 더한 말만 한 번 더해 준다(riskWordsV).
-// 그 전 판에 더한 말을 선생님이 지웠다면 다시 넣지 않는다. 새 말을 더할 때는 판을 하나 올리고 DEFAULT_RISK_WORDS에도 넣는다.
-export const RISK_WORDS_BY_V: Record<number, string[]> = {
-  2: ["자살", "살기 싫", "때리", "한테 맞", "에게 맞", "죽여", "죽일"],
+// add는 더할 말, from은 그 말의 줄기(먼저 있던 말). from이 있으면 선생님 목록에 줄기가 하나라도 남아 있을 때만 더한다:
+// 선생님이 「때렸」「때려」「때리」를 지웠다면 「때린」도 넣지 않는다. from이 없는 말은 늘 더한다.
+// 새 말을 더할 때는 판을 하나 올리고 DEFAULT_RISK_WORDS에도 넣는다.
+export const RISK_WORDS_BY_V: Record<number, { add: string[]; from?: string[] }[]> = {
+  2: [
+    { add: ["자살", "살기 싫"] },
+    { add: ["때리"], from: ["때렸", "때려"] },
+    { add: ["한테 맞", "에게 맞", "죽여", "죽일"] },
+  ],
   // 두 글자 줄기는 받침을 늘려 찾지 않으므로 꼴마다 넣는다(「때린다」「때릴까」「따돌려요」)
-  3: ["때린", "때릴", "때림", "괴롭히", "괴롭혔", "다치게 해", "따돌", "집에 가기 시러"],
+  3: [
+    { add: ["때린", "때릴", "때림"], from: ["때리", "때렸", "때려"] },
+    { add: ["괴롭히", "괴롭혔"], from: ["괴롭혀", "괴롭힘"] },
+    { add: ["다치게 해"], from: ["다치게 하"] },
+    { add: ["따돌"] },
+    { add: ["집에 가기 시러"], from: ["집에 가기 싫"] },
+  ],
+  4: [
+    { add: ["죽이고 싶", "죽인다"], from: ["죽여", "죽일"] },
+    { add: ["집 가기 싫", "집에 들어가기 싫", "집 들어가기 싫", "집에 가고 싶지 않", "집에 안 가고 싶", "집에 가기 실"], from: ["집에 가기 싫", "집에 가기 시러"] },
+    { add: ["뒤질래", "디질래"], from: ["죽을래"] },
+    { add: ["은따"], from: ["왕따", "따돌"] },
+    { add: ["떄리", "떄려", "떄렸"], from: ["때리", "때렸", "때려"] }, // 아이들이 흔히 치는 「떄」
+    { add: ["집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤"] },
+  ],
 };
 export const RISK_WORDS_V = Math.max(...Object.keys(RISK_WORDS_BY_V).map(Number));
-// 판 v에서 저장한 목록에 더해 줄 말(v보다 뒤 판에 더한 말)
-export const riskWordsAfter = (v: number) =>
-  Object.entries(RISK_WORDS_BY_V).filter(([k]) => Number(k) > v).sort((a, b) => Number(a[0]) - Number(b[0])).flatMap(([, ws]) => ws);
+// 판 v에서 저장한 목록(saved)에 더해 줄 말: v보다 뒤 판에 더한 말 가운데 목록에 없고, 줄기가 남아 있는 것(앞 판에서 더한 말도 줄기로 친다).
+// saved를 주지 않으면 v 뒤에 더한 말을 모두 돌려준다.
+export function riskWordsAfter(v: number, saved?: string[]) {
+  const key = (w: string) => String(w).replace(/\s+/g, "");
+  const have = new Set((saved ?? []).map(key));
+  const out: string[] = [];
+  const later = Object.entries(RISK_WORDS_BY_V).filter(([k]) => Number(k) > v).sort((a, b) => Number(a[0]) - Number(b[0]));
+  for (const [, groups] of later) {
+    for (const { add, from } of groups) {
+      if (saved && from && !from.some((w) => have.has(key(w)))) continue;
+      for (const w of add) {
+        if (have.has(key(w))) continue;
+        have.add(key(w));
+        out.push(w);
+      }
+    }
+  }
+  return out;
+}
 
 // 선생님이 목록에서 지워도 늘 살피는 말: 스스로 해치려는 마음과, 한국어가 아닌 말로 쓴 위험 표현
-// (학생 화면은 영어·중국어·베트남어·일본어로도 쓸 수 있다). 아이들이 흔히 쓰는 맞춤법(「죽구 싶」「시퍼」「시러」)도 넣는다.
-// 성조 없이 친 베트남어(「muon chet」)와 가타카나(「シニタイ」), 「dont」는 matchRisk가 알아서 견준다.
+// (학생 화면은 영어·중국어·베트남어·일본어로도 쓸 수 있다). 아이들이 흔히 쓰는 맞춤법(「죽구 싶」「시퍼」「시러」「실타」)도 넣는다.
+// 성조 없이 친 베트남어(「muon chet」)와 가타카나(「シニタイ」), 「dont」「do not」「wanna」, 「被…打」「bị … đánh」는 matchRisk가 알아서 견준다.
 export const RISK_CORE = [
   "죽고 싶", "사라지고 싶", "없어지고 싶", "자해", "자살", "살기 싫", "죽어버",
   "죽구 싶", "죽고 시퍼", "죽구 시퍼", "죽고 십", "사라지고 시퍼", "없어지고 시퍼", "살기 시러", "살고 싶지 않", "ㅈㄱㅅㅇ",
+  "살고 싶지가 않", "살기 실", "사는 게 싫", "사는 거 싫", "뒤지고 싶", "디지고 싶", "없어졌으면 좋겠", "사라졌으면 좋겠",
+  "태어나지 않았으면", "안 태어났으면", "태어나지 말",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   "disappear forever", "want to disappear", "don't want to live",
+  "want to be dead", "wish i was dead", "wish i were dead", "hate my life", "end my life", "don't want to be alive",
+  "want die", "wish i could disappear", "hate myself", "killmyself", "selfharm", "cut my self", "hurt my self",
   "bully", "bullied", "bullies", "beat me", "hit me", "hits me", "hitting me", "hurt me", "hurting me", "don't want to go home",
+  "don't want to go back home",
+  "punched me", "punches me", "punching me", "kicked me", "kicks me", "kicking me", "slapped me", "slaps me", "slapping me",
+  "pushed me", "pushes me", "pushing me", "choked me", "make fun of me", "makes fun of me", "made fun of me", "making fun of me",
   "想死", "不想活", "活不下去", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "不想回家", "想消失",
+  "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "不要回家", "想杀", "恨自己", "恨我自己",
   "muốn chết", "không muốn sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh con", "đánh em", "đánh tôi", "đánh mình",
-  "không muốn về nhà", "muốn biến mất",
+  "không muốn về nhà", "muốn biến mất", "ghét bản thân",
   "死にたい", "しにたい", "しんじゃいたい", "消えたい", "きえたい", "いなくなりたい", "自殺", "じさつ", "自傷", "いじめ",
-  "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "に帰りたくない", "にかえりたくない",
+  "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "に帰りたくない", "にかえりたくない", "なかまはずれ", "仲間外れ",
+  "死にたく", "しにたくな", "死んじゃいたい", "しんでしまいたい", "死んでしまいたい", "きえてしまいたい", "消えてしまいたい", "生きていたくない", "いきていたくない",
+  "消えてなくなりたい", "きえてなくなりたい",
+  "ぶたれ", "ころしたい", "殺したい", "ころしてやる", "殺してやる", "しねって", "死ね",
+  "うちかえりたくない", "うち帰りたくない", "いえかえりたくない", "家帰りたくない",
 ];
 
 export function emotionOf(name: string) {
