@@ -195,6 +195,7 @@ export interface MoodRecord {
   riskHits: string[];
   riskChecked: string | null;
   riskSelf?: boolean; // 이 기록 자체에 위험 표현이 있었나(risk는 다시 남기기 전 기록의 살펴보지 않은 위험까지 이어받음)
+  riskAt?: string; // 위험 내용이 마지막으로 바뀐 때(늦게 온 앞 기록·마치지 않은 글이 끼어들 때도) — 「살펴봤어요」 버전 확인에 쓴다(없으면 createdAt)
   createdAt: string;
   tone?: string | null; // 말투(목소리 기운) — 말하기로 남긴 기록만, 교사만 봄
   toneWhy?: string;
@@ -353,6 +354,7 @@ export interface RiskDraft {
   at: string;
   checked: string | null;
   demo?: boolean;
+  earlier?: { text: string; hits: string[]; at: string }[]; // 같은 칸에 앞서 쓴 위험한 글(새 글이 와도 지우지 않음)
 }
 
 // 마음 친구 성장: 서로 다른 감정 단어를 몇 개 써 봤는지에 따라 꾸미개가 열린다(기록 횟수가 아니라 새 단어로)
