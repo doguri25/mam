@@ -6,7 +6,7 @@ import { db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_ADDED, RISK_WORDS_V, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -15,6 +15,7 @@ export interface Settings {
   keys: Partial<Record<Provider, string>>; // 암호화된 값
   vocab: string[];
   riskWords: string[];
+  riskWordsV?: number; // 기본 위험 표현 목록 판(새로 더한 말을 한 번만 넣어 주려고)
   checks: Record<string, string>; // 「살펴봤어요」 표시: `${no}_${주 시작일}` → 시각
   voiceMode: VoiceMode; // 말투: 끄기 · 기기 안에서 재기 · Gemini가 듣기
   rules: Rules;
@@ -29,6 +30,7 @@ export function defaultSettings(): Settings {
     keys: {},
     vocab: DEFAULT_VOCAB,
     riskWords: DEFAULT_RISK_WORDS,
+    riskWordsV: RISK_WORDS_V,
     checks: {},
     voiceMode: "device",
     rules: DEFAULT_RULES,
@@ -39,7 +41,13 @@ export function defaultSettings(): Settings {
 export async function getSettings(): Promise<Settings> {
   const s = await db().get<Partial<Settings>>("meta", "settings");
   const d = defaultSettings();
-  return { ...d, ...s, models: { ...d.models, ...s?.models }, rules: { ...d.rules, ...s?.rules } };
+  const out: Settings = { ...d, ...s, models: { ...d.models, ...s?.models }, rules: { ...d.rules, ...s?.rules } };
+  // 예전에 저장한 목록에는 나중에 더한 기본 위험 표현을 한 번 넣어 준다(선생님이 그 뒤에 지우면 그대로 둠)
+  if (s && (s.riskWordsV ?? 1) < RISK_WORDS_V) {
+    out.riskWords = [...out.riskWords, ...RISK_WORDS_ADDED.filter((w) => !out.riskWords.includes(w))];
+    out.riskWordsV = RISK_WORDS_V;
+  }
+  return out;
 }
 
 export async function saveSettings(s: Settings) {
@@ -51,8 +59,10 @@ export async function getRoster(): Promise<Student[]> {
   return (await db().get<{ students: Student[] }>("meta", "roster"))?.students ?? [];
 }
 
+// 연습 데이터가 남아 있나: 연습 명단이거나, 명단에 연습용 가짜 학생이 한 명이라도 있으면
 export async function rosterIsDemo() {
-  return (await db().get<{ demo?: boolean }>("meta", "roster"))?.demo === true;
+  const doc = await db().get<{ demo?: boolean; students?: Student[] }>("meta", "roster");
+  return doc?.demo === true || !!doc?.students?.some((s) => s.demo);
 }
 
 // demo: 시연(연습)용 가짜 명단인지 — 교사 화면에 「연습 데이터」 띠를 띄운다
@@ -135,20 +145,33 @@ export async function accountName() {
 
 // 「1 햇살」, 「1,햇살」, 「1	햇살」 한 줄에 한 명. 같은 번호는 원래 코드를 그대로 둔다.
 export function parseRoster(text: string, old: Student[]): Student[] {
+  return readRoster(text, old).students;
+}
+// 명단 읽기. 읽지 못한 줄(모양이 다름·번호가 겹침·가명이 12자를 넘음)은 skipped로 돌려 선생님께 알린다.
+// 연습용 가짜 학생 줄을 그대로 두면 연습 표시·동의 날짜도 그대로, 가명을 바꿔 실제 학생으로 바꾸면 연습 표시와 동의 날짜를 뗀다.
+export function readRoster(text: string, old: Student[]): { students: Student[]; skipped: string[] } {
   const taken = new Set(old.map((s) => s.code));
   const seen = new Set<number>();
   const out: Student[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const m = line.trim().match(/^(\d{1,3})\s*[,.\t ]\s*(.{1,12})$/);
-    if (!m) continue;
+  const skipped: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(/^(\d{1,3})\s*[,.\t ]\s*(.{1,12})$/);
+    if (!m || seen.has(Number(m[1]))) {
+      skipped.push(line.slice(0, 40));
+      continue;
+    }
     const no = Number(m[1]);
-    if (seen.has(no)) continue;
     seen.add(no);
+    const alias = m[2].trim();
     const prev = old.find((s) => s.no === no);
-    out.push({ no, alias: m[2].trim(), code: prev?.code ?? newCode(taken), ...(prev?.consent ? { consent: prev.consent } : {}) });
+    const keepPractice = !!prev?.demo && prev.alias === alias;
+    const consent = prev?.consent && (!prev.demo || keepPractice) ? prev.consent : undefined;
+    out.push({ no, alias, code: prev?.code ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}) });
     taken.add(out.at(-1)!.code);
   }
-  return out;
+  return { students: out, skipped };
 }
 
 // 체험 공간은 실제 반에 넣은 AI 키를 빌려 쓰되 하루 DEMO_AI_PER_DAY번까지만(키는 화면에 나가지 않는다)
@@ -335,11 +358,17 @@ async function seedSelfChecks(date: string) {
 // 보관 기한이 지난 것 세기 · 지우기(선생님이 눌러야만). 학급 역량 진단은 학생 이름·번호가 없어 그대로 둔다.
 const DATED = [["records", "date"], ["cheers", "createdAt"], ["notes", "createdAt"], ["letters", "createdAt"], ["reflects", "createdAt"], ["sheets", "createdAt"]] as const;
 export const cutoffNow = async () => cutoffOf((await getSettings()).retention, today());
+// 기한(cut)은 한국 날짜. 날짜 칸(date)은 그대로 견주고, 만든 시각(UTC ISO)은 그날 한국 자정의 시각과 견준다
+// (그대로 견주면 한국 시각 0~9시에 쓴 글이 하루 일찍 지워진다)
+const cutIso = (cut: string) => new Date(`${cut}T00:00:00+09:00`).toISOString();
+const cutFor = (field: string, cut: string) => (field === "date" ? cut : cutIso(cut));
+// 조치 기록은 그 위험 표현 기록의 날짜로 정리한다(기록이 지워지면 조치 기록도 함께)
+const actDate = (a: RiskAction) => a.recordDate || a.date;
 export async function expiredCounts(cut: string) {
   const counts: Record<string, number> = {};
-  for (const [col, field] of DATED) counts[col] = await db().count(col, field, "<", cut);
-  counts.self = (await getSelfAnswers()).filter((a) => a.at < cut).length;
-  counts.risk = (await getRiskActions()).filter((a) => a.date < cut).length;
+  for (const [col, field] of DATED) counts[col] = await db().count(col, field, "<", cutFor(field, cut));
+  counts.self = (await getSelfAnswers()).filter((a) => a.at < cutIso(cut)).length;
+  counts.risk = (await getRiskActions()).filter((a) => actDate(a) < cut).length;
   return counts;
 }
 export async function purgeLogs(): Promise<PurgeLog[]> {
@@ -347,21 +376,24 @@ export async function purgeLogs(): Promise<PurgeLog[]> {
 }
 export async function purgeBefore(cut: string): Promise<PurgeLog> {
   const counts: Record<string, number> = {};
-  for (const [col, field] of DATED) counts[col] = await db().delWhere(col, field, "<", cut);
+  for (const [col, field] of DATED) counts[col] = await db().delWhere(col, field, "<", cutFor(field, cut));
+  const iso = cutIso(cut);
   const selfs = await getSelfAnswers();
-  counts.self = selfs.filter((a) => a.at < cut).length;
-  await deleteSelfAnswers((a) => a.at >= cut);
+  counts.self = selfs.filter((a) => a.at < iso).length;
+  await deleteSelfAnswers((a) => a.at >= iso);
   const rounds = await getSelfRounds();
-  const left = new Set(selfs.filter((a) => a.at >= cut).map((a) => a.round));
-  if (rounds.some((r) => r.closedAt && r.openedAt < cut && !left.has(r.id))) await saveSelfRounds(rounds.filter((r) => !(r.closedAt && r.openedAt < cut && !left.has(r.id))));
+  const left = new Set(selfs.filter((a) => a.at >= iso).map((a) => a.round));
+  const gone = (r: SelfRound) => !!r.closedAt && r.openedAt < cut && !left.has(r.id);
+  if (rounds.some(gone)) await saveSelfRounds(rounds.filter((r) => !gone(r)));
   const acts = await getRiskActions();
-  counts.risk = acts.filter((a) => a.date < cut).length;
-  if (counts.risk) await saveRiskActions(acts.filter((a) => a.date >= cut));
+  counts.risk = acts.filter((a) => actDate(a) < cut).length;
+  if (counts.risk) await saveRiskActions(acts.filter((a) => actDate(a) >= cut));
   // 무엇을 언제 정리했는지는 남긴다(내용 없이 수만)
   const log: PurgeLog = { at: new Date().toISOString(), cutoff: cut, counts };
   await db().set("meta", "purges", { items: [...(await purgeLogs()), log].slice(-20) });
   await touch("wipe");
   await touch("records");
+  await touch("other"); // 다른 기기의 선생님 화면도 통째로 다시 읽어 지운 기록이 남지 않게
   return log;
 }
 
@@ -369,9 +401,13 @@ export async function purgeBefore(cut: string): Promise<PurgeLog> {
 export const PRACTICE_VERSION = 4;
 
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
+// 명단을 연습용으로 바꾸므로 학생 번호에 매인 것(기록·응원·메모·쪽지·돌아보기·활동지 피드백·조치 기록·자기진단 답)은 모두 비운다.
+// (남겨 두면 실제 학생의 조치 기록·자기진단 답이 같은 번호의 가짜 학생에게 붙는다) 반 전체 역량 진단 회차는 그대로 둔다.
 export async function seedPractice() {
-  for (const col of ["records", "cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
-  if (isDemo()) await db().clear("sheets"); // 체험 공간은 여럿이 함께 쓰므로 하루마다 비움(실제 반의 활동지 피드백은 그대로)
+  for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
+  await deleteSelfAnswers(() => false);
+  await saveSelfRounds([]);
+  await saveRiskActions([]);
   const date = today();
   const taken = new Set<string>();
   // 보호자 동의서: 3명(4·12·19번)만 아직 받지 않은 반
@@ -379,7 +415,7 @@ export async function seedPractice() {
     const c = newCode(taken);
     taken.add(c);
     return c;
-  }).map((s) => ([4, 12, 19].includes(s.no) ? s : { ...s, consent: addDays(date, -60) })), true);
+  }).map((s) => ({ ...s, demo: true, ...([4, 12, 19].includes(s.no) ? {} : { consent: addDays(date, -60) }) })), true);
   await saveLooks(demoLooks());
   const now = Date.now();
   await db().setMany("records", demoRecords(date).map((r) => [r.id, { ...r, updatedAt: now }]));
@@ -388,10 +424,47 @@ export async function seedPractice() {
   await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
   await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
   await saveSelChecks([...(await getSelChecks()).filter((c) => !c.demo), ...demoSelChecks(date)]); // 역량 진단 연습 회차(실제 회차는 그대로)
-  await saveRiskActions([...(await getRiskActions()).filter((a) => !a.demo), ...demoRiskActions(date)]); // 위험 표현 조치 연습 기록
+  await saveRiskActions(demoRiskActions(date)); // 위험 표현 조치 연습 기록
   await seedSelfChecks(date); // 학생 자기진단 연습 회차(실제 회차는 그대로)
   await saveSettings({ ...(await getSettings()), checks: {} });
   await db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION });
   await touch("wipe");
   await touch("records");
+}
+
+// 「연습 데이터만 지우기」: 연습 표시가 붙은 것과 연습용 가짜 학생에게 매인 것만 지우고, 실제 학생·기록은 그대로 둔다.
+export async function clearPractice() {
+  const doc = await db().get<{ students: Student[]; demo?: boolean }>("meta", "roster");
+  const roster = doc?.students ?? [];
+  // 학생마다 연습 표시가 붙기 전에 만든 연습 명단(명단에 표시만 있고 학생에게는 없음)은 모두 가짜 학생
+  const legacy = doc?.demo === true && !roster.some((s) => s.demo);
+  const fake = new Set(roster.filter((s) => s.demo || legacy).map((s) => s.no));
+  await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다
+  await db().del("sheets", PRACTICE_SHEET);
+  await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
+  await saveSelfRounds((await getSelfRounds()).filter((r) => !r.demo));
+  if (fake.size) await saveRoster(roster.filter((s) => !fake.has(s.no)), false);
+  else if (doc?.demo) await saveRoster(roster, false);
+  await saveSettings({ ...(await getSettings()), checks: {} });
+  await touch("wipe");
+  await touch("records");
+}
+
+// 연습 표시가 붙은 것, 그리고 gone(번호)이 참인 학생(연습용 가짜 학생)에게 매인 것을 지운다.
+// 명단을 고쳐 연습 학생을 실제 학생으로 바꿀 때도 그 번호에 남은 연습 흔적을 바로 지우는 데 쓴다.
+export async function purgePractice(gone: (no: number) => boolean) {
+  const recs = await db().all<MoodRecord>("records");
+  const dropped = new Set<string>();
+  for (const r of recs) if (r.demo || gone(r.no)) { await db().del("records", r.id); dropped.add(r.id); }
+  for (const col of ["cheers", "notes", "reflects"] as const)
+    for (const x of await db().all<{ id: string; no: number; demo?: boolean }>(col)) if (x.demo || gone(x.no)) await db().del(col, x.id);
+  for (const l of await db().all<{ id: string; from: number; to: number; demo?: boolean }>("letters"))
+    if (l.demo || gone(l.from) || gone(l.to)) await db().del("letters", l.id);
+  const acts = await getRiskActions();
+  const keep = acts.filter((a) => !a.demo && !gone(a.no) && !dropped.has(a.recordId));
+  if (keep.length !== acts.length) await saveRiskActions(keep);
+  await deleteSelfAnswers((a) => !a.demo && !gone(a.no));
+  const looks = await getLooks();
+  const nos = Object.keys(looks).map(Number);
+  if (nos.some(gone)) await saveLooks(Object.fromEntries(Object.entries(looks).filter(([no]) => !gone(Number(no)))));
 }

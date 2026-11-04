@@ -3,12 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, saveRiskActions, getSelfRounds, saveSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, parseRoster, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, saveRiskActions, getSelfRounds, saveSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
   rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
-import { PRACTICE_SHEET } from "@/lib/demo";
 import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
@@ -208,7 +207,8 @@ async function handle(req: NextRequest) {
     if (body.action === "note") {
       const text = String(body.text ?? "").trim().slice(0, 1000);
       if (!text) return bad("메모가 비어 있어요.");
-      const n: Note = { id: `${Date.now()}_${body.no}`, no: Number(body.no), text, createdAt: new Date().toISOString() };
+      const practice = (await getRoster()).find((x) => x.no === Number(body.no))?.demo;
+      const n: Note = { id: `${Date.now()}_${body.no}`, no: Number(body.no), text, createdAt: new Date().toISOString(), ...(practice ? { demo: true } : {}) };
       await db().set("notes", n.id, { ...n });
       await touch("other");
       return NextResponse.json({ note: n });
@@ -220,9 +220,14 @@ async function handle(req: NextRequest) {
     }
 
     if (body.action === "roster") {
-      const students = parseRoster(String(body.text ?? ""), await getRoster());
+      const old = await getRoster();
+      const { students, skipped } = readRoster(String(body.text ?? ""), old);
       if (!students.length) return bad("「번호 가명」 모양으로 한 줄에 한 명씩 적어 주세요.");
-      return NextResponse.json({ students: await saveRoster(students) });
+      // 연습용 가짜 학생을 실제 학생으로 바꾸거나 뺀 번호는, 그 번호에 남은 연습 흔적을 바로 지운다
+      const kept = new Set(students.filter((s) => s.demo).map((s) => s.no));
+      const replaced = new Set(old.filter((s) => s.demo && !kept.has(s.no)).map((s) => s.no));
+      if (replaced.size) await purgePractice((no) => replaced.has(no));
+      return NextResponse.json({ students: await saveRoster(students, students.some((s) => s.demo)), skipped });
     }
 
     // 보호자 동의서 받음 표시(기록을 막지는 않음): nos 여럿을 한꺼번에 켜거나 끈다
@@ -301,7 +306,8 @@ async function handle(req: NextRequest) {
     if (body.action === "saveCheer") {
       const text = String(body.text ?? "").trim().slice(0, 600);
       if (!text) return bad("내용이 비어 있어요.");
-      const c: Cheer = { id: `${Date.now()}_${body.no}`, no: Number(body.no), text, createdAt: new Date().toISOString() };
+      const practice = (await getRoster()).find((x) => x.no === Number(body.no))?.demo;
+      const c: Cheer = { id: `${Date.now()}_${body.no}`, no: Number(body.no), text, createdAt: new Date().toISOString(), ...(practice ? { demo: true } : {}) };
       await db().set("cheers", c.id, { ...c });
       await touch("other");
       return NextResponse.json({ cheer: c });
@@ -364,7 +370,7 @@ async function handle(req: NextRequest) {
         db().find<Reflect>("reflects", "no", "==", no), db().all<SheetRun>("sheets"), getRiskActions(),
       ]);
       const [rounds, selfs] = await Promise.all([getSelfRounds(), getSelfAnswers()]);
-      const sheets = runs.flatMap((r) => r.items.filter((x) => x.no === no).map((x) => ({ ...x, runId: r.id, date: r.createdAt.slice(0, 10) })));
+      const sheets = runs.flatMap((r) => r.items.filter((x) => x.no === no).map((x) => ({ ...x, runId: r.id, date: today(new Date(r.createdAt)) })));
       const byDate = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
         records: records.map(lean).sort((a, b) => a.id.localeCompare(b.id)),
@@ -491,25 +497,9 @@ async function handle(req: NextRequest) {
     if (body.action === "demo") {
       // 체험 공간에서는 지우지 않고 언제나 처음 판으로 되돌린다(여러 사람이 함께 쓰는 공간이라)
       const mode = isDemo() ? "seed" : body.mode;
-      if (mode === "clearDemo") {
-        // 연습 기록(demo 표시)만 지운다. 연습용 명단이면 명단·응원·메모·쪽지·돌아보기도 함께.
-        const demoRecs = await db().find<MoodRecord>("records", "demo", "==", true);
-        for (const r of demoRecs) await db().del("records", r.id);
-        await db().del("sheets", PRACTICE_SHEET);
-        await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
-        await saveRiskActions((await getRiskActions()).filter((a) => !a.demo));
-        await deleteSelfAnswers((a) => !a.demo);
-        await saveSelfRounds((await getSelfRounds()).filter((r) => !r.demo));
-        if (await rosterIsDemo()) {
-          for (const col of ["cheers", "notes", "letters", "reflects"] as const) await db().clear(col);
-          await db().del("meta", "looks");
-          await saveRoster([]);
-        }
-        await saveSettings({ ...settings, checks: {} });
-        await touch("wipe");
-        await touch("records");
-      } else if (mode === "seed") await seedPractice();
-      else {
+      if (mode === "clearDemo") await clearPractice(); // 연습 표시가 붙은 것과 연습용 가짜 학생에게 매인 것만
+      else if (mode === "seed") await seedPractice();
+      else if (mode === "clear") {
         for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
         await db().del("meta", "looks");
         await db().del("meta", "selChecks");
@@ -520,7 +510,7 @@ async function handle(req: NextRequest) {
         await saveSettings({ ...settings, checks: {} });
         await touch("wipe");
         await touch("records");
-      }
+      } else return bad("알 수 없는 요청이에요."); // 이름이 틀린 요청으로 반 전체가 지워지지 않게
       return NextResponse.json({ ok: true });
     }
 
