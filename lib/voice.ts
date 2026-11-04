@@ -3,6 +3,25 @@
 
 import type { VoiceFeatures } from "./tone.ts";
 
+// 받아쓴 말의 소리 마디(음절) 수. 빠르기(rate, 1초에 몇 마디)를 학생 언어와 상관없이 같은 눈금으로 재려고 —
+// 예전에는 한글·로마자 글자만 세서 중국어·일본어는 0, 영어는 알파벳 하나하나를 세어 늘 「빠르게」로 보였다.
+// 한글 한 글자·한자 한 글자 = 한 마디. 가나도 한 글자에 한 마디지만 작은 ゃゅょ·っ·ん은 앞 소리에 붙여 세지 않는다.
+// 로마자(영어·베트남어)는 낱말마다 모음 덩어리 수(베트남어 낱말은 거의 늘 한 마디), 숫자는 한 자리에 한 마디.
+const KANA_TAIL = new Set([..."ぁぃぅぇぉゃゅょゎっゕゖんァィゥェォャュョヮッヵヶン"]);
+function latinSyllables(word: string) {
+  const w = word.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase(); // ơ·ư·â 같은 베트남어 모음도 o·u·a로
+  let n = (w.match(/[aeiouy]+/g) ?? []).length;
+  if (n > 1 && /[^aeiouy]e$/.test(w) && !/[^aeiouy]le$/.test(w)) n--; // 영어 끝 e(make, like)는 소리 나지 않음
+  return Math.max(1, n);
+}
+export function speechSyllables(text: string): number {
+  const t = text.normalize("NFC");
+  let n = (t.match(/[가-힣]/g) ?? []).length + (t.match(/\p{Script=Han}/gu) ?? []).length + (t.match(/\d/g) ?? []).length;
+  n += (t.match(/[\p{Script=Hiragana}\p{Script=Katakana}]/gu) ?? []).filter((c) => !KANA_TAIL.has(c)).length;
+  for (const word of t.match(/\p{Script=Latin}+/gu) ?? []) n += latinSyllables(word);
+  return n;
+}
+
 function pitchOf(buf: Float32Array, rate: number) {
   // 자기상관으로 80~500Hz 사이 가장 닮은 간격을 찾는다
   const minLag = Math.floor(rate / 500);
@@ -78,7 +97,7 @@ export class VoiceMeter {
       loud: Math.round(mean(this.louds) * 1000) / 1000,
       pitch: Math.round(sorted[Math.floor(sorted.length / 2)] ?? 0),
       pitchVar: Math.round(Math.sqrt(mean(semis.map((s) => (s - m) ** 2))) * 10) / 10,
-      rate: seconds ? Math.round((transcript.replace(/[^가-힣a-zA-Z0-9]/g, "").length / seconds) * 10) / 10 : 0,
+      rate: seconds ? Math.round((speechSyllables(transcript) / seconds) * 10) / 10 : 0, // 1초에 몇 마디(음절)
     };
     let wav: string | undefined;
     if (this.chunks.length && this.ctx) {
