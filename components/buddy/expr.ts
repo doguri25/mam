@@ -246,7 +246,7 @@ export function pose({ t, expr, intensity, cheer, hard, breath, squeeze }: PoseI
       const n = Math.floor(t / 2.8);
       const spots: [number, number][] = [[0, 0], [0.7, -0.1], [0, 0], [-0.7, 0.05], [0.3, -0.5], [0, 0]];
       const base = expr.look ?? [0, 0];
-      const s = spots[n % spots.length];
+      const s = spots[((n % spots.length) + spots.length) % spots.length]; // t가 음수여도 깨지지 않게
       p.look = [base[0] * 0.5 + s[0] * 0.8, base[1] + s[1] * 0.8];
       p.rot = p.look[0] * 3;
       break;

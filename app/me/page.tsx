@@ -5,13 +5,14 @@
 // 와이파이가 끊기면 기록을 이 기기에 담아 두었다가 연결되면 보낸다(lib/queue).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
 import { flushQueue, queueRecord } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
-import MoodPicker, { type Pick } from "@/components/MoodPicker";
+import MoodPicker, { STEP_START, stepBack, stepDepth, type Pick, type StepNav } from "@/components/MoodPicker";
+import { useBackGuard, useBackSteps } from "@/lib/back";
 import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
 import { CHEER, LANGS, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
@@ -60,6 +61,12 @@ export default function MePage() {
   const [unlocked, setUnlocked] = useState(false); // 새 감정 단어로 꾸미개가 열렸나
   const [offline, setOffline] = useState(false); // 이번 기록을 기기에 담아 뒀나
   const [flushed, setFlushed] = useState(0);
+  // 브라우저 뒤로 가기 = 화면 안 한 단계 앞으로: 감정 카드 질문 위치, 되묻기 앞 화면, 도구 상자 안 단계
+  const [pickNav, setPickNav] = useState<StepNav>(STEP_START);
+  const [askFrom, setAskFrom] = useState<"card" | "confirm">("card");
+  const [calmStep, setCalmStep] = useState<{ depth: number; back: () => void }>({ depth: 0, back: () => {} });
+  const onCalmStep = useCallback((depth: number, back: () => void) => setCalmStep({ depth, back }), []);
+  const [backHint, setBackHint] = useState(false);
   const [readAloud, setReadAloud] = useLocal("mb_read");
   const [langRaw, setLang] = useLocal(`mb_lang_${me?.no ?? 0}`); // 같은 태블릿을 돌려 써도 학생마다 따로
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
@@ -89,7 +96,31 @@ export default function MePage() {
     return () => window.removeEventListener("online", send);
   }, []);
 
-  if (!me) return <main className="grid min-h-dvh place-items-center text-soft">…</main>;
+  const flowDepth =
+    step === "card" ? 1 + stepDepth(pickNav, pick.emotion)
+    : step === "voice" || step === "done" ? 1
+    : step === "confirm" ? 2
+    : step === "ask" ? (askFrom === "card" ? 1 + stepDepth(pickNav, pick.emotion) : 2) + 1
+    : 0;
+  const depth = flowDepth + (calm === "open" ? 1 + calmStep.depth : 0);
+  useBackSteps(depth, () => {
+    if (busy) return;
+    if (calm === "open") return calmStep.depth ? calmStep.back() : setCalm("off");
+    if (step === "card") {
+      const prev = stepBack(pickNav, pick.emotion);
+      return prev ? setPickNav(prev) : reset();
+    }
+    if (step === "confirm") return setStep("voice");
+    if (step === "ask") return setStep(askFrom);
+    reset(); // 고르기 화면으로(말하기·저장한 뒤)
+  }, "me");
+  // 첫 화면에서 뒤로 가기를 눌러도 앱 밖으로 나가지 않고, 나가는 방법을 알려 준다
+  useBackGuard(() => {
+    setBackHint(true);
+    setTimeout(() => setBackHint(false), 4000);
+  }, "me");
+
+  if (!me) return <main data-back-root="me" className="grid min-h-dvh place-items-center text-soft">…</main>;
 
   const tt = (key: UIKey, vars?: Record<string, string | number>) => t(lang, key, vars);
   const slotName = (s: Slot) => w(lang, SLOT_KO[s]);
@@ -107,6 +138,7 @@ export default function MePage() {
     setSummaryKo("");
     setQa({ question: "", options: [], aiRisk: false, skip: false });
     setCalm("off");
+    setPickNav(STEP_START);
     setStep(next);
   }
 
@@ -126,6 +158,7 @@ export default function MePage() {
         if (lang !== "ko" && r.summary) setSummaryKo(r.summary);
       }
       if (q.skip) return save("", q, toTone(r), p);
+      setAskFrom("card");
       setStep("ask");
     } catch (e) {
       // 와이파이가 끊겼으면 되묻기 없이 바로 기기에 담는다
@@ -144,6 +177,7 @@ export default function MePage() {
       setTone(toTone(r));
       if (r.needCard) {
         setNote("notUnderstood");
+        setPickNav(STEP_START);
         setStep("card");
       } else {
         setPick({ emotion: r.emotion, intensity: r.intensity, reason: r.reason, word: r.word || undefined });
@@ -235,13 +269,14 @@ export default function MePage() {
   const tileClass = "chip relative flex min-h-24 flex-col items-center justify-center gap-1 p-2 text-center text-sm font-bold leading-tight hover:border-leaf";
 
   return (
-    <main className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5" lang={lang}>
+    <main data-back-root="me" className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5" lang={lang}>
       {me.demo && (
         <p className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-2 text-sm">
           <span><Doodle name="flask" /> 체험용 반이에요(가짜 학생·기록).</span> <Link href="/try" className="font-bold underline">체험 안내로</Link>
         </p>
       )}
       {flushed > 0 && <p className="mb-3 rounded-2xl bg-leaf-soft px-4 py-2 text-sm"><Doodle name="signal" /> {tt("offlineSent", { n: flushed })}</p>}
+      {backHint && <p role="status" className="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-2xl bg-ink px-5 py-3 text-center text-white shadow-lg">{tt("backHint")}</p>}
       <header className="mb-4 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -290,7 +325,7 @@ export default function MePage() {
           {busy ? (
             <p className="grid h-80 place-items-center font-display text-2xl text-leaf">{tt(busy)}</p>
           ) : calm === "open" ? (
-            <CalmBox look={me.look} emotion={pick.word ?? pick.emotion ?? done?.word ?? done?.emotion} lang={lang} onFelt={sendCalm} onClose={() => setCalm("off")} />
+            <CalmBox look={me.look} emotion={pick.word ?? pick.emotion ?? done?.word ?? done?.emotion} lang={lang} onFelt={sendCalm} onClose={() => setCalm("off")} onStep={onCalmStep} />
           ) : step === "choose" ? (
             <div className="space-y-5">
               <h2 className="font-display text-2xl">{tt("how", { slot: slotName(slot) })}<SayBtn lang={lang} text={`${tt("how", { slot: slotName(slot) })} ${tt("card")}, ${tt("voice")}`} /></h2>
@@ -330,11 +365,11 @@ export default function MePage() {
                 note && <p className="rounded-2xl bg-leaf-soft p-3">{msg(note)}</p>
               )}
               {/* 카드로 고를 때는 한 화면에 질문 하나씩(누르면 다음으로), 말로 한 뒤에는 세 가지를 한눈에 고쳐 보기 */}
-              <MoodPicker value={pick} onChange={setPick} vocab={me.vocab} lang={lang} stepwise={step === "card"} onDone={(v) => fromCard(v)} onBack={() => reset()} />
+              <MoodPicker value={pick} onChange={setPick} vocab={me.vocab} lang={lang} stepwise={step === "card"} onDone={(v) => fromCard(v)} onBack={() => reset()} nav={pickNav} onNav={setPickNav} />
               {step === "confirm" && (
                 <div className="flex justify-between gap-3 pt-2">
                   <button onClick={() => reset()} className="btn-sub">{tt("restart")}</button>
-                  <button onClick={() => (qa.skip ? save("") : setStep("ask"))} disabled={!complete} className="btn-main px-8 text-lg">
+                  <button onClick={() => { if (qa.skip) return save(""); setAskFrom("confirm"); setStep("ask"); }} disabled={!complete} className="btn-main px-8 text-lg">
                     {complete ? tt("yesNext") : tt("pick3")}
                   </button>
                 </div>
@@ -367,7 +402,7 @@ export default function MePage() {
               )}
               {note && <p className="text-alert">{msg(note)}</p>}
               <div className="flex justify-between gap-3">
-                <button onClick={() => { speech.stop(); setMethod("card"); setStep("card"); }} className="btn-sub">{tt("toCard")}</button>
+                <button onClick={() => { speech.stop(); setMethod("card"); setPickNav(STEP_START); setStep("card"); }} className="btn-sub">{tt("toCard")}</button>
                 <button onClick={fromText} disabled={text.trim().length < 2 || speech.listening} className="btn-main px-8 text-lg">{tt("organize")}</button>
               </div>
             </div>

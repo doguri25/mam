@@ -34,7 +34,7 @@ export default function BuddyParade({ className = "" }: { className?: string }) 
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (!seen) return;
-      const f = Math.floor(((now - start) / 1000) * FPS);
+      const f = Math.max(0, Math.floor(((now - start) / 1000) * FPS)); // 첫 rAF 시각이 시작보다 앞설 수 있음
       if (f !== last) { last = f; setFrame(f); }
     };
     raf = requestAnimationFrame(tick);

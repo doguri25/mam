@@ -41,7 +41,7 @@ export default function Buddy({ emotion, intensity = 3, look = DEFAULT_LOOK, che
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       if (!seen) return;
-      const frame = Math.floor(((now - start) / 1000) * FPS);
+      const frame = Math.max(0, Math.floor(((now - start) / 1000) * FPS)); // 첫 rAF 시각이 시작보다 앞설 수 있음
       if (frame === last) return;
       last = frame;
       const c = cheerRef.current;
@@ -57,7 +57,7 @@ export default function Buddy({ emotion, intensity = 3, look = DEFAULT_LOOK, che
   const since = (clock.frame - clock.cheerAt) / FPS;
   const expr = exprOf(emotion);
   const mood = moodOf(emotion);
-  const p = pose({ t, expr, intensity, cheer: since < 1.8 ? since : null, hard: mood === "sad" || mood === "angry" || mood === "fear", breath, squeeze });
+  const p = pose({ t, expr, intensity, cheer: since >= 0 && since < 1.8 ? since : null, hard: mood === "sad" || mood === "angry" || mood === "fear", breath, squeeze });
   return (
     <div ref={box} className={className} style={className ? undefined : { width: size, height: size }} aria-hidden>
       <BuddyArt look={look} mood={mood} expr={expr} pose={p} t={t} boil={Math.floor(clock.frame / BOIL_EVERY) % 3} scene={scene} size={size} className="size-full" />

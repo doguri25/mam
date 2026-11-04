@@ -332,6 +332,7 @@ const UI = {
   lockedHint: { ko: "감정 단어 {n}개를 쓰면 열려요", en: "Unlocks after {n} feeling words", zh: "用过{n}个情绪词语后解锁", vi: "Mở khi em dùng {n} từ cảm xúc", ja: "きもちことばを {n}こ つかうと ひらくよ" },
   growWords: { ko: "지금까지 써 본 감정 단어 {n}개", en: "Feeling words you've used: {n}", zh: "已经用过{n}个情绪词语", vi: "Em đã dùng {n} từ cảm xúc", ja: "これまで つかった きもちことば {n}こ" },
   newUnlock: { ko: "새 꾸미개가 열렸어요!", en: "A new accessory unlocked!", zh: "解锁了新装饰！", vi: "Mở khóa phụ kiện mới!", ja: "あたらしい かざりが ひらいたよ！" },
+  backHint: { ko: "여기가 처음 화면이에요. 다른 친구로 바꾸려면 「다음 친구 차례」를 눌러요.", en: "This is the first screen. To switch to a friend, tap “Next friend”.", zh: "这里是第一页。要换下一位同学，请点「下一位同学」。", vi: "Đây là màn hình đầu tiên. Muốn đổi bạn, hãy bấm “Bạn tiếp theo”.", ja: "ここが さいしょの がめんだよ。つぎの ともだちに かわるときは「つぎのともだち」を おしてね。" },
   tileCheck: { ko: "마음 점검", en: "My heart check", zh: "心灵小检查", vi: "Kiểm tra tâm hồn", ja: "こころ チェック" },
   checkIntro: { ko: "요즘 나와 가장 가까운 것을 골라요. 정답은 없어요. 선생님만 봐요.", en: "Pick what is closest to you these days. There are no right answers. Only your teacher sees it.", zh: "选出最像最近的自己的答案。没有标准答案，只有老师能看到。", vi: "Chọn điều giống em nhất dạo này. Không có đáp án đúng. Chỉ thầy cô xem.", ja: "さいきんの じぶんに いちばん ちかいものを えらんでね。こたえは ないよ。せんせいだけが みるよ。" },
   checkStart: { ko: "시작하기 (10문제)", en: "Start (10 questions)", zh: "开始（10题）", vi: "Bắt đầu (10 câu)", ja: "はじめる (10もん)" },

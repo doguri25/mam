@@ -126,8 +126,13 @@ function Draw({ lang, onDone, onStop }: { lang: Lang; onDone: () => void; onStop
   );
 }
 
-export default function CalmBox({ look, emotion, lang, onFelt, onClose }: Common & { onFelt: (tool: CalmTool, felt: Felt) => void; onClose: () => void }) {
+// onStep: 도구 상자 안에서 몇 단계 들어왔는지(도구 고르기 0 · 도구 1 · 다 한 뒤 2)와 한 단계 앞으로 가기 — 브라우저 뒤로 가기와 잇는다
+export default function CalmBox({ look, emotion, lang, onFelt, onClose, onStep }: Common & {
+  onFelt: (tool: CalmTool, felt: Felt) => void; onClose: () => void; onStep?: (depth: number, back: () => void) => void;
+}) {
   const [phase, setPhase] = useState<"pick" | CalmTool | "felt" | "thanks">("pick");
+  const depth = phase === "pick" ? 0 : phase === "felt" || phase === "thanks" ? 2 : 1;
+  useEffect(() => { onStep?.(depth, () => setPhase("pick")); }, [depth, onStep]);
   const [tool, setTool] = useState<CalmTool>("breathe");
   const [cheer, setCheer] = useState(0);
   const tt = (k: UIKey) => t(lang, k);

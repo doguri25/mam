@@ -26,9 +26,10 @@ export function useStudent() {
   return { me, lang, tt };
 }
 
-export default function StudentFrame({ title, lang, children, wide }: { title: string; lang: Lang; children: React.ReactNode; wide?: boolean }) {
+// root: 브라우저 뒤로 가기를 화면 안 단계와 잇는 화면이면 그 이름(lib/back.ts)
+export default function StudentFrame({ title, lang, children, wide, root }: { title: string; lang: Lang; children: React.ReactNode; wide?: boolean; root?: string }) {
   return (
-    <main className={`mx-auto px-4 py-4 sm:px-6 sm:py-6 ${wide ? "max-w-5xl" : "max-w-3xl"}`} lang={lang}>
+    <main data-back-root={root} className={`mx-auto px-4 py-4 sm:px-6 sm:py-6 ${wide ? "max-w-5xl" : "max-w-3xl"}`} lang={lang}>
       <header className="mb-4 flex items-center gap-3">
         <Link href="/me" className="btn-sub min-h-12 shrink-0 whitespace-nowrap px-4 text-base">← {t(lang, "buddyBack")}</Link>
         <h1 className="font-display text-2xl sm:text-3xl">{title}</h1>
