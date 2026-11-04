@@ -8,12 +8,16 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import { MongoClient } from "mongodb";
+import { FieldPath, getFirestore, type Firestore } from "firebase-admin/firestore";
+import { MongoClient, type UpdateFilter } from "mongodb";
 
-export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets" | "accounts" | "codes";
+// sys: 모든 학급이 함께 쓰는 셈(너무 잦은 시도 막기·하루 한 번 정리). accounts·codes처럼 공간 밖(outOfSpace)에서만 쓴다.
+export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets" | "accounts" | "codes" | "sys";
+// 학급 공간마다 생기는 모음(빈 학급을 지울 때 이것만 지운다). accounts·codes·sys는 공간 밖에 하나씩.
+export const SPACE_COLS = ["meta", "records", "cheers", "notes", "subs", "reflects", "letters", "sheets"] as const satisfies readonly Col[];
 type Doc = Record<string, unknown>;
 type Op = "==" | ">" | ">=" | "<";
+export interface BumpOpts { max?: number; by?: number; extra?: Doc }
 
 interface Store {
   kind: "mongo" | "firestore" | "local";
@@ -28,7 +32,21 @@ interface Store {
   del(col: Col, id: string): Promise<void>;
   clear(col: Col): Promise<void>;
   delWhere(col: Col, field: string, op: Op, value: string | number | boolean): Promise<number>; // 조건에 맞는 것만 지우고 지운 수
+  drop(col: Col): Promise<void>; // 모음째 지우기(MongoDB는 빈 모음도 500개 한도에 세므로 학급을 지울 때는 이것으로)
+
+  // ── 여러 요청이 같은 문서를 한꺼번에 고쳐도 잃지 않는 쓰기(서버가 여러 대여도) ──
+  // 읽고 고쳐 쓰기를 한 번에: fn이 돌려준 것으로 바꾼다(undefined = 그대로 둠, null = 지움). 사이에 다른 쓰기가 끼면 fn을 다시 부른다.
+  update<T>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined): Promise<T | null>;
+  // 문서 안 한 칸만 바꾸기(문서가 없으면 만든다). path는 점으로 이은 칸 이름(예: "items.3"). 그 칸의 값은 통째로 바뀐다.
+  setField(col: Col, id: string, path: string, value: unknown): Promise<void>;
+  // 구간마다 세는 수(문서 모양 { date: 구간, n }): 구간(하루·10분 칸 등)이 바뀌면 새로 센다. n + by가 max를 넘으면 올리지 않고 ok: false.
+  // by가 음수면(잡아 둔 몫 돌려주기) 같은 구간일 때만 뺀다. extra는 함께 적을 칸(예: 지워도 되는 때 exp).
+  bump(col: Col, id: string, win: string, opts?: BumpOpts): Promise<{ ok: boolean; n: number }>;
 }
+
+// 점으로 이은 칸 이름 → 그 자리에 value를 둔 문서 조각({ items: { "3": value } })
+const nest = (keys: string[], value: unknown) => keys.reduceRight<unknown>((acc, k) => ({ [k]: acc }), value) as Doc;
+const BUSY = "저장이 한꺼번에 몰렸어요. 잠시 뒤 다시 해 주세요.";
 
 const PREFIX = process.env.DATA_PREFIX || "maeumbit_";
 // ponytail: 학급마다 모음(컬렉션)이 10개씩 생긴다. MongoDB 무료(M0)는 모음 500개까지라 50학급쯤이 한도 — 넘으면 문서에 학급 칸을 두는 방식으로.
@@ -80,16 +98,66 @@ function firestore(sa: string): Store {
         await batch.commit();
       }
     },
+    // Firestore 모음은 문서가 모두 없어지면 사라진다
+    drop: async (col) => {
+      const snap = await c(col).get();
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const batch = db.batch();
+        snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+    },
+    // 트랜잭션: 읽은 뒤 다른 쓰기가 끼면 Firestore가 fn을 다시 부른다. 문서 자리(ref)는 공간을 아는 지금 잡아 둔다.
+    update: async <T,>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined) => {
+      const ref = c(col).doc(id);
+      return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const cur = snap.exists ? (snap.data() as T) : null;
+        const next = fn(cur);
+        if (next === undefined) return cur;
+        if (next === null) {
+          if (snap.exists) tx.delete(ref);
+          return null;
+        }
+        tx.set(ref, next as Doc);
+        return next;
+      });
+    },
+    // mergeFields: 그 칸만 통째로 바꾸고 나머지 칸은 그대로(없는 문서는 만든다)
+    setField: async (col, id, p, value) => {
+      const keys = p.split(".");
+      await c(col).doc(id).set(nest(keys, value), { mergeFields: [new FieldPath(...keys)] });
+    },
+    bump: async (col, id, win, { max = Infinity, by = 1, extra = {} } = {}) => {
+      const ref = c(col).doc(id);
+      return db.runTransaction(async (tx) => {
+        const d = (await tx.get(ref)).data();
+        const n = d?.date === win ? Number(d.n) || 0 : 0;
+        if (by < 0) {
+          if (d?.date !== win || n + by < 0) return { ok: false, n };
+          tx.set(ref, { n: n + by }, { merge: true });
+          return { ok: true, n: n + by };
+        }
+        if (n + by > max) return { ok: false, n };
+        tx.set(ref, { ...extra, date: win, n: n + by }, { merge: true });
+        return { ok: true, n: n + by };
+      });
+    },
   };
 }
 
 // 문서 id는 _id로 두고, 읽을 때는 떼어 Firestore·로컬과 같은 모양으로 돌려준다
+// _v: 쓸 때마다 새로 다는 표. update는 읽은 때의 표가 그대로일 때만 바꿔 써서(비교 후 쓰기) 사이에 낀 쓰기를 덮지 않는다.
 function mongo(uri: string): Store {
   type MDoc = Doc & { _id: string };
   const client = new MongoClient(uri, { maxPoolSize: 5 }); // 서버리스 인스턴스마다 연결을 조금만
   const ready = client.connect();
   const c = async (col: Col) => (await ready).db(process.env.MONGODB_DB || "maeumbit").collection<MDoc>(prefix() + col);
-  const plain = <T,>({ _id, ...rest }: MDoc) => (void _id, rest as T);
+  const plain = <T,>({ _id, _v, ...rest }: MDoc) => (void _id, void _v, rest as T);
+  const tok = () => crypto.randomUUID();
+  const dup = (e: unknown) => (e as { code?: number }).code === 11000; // 같은 _id가 이미 있음(다른 요청이 먼저 만듦)
+  const wait = (i: number) => new Promise((r) => setTimeout(r, Math.random() * 15 * (i + 1)));
+  const inc = (by: number, extra: Doc) => ({ $inc: { n: by }, $set: { ...extra, _v: tok() } }) as unknown as UpdateFilter<MDoc>; // n은 Doc에서 unknown이라 타입만 맞춤
   return {
     kind: "mongo",
     get prefix() { return prefix(); },
@@ -101,13 +169,67 @@ function mongo(uri: string): Store {
       const d = await (await c(col)).findOne({ _id: id });
       return d ? plain<T>(d) : null;
     },
-    set: async (col, id, data) => void (await (await c(col)).replaceOne({ _id: id }, data, { upsert: true })),
+    set: async (col, id, data) => void (await (await c(col)).replaceOne({ _id: id }, { ...data, _v: tok() }, { upsert: true })),
     setMany: async (col, items) => {
-      if (items.length) await (await c(col)).bulkWrite(items.map(([id, data]) => ({ replaceOne: { filter: { _id: id }, replacement: data, upsert: true } })));
+      if (items.length) await (await c(col)).bulkWrite(items.map(([id, data]) => ({ replaceOne: { filter: { _id: id }, replacement: { ...data, _v: tok() }, upsert: true } })));
     },
     del: async (col, id) => void (await (await c(col)).deleteOne({ _id: id })),
     clear: async (col) => void (await (await c(col)).deleteMany({})),
     delWhere: async (col, field, op, value) => (await (await c(col)).deleteMany({ [field]: op === "==" ? value : { [MONGO_OP[op]]: value } })).deletedCount,
+    drop: async (col) => {
+      try {
+        await (await c(col)).drop();
+      } catch (e) {
+        if ((e as { code?: number }).code !== 26) throw e; // 없는 모음(NamespaceNotFound)은 괜찮음
+      }
+    },
+    update: async <T,>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined) => {
+      const k = await c(col);
+      for (let i = 0; i < 20; i++) {
+        const cur = await k.findOne({ _id: id });
+        const before = cur ? plain<T>(cur) : null;
+        const next = fn(before);
+        if (next === undefined) return before;
+        const same = { _id: id, _v: cur?._v === undefined ? { $exists: false } : cur._v };
+        let done: boolean;
+        if (next === null) done = !cur || (await k.deleteOne(same)).deletedCount === 1;
+        else if (!cur) done = await k.insertOne({ ...(next as Doc), _id: id, _v: tok() }).then(() => true, (e) => (dup(e) ? false : Promise.reject(e)));
+        else done = (await k.replaceOne(same, { ...(next as Doc), _v: tok() })).matchedCount === 1;
+        if (done) return next;
+        await wait(i);
+      }
+      throw new Error(BUSY);
+    },
+    setField: async (col, id, p, value) => void (await (await c(col)).updateOne({ _id: id }, { $set: { [p]: value, _v: tok() } }, { upsert: true })),
+    // 흔한 경우(같은 구간·자리 있음)는 findOneAndUpdate 한 번. 구간이 바뀌었을 때만 새로 센다.
+    bump: async (col, id, win, { max = Infinity, by = 1, extra = {} } = {}) => {
+      const k = await c(col);
+      const count = (d: MDoc | null) => (d?.date === win ? Number(d.n) || 0 : 0);
+      if (by < 0) {
+        const d = await k.findOneAndUpdate({ _id: id, date: win, n: { $gte: -by } }, inc(by, {}), { returnDocument: "after" });
+        return d ? { ok: true, n: count(d) } : { ok: false, n: count(await k.findOne({ _id: id })) };
+      }
+      for (let i = 0; i < 8; i++) {
+        const room = Number.isFinite(max) ? { n: { $lte: max - by } } : {};
+        const hit = await k.findOneAndUpdate({ _id: id, date: win, ...room }, inc(by, extra), { returnDocument: "after" });
+        if (hit) return { ok: true, n: count(hit) };
+        const d = await k.findOne({ _id: id });
+        if (d?.date === win) {
+          if (count(d) + by > max) return { ok: false, n: count(d) };
+          continue; // 그사이 자리가 났음 → 다시
+        }
+        if (by > max) return { ok: false, n: 0 };
+        try {
+          // 구간이 바뀌었거나 문서가 없음: 새 구간으로(같은 순간 다른 요청이 먼저 새로 세면 같은 _id 충돌 → 다시)
+          await k.findOneAndUpdate({ _id: id, date: { $ne: win } }, { $set: { ...extra, date: win, n: by, _v: tok() } }, { upsert: true });
+          return { ok: true, n: by };
+        } catch (e) {
+          if (!dup(e)) throw e;
+        }
+        await wait(i);
+      }
+      throw new Error(BUSY);
+    },
   };
 }
 
@@ -149,6 +271,41 @@ function local(): Store {
       let n = 0;
       edit(col, (r) => { for (const [id, d] of Object.entries(r)) if (match(d[field], op, value)) { delete r[id]; n++; } });
       return n;
+    },
+    drop: async (col) => {
+      const d = read();
+      delete d[key(col)];
+      write(d);
+    },
+    // 로컬 파일은 한 프로세스가 읽고 쓰기를 한 번에(기다림 없이) 하므로 그 자체로 끼어들 틈이 없다
+    update: async <T,>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined) => {
+      let out: T | null = null;
+      edit(col, (r) => {
+        const cur = (r[id] as T) ?? null;
+        const next = fn(cur);
+        if (next === undefined) return void (out = cur);
+        if (next === null) delete r[id];
+        else r[id] = next as Doc;
+        out = next;
+      });
+      return out;
+    },
+    setField: async (col, id, p, value) => edit(col, (r) => {
+      const keys = p.split(".");
+      let o = (r[id] ??= {});
+      for (const k of keys.slice(0, -1)) o = (o[k] && typeof o[k] === "object" ? o[k] : (o[k] = {})) as Doc;
+      o[keys.at(-1)!] = value;
+    }),
+    bump: async (col, id, win, { max = Infinity, by = 1, extra = {} } = {}) => {
+      let out = { ok: false, n: 0 };
+      edit(col, (r) => {
+        const d = r[id];
+        const n = d?.date === win ? Number(d.n) || 0 : 0;
+        if (by < 0 ? d?.date !== win || n + by < 0 : n + by > max) return void (out = { ok: false, n });
+        r[id] = by < 0 ? { ...d, n: n + by } : { ...d, ...extra, date: win, n: n + by };
+        out = { ok: true, n: n + by };
+      });
+      return out;
     },
   };
 }
