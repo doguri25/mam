@@ -85,7 +85,7 @@ const SHAPES: Record<BuddyShape, { rx: number; ry: number; eye: number; pts: (rx
   gem: { rx: 64, ry: 58, eye: 0.33, pts: (rx, ry) => ring(72, (a, c, s) => { const k = Math.PI / 3; const m = (((a % k) + k) % k) - k / 2; const r = 0.25 + 0.75 * (Math.cos(k / 2) / Math.cos(m)); return [c * rx * r, sit(s * ry * r * 1.05, ry, 0.05)]; }) },
 };
 
-export interface Geo { rx: number; ry: number; eye: number; d: string; lit: string; top: number; bottom: number; half: (y: number) => number }
+export interface Geo { rx: number; ry: number; eye: number; d: string; lit: string; top: number; bottom: number; half: (y: number) => number; span: (y: number) => number }
 const geoCache = new Map<BuddyShape, Geo>();
 export function shapeGeo(shape: BuddyShape): Geo {
   const hit = geoCache.get(shape);
@@ -101,6 +101,16 @@ export function shapeGeo(shape: BuddyShape): Geo {
     bottom: Math.max(...ys),
     // 그 높이에서 몸의 반 너비(귀·팔 자리)
     half: (y) => Math.max(8, ...pts.filter((p) => Math.abs(p[1] - y) < sh.ry * 0.14).map((p) => Math.abs(p[0]))),
+    // 딱 그 높이에서 윤곽선까지의 반 너비(모자를 머리에 꼭 맞게 얹을 때)
+    span: (y) => {
+      let w = 0;
+      pts.forEach((p, i) => {
+        const q = pts[(i + 1) % pts.length];
+        if (p[1] === q[1] || (p[1] - y) * (q[1] - y) > 0) return;
+        w = Math.max(w, Math.abs(p[0] + ((y - p[1]) / (q[1] - p[1])) * (q[0] - p[0])));
+      });
+      return w;
+    },
   };
   geoCache.set(shape, geo);
   return geo;
