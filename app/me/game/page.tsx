@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Doodle from "@/components/Doodle";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
-import { MEANING, makeRound } from "@/lib/game";
+import { makeRound, meaningOf } from "@/lib/game";
 import { w } from "@/lib/i18n";
 import { speak } from "@/lib/local";
 import { parentEmotion } from "@/lib/shared";
@@ -52,7 +52,7 @@ export default function GamePage() {
             {qs.map((x) => (
               <li key={x.answer} className="rounded-2xl bg-paper p-3">
                 <b className="text-lg">{w(lang, x.answer)}</b>{lang !== "ko" && <span className="ml-1 text-sm text-soft">{x.answer}</span>}
-                <span className="block text-sm text-soft">{MEANING[x.answer]}</span>
+                <span className="block text-sm text-soft">{meaningOf(lang, x.answer)}</span>
               </li>
             ))}
           </ul>
@@ -91,7 +91,7 @@ export default function GamePage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-leaf-soft p-4">
                   <p>
                     <b className="text-lg text-leaf">{tt("gameRight")}</b>
-                    <span className="block">{w(lang, q.answer)} — {MEANING[q.answer]}{parentOf(q.answer) && <span className="text-soft"> ({w(lang, parentOf(q.answer)!)})</span>}</span>
+                    <span className="block">{w(lang, q.answer)} — {meaningOf(lang, q.answer)}{parentOf(q.answer) && <span className="text-soft"> ({w(lang, parentOf(q.answer)!)})</span>}</span>
                   </p>
                   <button onClick={next} className="btn-main px-8 text-lg">{tt("gameNext")}</button>
                 </div>
