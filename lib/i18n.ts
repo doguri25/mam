@@ -138,7 +138,7 @@ const UI = {
   classWords: { ko: "우리 반에서 배운 마음 단어", en: "Feeling words we learned", zh: "我们班学过的心情词", vi: "Từ cảm xúc lớp mình đã học", ja: "クラスでならったきもちのことば" },
   nuance: { ko: "더 꼭 맞는 말이 있을까?", en: "Is there a word that fits even better?", zh: "有更贴切的词吗？", vi: "Có từ nào đúng hơn không?", ja: "もっとぴったりのことばはある？" },
   nuanceSkip: { ko: "골라도 되고, 안 골라도 돼요.", en: "You can pick one or skip.", zh: "可以选，也可以不选。", vi: "Chọn hay không đều được.", ja: "えらんでも、えらばなくてもいいよ。" },
-  reshuffle: { ko: "다른 카드 보기", en: "Show other cards", zh: "换一组卡片", vi: "Xem thẻ khác", ja: "ほかのカードをみる" },
+  reshuffle: { ko: "다른 카드로 바꾸기 (한 번만)", en: "Show other cards (once)", zh: "换一组卡片（只能一次）", vi: "Đổi thẻ khác (một lần)", ja: "ほかのカードにかえる（1かいだけ）" },
   nuanceKeep: { ko: "이대로 좋아요", en: "This is fine", zh: "就这样", vi: "Thế này là được", ja: "このままでいい" },
   goBack: { ko: "뒤로", en: "Back", zh: "返回", vi: "Quay lại", ja: "もどる" },
   buddyRandom: { ko: "아무거나", en: "Surprise me", zh: "随便选", vi: "Ngẫu nhiên", ja: "おまかせ" },
