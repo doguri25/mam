@@ -191,7 +191,9 @@ async function handle(req: NextRequest) {
       const l = await db().get<Letter>("letters", String(body.id));
       if (!l || !["ok", "no"].includes(body.status)) return bad("쪽지를 찾지 못했어요.", 404);
       const text = typeof body.text === "string" && body.text.trim().length >= 2 ? body.text.trim().slice(0, 120) : l.text;
-      await db().set("letters", l.id, { ...l, text, status: body.status, checkedAt: new Date().toISOString() });
+      // 다듬어 전하면 학생이 처음 쓴 글은 original에 남긴다(위험한 말이 고쳐 쓰여 사라지지 않게). 한 번에 고쳐 쓰기.
+      await db().update<Letter>("letters", l.id, (cur) =>
+        cur ? { ...cur, text, status: body.status, checkedAt: new Date().toISOString(), ...(text !== cur.text && !cur.original ? { original: cur.text } : {}) } : undefined);
       await touch("other");
       return NextResponse.json({ ok: true });
     }
@@ -228,7 +230,11 @@ async function handle(req: NextRequest) {
 
     // 기록 내보내기(전체). 화면에서 CSV로 만든다.
     if (body.action === "export") {
-      return NextResponse.json({ records: (await allRecords()).map(lean), students: await getRoster(), riskActions: await getRiskActions(), riskDrafts: await getRiskDrafts() });
+      const [riskyReflects, riskyLetters] = await Promise.all([db().find<Reflect>("reflects", "risk", "==", true), db().find<Letter>("letters", "risk", "==", true)]);
+      return NextResponse.json({
+        records: (await allRecords()).map(lean), students: await getRoster(), riskActions: await getRiskActions(), riskDrafts: await getRiskDrafts(),
+        reflects: riskyReflects, letters: riskyLetters, // 위험 표현이 있었던 돌아보기·쪽지(오래된 것도 CSV에)
+      });
     }
 
     // 면담 메모: 교사만 보고 AI에는 보내지 않는다
@@ -377,7 +383,11 @@ async function handle(req: NextRequest) {
       const before = items.find((x) => x.recordId === id); // 보관 기한이 지나 기록을 지운 뒤에도 이어 적을 수 있게
       const target = r ?? ref ?? d ?? l;
       const no = r?.no ?? ref?.no ?? d?.no ?? l?.from ?? before?.no;
-      if (no === undefined) return bad("기록이 없어요.");
+      if (no === undefined) {
+        // 마치지 않은 글이 그사이 마음 기록에 담겨 사라졌으면: 새로 읽어 기록 알림에서 살펴보게
+        if (kind === "draft") return bad("학생이 그 글로 기록을 마쳤어요. 화면을 새로 읽고 마음 기록 알림에서 살펴봐 주세요.", 409);
+        return bad("기록이 없어요.");
+      }
       const now = new Date().toISOString();
       const seen = typeof body.seen === "string" ? body.seen : null;
       const STALE = "학생이 그사이 새로 쓰거나 고친 글이 있어요. 바뀐 글을 읽고 다시 눌러 주세요.";
