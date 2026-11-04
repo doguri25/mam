@@ -21,9 +21,94 @@ export interface AI {
   key: string;
 }
 
+export const BAD_JSON = "AI 답을 읽지 못했어요. 다시 눌러 주세요.";
+
+// 여는 괄호({ 또는 [) 자리에서 짝이 맞는 닫는 괄호 자리. 따옴표 안의 괄호는 세지 않는다. 끝이 잘렸으면 -1.
+function closeOf(s: string, start: number) {
+  const stack: string[] = [];
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") stack.push(c === "{" ? "}" : "]");
+    else if (c === "}" || c === "]") {
+      if (stack.pop() !== c) return -1;
+      if (!stack.length) return i;
+    }
+  }
+  return -1;
+}
+
+// AI 답에서 JSON 꺼내기: ```json 울타리나 앞뒤 설명 글이 붙어도 가장 바깥 JSON 객체(또는 배열) 하나를 찾는다.
+// 끝이 잘렸거나 JSON이 없으면 선생님이 읽을 한국어 오류.
+export function extractJSON(text: string): unknown {
+  const s = text.trim(); // trim()은 맨 앞 BOM도 걷어 낸다
+  try {
+    return JSON.parse(s);
+  } catch {
+    // 아래에서 울타리·설명 글을 걷어 내고 다시
+  }
+  for (let i = s.search(/[{[]/), n = 0; i >= 0 && n < 20; n++) {
+    const end = closeOf(s, i);
+    if (end < 0) break; // 끝이 잘림: 안쪽 작은 객체를 답으로 잘못 고르지 않게 여기서 멈춤
+    try {
+      return JSON.parse(s.slice(i, end + 1));
+    } catch {
+      const next = s.slice(end + 1).search(/[{[]/);
+      i = next < 0 ? -1 : end + 1 + next;
+    }
+  }
+  throw new Error(BAD_JSON);
+}
+
+// 스키마가 모두 객체라 답도 객체여야 한다([{…}] 하나로 감싸 오면 벗긴다)
+export function parseJSON(text: string): Record<string, unknown> {
+  let out = extractJSON(text);
+  if (Array.isArray(out) && out.length === 1) out = out[0];
+  if (!out || typeof out !== "object" || Array.isArray(out)) throw new Error(BAD_JSON);
+  return out as Record<string, unknown>;
+}
+
+// SDK·네트워크 오류(영어)를 선생님 화면에 그대로 보여 줄 짧은 한국어로. 이미 한국어로 만든 오류는 그대로.
+export function aiError(e: unknown): Error {
+  const err = (e ?? {}) as { name?: unknown; status?: unknown; message?: unknown };
+  const name = String(err.name ?? "");
+  const message = String(err.message ?? "");
+  if (/abort|timeout/i.test(name) || /timed? ?out|aborted/i.test(message)) return new Error("AI 답이 너무 늦어요. 잠시 뒤 다시 눌러 주세요.");
+  const status = Number(err.status) || 0;
+  if (status === 401 || status === 403) return new Error("AI 키가 맞지 않아요. 「설정」에서 키를 확인해 주세요.");
+  if (status === 404) return new Error("AI 모델을 찾지 못했어요. 「설정」에서 모델 이름을 확인해 주세요.");
+  if (status === 429) return new Error("AI 사용량이 잠시 넘쳤어요. 조금 뒤 다시 눌러 주세요.");
+  if (status >= 500) return new Error(`AI 서버가 잠시 답하지 않아요(${status}). 조금 뒤 다시 눌러 주세요.`);
+  if (status) return new Error(`AI가 요청을 받지 않았어요(${status}). 잠시 뒤 다시 눌러 주세요.`);
+  if (/connection|fetch failed|network|ECONN|ENOTFOUND/i.test(`${name} ${message}`)) return new Error("AI 서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.");
+  if (e instanceof Error && /[가-힣]/.test(message)) return e;
+  return new Error("AI를 부르지 못했어요. 다시 눌러 주세요.");
+}
+
 // images: JPEG base64(data: 머리 없이). 그림을 볼 수 있는 Claude·ChatGPT·Gemini에서만 쓴다(Solar는 글만).
-export async function callJSON(ai: AI, system: string, user: string, name: string, schema: Record<string, unknown>, images: string[] = []) {
+// signal: 부르는 쪽(라우트)의 남은 시간. 끊기면 다시 시도하지 않고 바로 오류.
+export async function callJSON(
+  ai: AI, system: string, user: string, name: string, schema: Record<string, unknown>, images: string[] = [], signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
   let text: string | null | undefined;
+  try {
+    text = await ask(ai, system, user, name, schema, images, signal);
+  } catch (e) {
+    const out = aiError(e);
+    if (out !== e) console.error("AI 호출 실패", e);
+    throw out;
+  }
+  if (!text) throw new Error("AI 답이 비어 있어요. 다시 눌러 주세요.");
+  return parseJSON(text);
+}
+
+async function ask(ai: AI, system: string, user: string, name: string, schema: Record<string, unknown>, images: string[], signal?: AbortSignal) {
   const timeout = images.length ? 55_000 : 40_000;
   if (ai.provider === "claude") {
     const client = new Anthropic({ apiKey: ai.key, timeout, maxRetries: images.length ? 0 : 1 });
@@ -38,33 +123,35 @@ export async function callJSON(ai: AI, system: string, user: string, name: strin
       output_config: { format: { type: "json_schema" as const, schema }, effort: "low" as const },
     };
     const res = CLAUDE_FALLBACK.has(ai.model)
-      ? await client.beta.messages.create({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } as never)
-      : await client.messages.create(params);
+      ? await client.beta.messages.create({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } as never, { signal })
+      : await client.messages.create(params, { signal });
     const msg = res as Anthropic.Message;
     if (msg.stop_reason === "refusal") throw new Error("AI가 이 요청에 답하지 않았어요.");
-    text = msg.content.find((b) => b.type === "text")?.text;
-  } else {
-    const client = new OpenAI({ apiKey: ai.key, baseURL: BASE_URL[ai.provider], timeout, maxRetries: images.length ? 0 : 1 });
-    const res = await client.chat.completions.create({
-      model: ai.model,
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: images.length
-            ? [...images.map((data) => ({ type: "image_url" as const, image_url: { url: `data:image/jpeg;base64,${data}` } })), { type: "text" as const, text: user }]
-            : user,
-        },
-      ],
-      response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
-      // 업스테이지는 추론을 꺼서 빠르게(아이가 기다리는 화면)
-      ...(ai.provider === "upstage" ? { reasoning_effort: "none" as never, temperature: 0.4 } : {}),
-    });
-    text = res.choices[0]?.message.content;
+    return msg.content.find((b) => b.type === "text")?.text;
   }
-  if (!text) throw new Error("AI 답이 비어 있어요.");
-  return JSON.parse(text);
+  const client = new OpenAI({ apiKey: ai.key, baseURL: BASE_URL[ai.provider], timeout, maxRetries: images.length ? 0 : 1 });
+  const res = await client.chat.completions.create({
+    model: ai.model,
+    messages: [
+      { role: "system", content: system },
+      {
+        role: "user",
+        content: images.length
+          ? [...images.map((data) => ({ type: "image_url" as const, image_url: { url: `data:image/jpeg;base64,${data}` } })), { type: "text" as const, text: user }]
+          : user,
+      },
+    ],
+    response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
+    // 업스테이지는 추론을 꺼서 빠르게(아이가 기다리는 화면)
+    ...(ai.provider === "upstage" ? { reasoning_effort: "none" as never, temperature: 0.4 } : {}),
+  }, { signal });
+  return res.choices[0]?.message.content;
 }
+
+// AI가 준 배열에서 객체·글자만 골라 쓴다(null·숫자가 섞여 와도 멈추지 않게)
+const objs = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x));
+const strs = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && !!x.trim());
+const str = (v: unknown) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
 
 const obj = (properties: Record<string, unknown>) => ({
   type: "object",
@@ -153,29 +240,33 @@ export async function analyzeWithAudio(key: string, model: string, input: Analyz
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("");
   if (!text) throw new Error("Gemini 답이 비어 있어요.");
-  const out = JSON.parse(text);
+  const out = parseJSON(text);
   return {
     ...shape(input, out),
-    tone: (TONES as readonly string[]).includes(out.tone) ? (out.tone as string) : null,
-    toneWhy: String(out.toneWhy ?? "").slice(0, 30),
+    tone: (TONES as readonly string[]).includes(str(out.tone)) ? str(out.tone) : null,
+    toneWhy: str(out.toneWhy).slice(0, 30),
   };
 }
 
-function shape(input: AnalyzeInput, out: Record<string, unknown>): Analysis {
+// 되묻기 질문과 대답 보기는 늘 같은 곳에서: 둘 다 AI 것이 쓸 만하면 AI 것, 하나라도 비면 둘 다 기본 되묻기
+export function shape(input: AnalyzeInput, out: Record<string, unknown>): Analysis {
   const card = input.card;
-  const emotion = card?.emotion ?? (EMOTION_NAMES.includes(String(out.emotion)) ? String(out.emotion) : "그저 그래요");
-  const reason = card?.reason ?? (REASON_NAMES.includes(String(out.reason)) ? String(out.reason) : "그냥");
+  const emotion = card?.emotion ?? (EMOTION_NAMES.includes(str(out.emotion)) ? str(out.emotion) : "그저 그래요");
+  const reason = card?.reason ?? (REASON_NAMES.includes(str(out.reason)) ? str(out.reason) : "그냥");
   const lang = input.lang ?? "ko";
-  const opts = Array.isArray(out.options) ? out.options.filter((o): o is string => typeof o === "string" && !!o.trim() && o !== SKIP[lang]).slice(0, 2) : [];
+  const ko = (s: string) => (lang === "ko" ? polish(s) : s);
+  const opts = [...new Set(strs(out.options).map((o) => o.trim()).filter((o) => o !== SKIP[lang]))].slice(0, 2).map(ko);
+  const question = ko(str(out.question).trim()).slice(0, 80);
   const fb = fallbackQuestion(reason, emotion, lang);
-  const word = String(out.word ?? "");
+  const fromAI = !!question && opts.length > 0;
+  const word = str(out.word);
   return {
     emotion,
     reason,
     intensity: card?.intensity ?? Math.min(5, Math.max(1, Math.round(Number(out.intensity) || 3))),
-    summary: String(out.summary ?? input.text ?? "").slice(0, 80),
-    question: (lang === "ko" ? polish(String(out.question ?? "")) : String(out.question ?? "")).slice(0, 80) || fb.question,
-    options: [...(opts.length ? (lang === "ko" ? opts.map(polish) : opts) : fb.options.slice(0, 2)), SKIP[lang]],
+    summary: (out.summary == null ? input.text ?? "" : str(out.summary)).slice(0, 80),
+    question: fromAI ? question : fb.question,
+    options: [...(fromAI ? opts : fb.options.slice(0, 2)), SKIP[lang]],
     risk: out.risk === true,
     word: isWordOf(emotion, word) ? word : "", // 고른 감정의 말이 아니면 버림
   };
@@ -237,21 +328,25 @@ const LESSON_SYSTEM = `너는 초등 3학년 도덕·창체 수업 자료를 정
 - activities: 자료에 나오는 활동을 교실에서 바로 할 수 있게 최대 4개. title 15자 안, how 한 문장, minutes 분.
 자료에 없는 내용은 지어내지 마.${STYLE_RULES}`;
 
-export async function extractLesson(ai: AI, markdown: string): Promise<Lesson> {
+export async function extractLesson(ai: AI, markdown: string, signal?: AbortSignal): Promise<Lesson> {
   const schema = obj({
     unit: { type: "string" },
     words: { type: "array", items: obj({ word: { type: "string" }, emotion: { type: "string", enum: EMOTION_NAMES }, meaning: { type: "string" } }) },
     activities: { type: "array", items: obj({ title: { type: "string" }, how: { type: "string" }, minutes: { type: "integer" } }) },
   });
-  const out = await callJSON(ai, LESSON_SYSTEM, markdown.slice(0, 20_000), "lesson", schema);
+  return cleanLesson(await callJSON(ai, LESSON_SYSTEM, markdown.slice(0, 20_000), "lesson", schema, [], signal));
+}
+
+const minutesOf = (v: unknown) => Math.min(45, Math.max(1, Number(v) || 10));
+export function cleanLesson(out: Record<string, unknown>): Lesson {
   return {
-    unit: String(out.unit ?? "").slice(0, 40),
-    words: (Array.isArray(out.words) ? out.words : []).slice(0, 8).map((x: Lesson["words"][number]) => ({
-      word: String(x.word ?? "").slice(0, 12), emotion: EMOTION_NAMES.includes(x.emotion) ? x.emotion : "그저 그래요", meaning: String(x.meaning ?? "").slice(0, 40),
-    })).filter((x: { word: string }) => x.word),
-    activities: (Array.isArray(out.activities) ? out.activities : []).slice(0, 4).map((x: Lesson["activities"][number]) => ({
-      title: polish(String(x.title ?? "")).slice(0, 30), how: polish(String(x.how ?? "")).slice(0, 120), minutes: Math.min(45, Math.max(1, Number(x.minutes) || 10)),
-    })).filter((x: { title: string }) => x.title),
+    unit: str(out.unit).slice(0, 40),
+    words: objs(out.words).map((x) => ({
+      word: str(x.word).trim().slice(0, 12), emotion: EMOTION_NAMES.includes(str(x.emotion)) ? str(x.emotion) : "그저 그래요", meaning: str(x.meaning).slice(0, 40),
+    })).filter((x) => x.word).slice(0, 8),
+    activities: objs(out.activities).map((x) => ({
+      title: polish(str(x.title)).slice(0, 30), how: polish(str(x.how)).slice(0, 120), minutes: minutesOf(x.minutes),
+    })).filter((x) => x.title).slice(0, 4),
   };
 }
 
@@ -273,12 +368,15 @@ export async function weeklySummary(ai: AI, stats: unknown, lessonActivities: un
     lines: { type: "array", items: { type: "string" } },
     activities: { type: "array", items: obj({ title: { type: "string" }, why: { type: "string" }, how: { type: "string" }, minutes: { type: "integer" } }) },
   });
-  const out = await callJSON(ai, WEEKLY_SYSTEM, JSON.stringify({ stats, lessonActivities }), "weekly", schema);
-  const lines = (Array.isArray(out.lines) ? out.lines : []).slice(0, 3).map((l: unknown) => polish(String(l)).slice(0, 90));
-  const activities = (Array.isArray(out.activities) ? out.activities : []).slice(0, 2).map((a: Weekly["activities"][number]) => ({
-    title: polish(String(a.title ?? "")).slice(0, 30), why: polish(String(a.why ?? "")).slice(0, 120), how: polish(String(a.how ?? "")).slice(0, 160), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
-  }));
-  const style = [...new Set([...lines, ...activities.flatMap((a: Weekly["activities"][number]) => [a.title, a.why, a.how])].flatMap(styleHits))];
+  return cleanWeekly(await callJSON(ai, WEEKLY_SYSTEM, JSON.stringify({ stats, lessonActivities }), "weekly", schema));
+}
+
+export function cleanWeekly(out: Record<string, unknown>): Weekly {
+  const lines = strs(out.lines).slice(0, 3).map((l) => polish(l.trim()).slice(0, 90));
+  const activities = objs(out.activities).map((a) => ({
+    title: polish(str(a.title)).slice(0, 30), why: polish(str(a.why)).slice(0, 120), how: polish(str(a.how)).slice(0, 160), minutes: minutesOf(a.minutes),
+  })).filter((a) => a.title || a.how).slice(0, 2);
+  const style = [...new Set([...lines, ...activities.flatMap((a) => [a.title, a.why, a.how])].flatMap(styleHits))];
   return { lines, activities, style };
 }
 
@@ -291,7 +389,7 @@ const REFLECT_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구�
 - reply는 반드시 지정한 언어(lang)로 써. 한국어로 쓸 때는 아래 글투를 지켜.${STYLE_RULES}`;
 export async function reflectReply(ai: AI, input: { lang: Lang; text: string; week: { emotion: string; word?: string }[] }) {
   const out = await callJSON(ai, REFLECT_SYSTEM, JSON.stringify({ ...input, lang: langOf(input.lang).ai }), "reflect", obj({ reply: { type: "string" } }));
-  const raw = String(out.reply ?? "").trim();
+  const raw = str(out.reply).trim();
   const reply = (input.lang === "ko" ? polish(raw) : raw).slice(0, 160);
   if (!reply || leaks(reply).length) throw new Error("답이 알맞지 않아요"); // 빈 배열도 참이라 .length로 본다
   return reply;
@@ -309,7 +407,7 @@ const REFERRAL_SYSTEM = `너는 초등학교 담임 선생님이 Wee클래스·�
 export async function referralDraft(ai: AI, input: { alias: string; records: unknown[]; signals: string[] }): Promise<Referral> {
   const schema = obj({ flow: { type: "string" }, reasons: { type: "string" }, helps: { type: "string" } });
   const out = await callJSON(ai, REFERRAL_SYSTEM, JSON.stringify(input), "referral", schema);
-  const { value, hits } = polishAll({ flow: String(out.flow ?? ""), reasons: String(out.reasons ?? ""), helps: String(out.helps ?? "") }, ["flow", "reasons", "helps"]);
+  const { value, hits } = polishAll({ flow: str(out.flow), reasons: str(out.reasons), helps: str(out.helps) }, ["flow", "reasons", "helps"]);
   return { flow: value.flow.slice(0, 700), reasons: value.reasons.slice(0, 500), helps: value.helps.slice(0, 300), style: hits };
 }
 
@@ -318,7 +416,7 @@ export async function translateNotice(ai: AI, text: string, lang: Exclude<Lang, 
   const system = `너는 초등학교 가정 안내문을 번역하는 도우미야. 받은 한국어 안내문을 ${langOf(lang).ai}로 자연스럽게 번역해.
 줄 나눔과 제목·목록 모양은 그대로 두고, 학부모가 읽기 쉬운 공손한 말로. 새 내용을 더하지 마.`;
   const out = await callJSON(ai, system, text.slice(0, 4000), "translate", obj({ text: { type: "string" } }));
-  return String(out.text ?? "").slice(0, 6000);
+  return str(out.text).slice(0, 6000);
 }
 
 // ── 활동지 피드백: 스캔한 활동지(글·그림)를 보고 사회정서교육 4대 핵심역량에 비추어 피드백과 그 이유를 쓴다 ──
@@ -357,23 +455,27 @@ export async function sheetFeedback(
   ai: AI,
   input: { topic: string; content: string; criteria: string; parsed?: string },
   images: string[],
+  signal?: AbortSignal,
 ): Promise<SheetFeedback> {
   const { parsed, ...teacher } = input;
   const user = JSON.stringify({ ...teacher, ...(parsed ? { parsed: parsed.slice(0, 8000) } : {}) });
-  const out = await callJSON(ai, SHEET_SYSTEM, user, "sheet", SHEET_SCHEMA, parsed ? [] : images);
+  return cleanSheet(await callJSON(ai, SHEET_SYSTEM, user, "sheet", SHEET_SCHEMA, parsed ? [] : images, signal));
+}
+
+export function cleanSheet(out: Record<string, unknown>): SheetFeedback {
   // 학생 말을 옮긴 evidence는 고치지 않는다(read는 따옴표 밖만 고침)
-  const points = (v: unknown, n: number): SheetPoint[] => (Array.isArray(v) ? v : []).slice(0, n).map((p) => ({
-    area: (SEL_AREAS as readonly string[]).includes(p?.area) ? p.area : SEL_AREAS[0],
-    point: polish(String(p?.point ?? "")).slice(0, 160), evidence: String(p?.evidence ?? "").slice(0, 160),
-  })).filter((p) => p.point);
-  const { value: t, hits } = polishAll({ read: String(out.read ?? ""), criteria: String(out.criteria ?? ""), toStudent: String(out.toStudent ?? ""), why: String(out.why ?? "") }, ["read", "criteria", "toStudent", "why"]);
+  const points = (v: unknown, n: number): SheetPoint[] => objs(v).map((p) => ({
+    area: (SEL_AREAS as readonly string[]).includes(str(p.area)) ? (str(p.area) as SheetPoint["area"]) : SEL_AREAS[0],
+    point: polish(str(p.point)).slice(0, 160), evidence: str(p.evidence).slice(0, 160),
+  })).filter((p) => p.point).slice(0, n);
+  const { value: t, hits } = polishAll({ read: str(out.read), criteria: str(out.criteria), toStudent: str(out.toStudent), why: str(out.why) }, ["read", "criteria", "toStudent", "why"]);
   const strengths = points(out.strengths, 2), grow = points(out.grow, 1);
   const style = [...new Set([...hits, ...[...strengths, ...grow].flatMap((p) => styleHits(p.point))])];
   return {
-    read: t.read.slice(0, 400), topic: String(out.topic ?? "").slice(0, 40), criteria: t.criteria.slice(0, 200),
+    read: t.read.slice(0, 400), topic: str(out.topic).slice(0, 40), criteria: t.criteria.slice(0, 200),
     strengths, grow,
     toStudent: t.toStudent.slice(0, 300), why: t.why.slice(0, 400),
-    check: String(out.check ?? "").slice(0, 200), blank: out.blank === true,
+    check: str(out.check).slice(0, 200), blank: out.blank === true,
     ...(style.length ? { style } : {}),
   };
 }
