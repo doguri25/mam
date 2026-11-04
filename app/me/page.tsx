@@ -204,9 +204,11 @@ export default function MePage() {
     }
   }
 
+  // 다음 친구 차례: 화면을 새로 불러 이 학생의 기록·고르던 카드가 다음 친구에게 남지 않게 한다
+  // (Next.js는 지나온 화면을 숨겨 두고 상태를 그대로 살려 두므로, 같은 태블릿을 돌려 쓸 때는 통째로 비운다)
   async function nextFriend() {
-    await api("student", "logout");
-    router.replace("/");
+    await api("student", "logout").catch(() => {});
+    window.location.replace("/");
   }
 
   const group = pick.emotion ? groupOf(pick.emotion) : null;
