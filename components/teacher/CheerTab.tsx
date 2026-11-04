@@ -2,6 +2,7 @@
 // 응원 한마디: 위 학생 명단 → 왼쪽 최근 2주 기록(고정)을 보며 오른쪽에서 AI 초안을 고쳐 복사·저장 (학생에게 자동으로 보내지 않음)
 import { useState } from "react";
 import Doodle from "../Doodle";
+import StyleNote from "./StyleNote";
 import Notes from "./Notes";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview, Reload } from "./types";
@@ -12,6 +13,7 @@ import { PROVIDERS } from "@/lib/shared";
 export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Overview; reload: Reload; no: number | null; setNo: (n: number) => void; nameOf: NameOf }) {
   const [drafts, setDrafts] = useState<string[]>([]);
   const [warns, setWarns] = useState<string[]>([]);
+  const [styles, setStyles] = useState<string[][]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -22,8 +24,9 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
     setBusy(true);
     setMsg("");
     try {
-      const r = await api<{ drafts: string[]; warns: string[] }>("teacher", "cheer", { no });
+      const r = await api<{ drafts: string[]; warns: string[]; styles?: string[][] }>("teacher", "cheer", { no });
       setWarns(r.warns ?? []);
+      setStyles(r.styles ?? []);
       setDrafts(r.drafts);
       setText(r.drafts[0] ?? "");
     } catch (e) {
@@ -66,6 +69,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                         <b className="text-xs text-soft">{["마음 알아주기", "응원하기"][i] ?? `초안 ${i + 1}`}</b>
                         <span className="mt-1 block">{d}</span>
                         {warns[i] && <span className="mt-1 block text-xs text-alert"><Doodle name="warning" /> 아이에게 맞지 않을 수 있는 말: {warns[i]}</span>}
+                        <StyleNote hits={styles[i]} className="mt-1" />
                       </button>
                     ))}
                   </div>

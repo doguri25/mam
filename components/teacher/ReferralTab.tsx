@@ -5,12 +5,13 @@
 import { useState } from "react";
 import Doodle from "../Doodle";
 import { kindsText } from "./RiskActions";
+import StyleNote from "./StyleNote";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 
-type Draft = { flow: string; reasons: string; helps: string };
+type Draft = { flow: string; reasons: string; helps: string; style?: string[] };
 
 export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: NameOf }) {
   // 선생님이 남긴 면담 메모는 AI에 보내지 않고, 「담임이 해 본 지원」 칸에만 미리 채워 둔다
@@ -86,6 +87,7 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
                 <div className="hidden space-y-1 print:block">
                   {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="text-sm"><Doodle name="dotYellow" /> {r}</p>)}
                 </div>
+                <StyleNote hits={draft.style} />
                 {box("1. 관찰된 정서 흐름", draft.flow, (v) => setDraft({ ...draft, flow: v }), 5, "AI 초안 — 사실과 다르면 고쳐 주세요")}
                 {box("2. 학생이 스스로 말한 까닭·상황", draft.reasons, (v) => setDraft({ ...draft, reasons: v }), 3)}
                 {box("3. 도움이 된 것으로 보이는 것", draft.helps, (v) => setDraft({ ...draft, helps: v }), 2)}
