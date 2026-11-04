@@ -14,6 +14,7 @@ import BuddyLazy from "@/components/BuddyLazy";
 import MoodPicker, { STEP_START, stepBack, stepDepth, type Pick, type StepNav } from "@/components/MoodPicker";
 import { atMe, leftMe, useBackGuard, useBackSteps } from "@/lib/back";
 import { useSpeech } from "@/components/useSpeech";
+import { slotNow, today as kToday } from "@/lib/date";
 import { api } from "@/lib/api";
 import { CHEER, CHEER_TIRED, LANGS, RISK_REPLY, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
@@ -65,6 +66,9 @@ export default function MePage() {
   const [loadFail, setLoadFail] = useState(false); // 학생 정보를 못 받음(와이파이 끊김)
   const [loadTry, setLoadTry] = useState(0);
   const lastNo = useRef<number | null>(null);
+  const lastServer = useRef<{ slot: Slot; today: string } | null>(null); // 서버가 마지막으로 알려 준 시간(아침·하교 전)과 날짜
+  const stepNow = useRef<Step>("choose");
+  useEffect(() => { stepNow.current = step; });
   // 브라우저 뒤로 가기 = 화면 안 한 단계 앞으로: 감정 카드 질문 위치, 되묻기 앞 화면, 도구 상자 안 단계
   const [pickNav, setPickNav] = useState<StepNav>(STEP_START);
   const [askFrom, setAskFrom] = useState<"card" | "confirm">("card");
@@ -79,13 +83,22 @@ export default function MePage() {
   const say = (x: string) => speak(x, false, lang);
 
   // 이 화면은 다른 화면에 갔다 와도(숨겨졌다 다시 보여도) 상태가 남는다(Next.js Activity).
-  // 다른 학생으로 바뀌었으면 고르던 것·쓰던 글을 모두 비우고, 같은 학생이면 학생이 고른 아침·하교 전을 그대로 둔다.
+  // 다른 학생으로 바뀌었거나 날짜가 바뀌었으면 고르던 것·쓰던 글을 모두 비운다.
+  // 같은 학생·같은 날이면 학생이 고른 아침·하교 전을 그대로 두되, 시계가 아침→하교 전으로 넘어갔으면
+  // (고르는 중이 아닐 때) 따라간다 → 켜 둔 태블릿에서 오후 마음이 아침 칸을 덮어쓰지 않게.
   useEffect(() => {
     atMe(); // 작은 화면에서 돌아왔다
     api<Me>("student", "me").then(
       (m) => {
         if (m.qtoken) rememberToken(m.no, m.qtoken); // 쿠키로 바로 들어온 날에도 끊김 대비 표를 새로
-        if (lastNo.current !== m.no) {
+        const prev = lastServer.current;
+        lastServer.current = { slot: m.slot, today: m.today };
+        const idle = stepNow.current === "choose" || stepNow.current === "done";
+        if (lastNo.current === m.no && prev && prev.today === m.today && prev.slot !== m.slot && idle) {
+          setSlot(m.slot);
+          if (stepNow.current === "done") setStep("choose");
+        }
+        if (lastNo.current !== m.no || (prev && prev.today !== m.today)) {
           lastNo.current = m.no;
           setSlot(m.slot);
           setStep("choose");
@@ -111,6 +124,16 @@ export default function MePage() {
       (e) => ((e as { status?: number }).status === 401 ? router.replace("/") : setLoadFail(true)),
     );
   }, [router, loadTry]);
+
+  // 화면을 켜 둔 채 정오·자정을 넘기면 서버에 다시 물어 위의 규칙대로 따라간다(1분마다 시계만 본다)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const last = lastServer.current;
+      if (!last || document.visibilityState !== "visible") return;
+      if (slotNow() !== last.slot || kToday() !== last.today) setLoadTry((n) => n + 1);
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (step === "ask") speak(qa.question, false, lang);
