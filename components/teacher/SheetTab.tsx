@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import StyleNote from "./StyleNote";
 import type { NameOf, Overview } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import { parseNums, sheetGroups } from "@/lib/rules";
 import { PROVIDERS, SEL_AREAS, type SheetItem, type SheetRun } from "@/lib/shared";
@@ -132,7 +133,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
   }
 
   async function remove(r: SheetRun) {
-    if (!confirm(`${r.createdAt.slice(0, 10)} 「${r.topic || r.items[0]?.topic || r.file}」 피드백을 지울까요?`)) return;
+    if (!confirm(`${kday(r.createdAt)} 「${r.topic || r.items[0]?.topic || r.file}」 피드백을 지울까요?`)) return;
     await api("teacher", "sheetDelete", { id: r.id });
     setRuns(runs.filter((x) => x.id !== r.id));
     if (run?.id === r.id) setRun(null);
@@ -236,7 +237,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
         <section id="sheet-run" className="scroll-mt-20 space-y-3">
           <div className="no-print flex flex-wrap items-center gap-2">
             <h3 className="font-display text-xl">
-              {run.topic || run.items[0]?.topic || "활동지"} <span className="text-base text-soft">· {run.createdAt.slice(0, 10)} · {run.items.length}명</span>
+              {run.topic || run.items[0]?.topic || "활동지"} <span className="text-base text-soft">· {kday(run.createdAt)} · {run.items.length}명</span>
             </h3>
             <button onClick={() => window.print()} disabled={!run.items.length} className="btn-sub ml-auto"><Doodle name="printer" /> 학생용 쪽지 인쇄</button>
             <button onClick={() => navigator.clipboard?.writeText(run.items.map((x) => `${x.no}번 ${nameOf(x.no)}\n${x.toStudent}`).join("\n\n"))} disabled={!run.items.length} className="btn-sub">
@@ -315,7 +316,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
             {runs.map((r) => (
               <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
                 <button onClick={() => { setRun(r); setFails({}); setTimeout(() => document.getElementById("sheet-run")?.scrollIntoView({ behavior: "smooth" }), 50); }} className="min-h-11 flex-1 text-left">
-                  <b>{r.topic || r.items[0]?.topic || r.file}</b> <span className="text-soft">· {r.createdAt.slice(0, 10)} · {r.items.length}명</span>
+                  <b>{r.topic || r.items[0]?.topic || r.file}</b> <span className="text-soft">· {kday(r.createdAt)} · {r.items.length}명</span>
                 </button>
                 <button onClick={() => remove(r)} className="btn-sub min-h-11 px-3 text-xs" aria-label="지우기">지우기</button>
               </li>
