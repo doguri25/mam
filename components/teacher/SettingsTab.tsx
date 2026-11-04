@@ -1,6 +1,7 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
-import { ktime } from "./when";
+import { kday, ktime } from "./when";
+import { kindOfId, reflectEverRisk, reflectSource } from "./alerts";
 import { useState } from "react";
 import Doodle from "../Doodle";
 import RetentionCard from "./RetentionCard";
@@ -9,7 +10,8 @@ import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
-import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, type MoodRecord, type Provider, type Rules, type VoiceMode } from "@/lib/shared";
+import { matchRisk } from "@/lib/rules";
+import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, type MoodRecord, type Provider, type RiskAction, type Rules, type VoiceMode } from "@/lib/shared";
 
 const LANG_KO: Record<string, string> = { ko: "한국어", en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 
@@ -25,16 +27,17 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   const shared = data.sharedAi; // 서버의 공용 업스테이지 키(있으면 키 없이도 하루 정해진 번까지)
   // 선생님이 이 기기에서 고친 칸만 기억하고 보낸다. 고치지 않은 칸은 늘 서버 값을 보여 주고 보내지도 않는다
   // → 다른 기기에서 더한 위험 표현·규칙을 이 기기의 오래된 화면이 덮어쓰지 않게.
-  type Draft = { provider: Provider; className: string; models: Record<Provider, string>; vocab: string; risk: string; voiceMode: VoiceMode; rules: Rules };
+  // 모델 이름·규칙은 고친 칸(열쇠)만 보낸다 — 서버가 열쇠마다 합치므로 다른 기기에서 바꾼 다른 모델·규칙을 덮지 않는다
+  type Draft = { provider: Provider; className: string; models: Partial<Record<Provider, string>>; vocab: string; risk: string; voiceMode: VoiceMode; rules: Partial<Rules> };
   const [draft, setDraft] = useState<Partial<Draft>>({});
   const edit = <K extends keyof Draft>(k: K) => (v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const provider = draft.provider ?? s.provider;
   const className = draft.className ?? s.className;
-  const models = draft.models ?? s.models;
+  const models = { ...s.models, ...draft.models };
   const vocab = draft.vocab ?? s.vocab.join(", ");
   const risk = draft.risk ?? s.riskWords.join(", ");
   const voiceMode = draft.voiceMode ?? s.voiceMode;
-  const rules = draft.rules ?? s.rules;
+  const rules = { ...s.rules, ...draft.rules };
   const setProvider = edit("provider"), setClassName = edit("className"), setModels = edit("models"), setVocab = edit("vocab");
   const setRisk = edit("risk"), setVoiceMode = edit("voiceMode"), setRules = edit("rules");
   const [keys, setKeys] = useState<Partial<Record<Provider, string>>>({});
@@ -63,13 +66,15 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   }
 
   async function exportCsv() {
-    let got: { records: MoodRecord[]; students: { no: number; alias: string }[] };
+    let got: { records: MoodRecord[]; students: { no: number; alias: string }[]; riskActions?: RiskAction[] };
     try {
       got = await api("teacher", "export");
     } catch (e) {
       return say("export", `내보내지 못했어요: ${(e as Error).message}`);
     }
     const { records, students } = got;
+    // 한 일(조치)은 내보낼 때 서버에서 받은 것(다른 기기에서 적은 것까지). 예전 서버면 화면에 있는 것
+    const actions = got.riskActions ?? data.riskActions;
     const alias = (no: number) => students.find((x) => x.no === no)?.alias ?? "";
     // 엑셀·구글 시트가 = + - @ 탭·줄바꿈으로 시작하는 칸을 수식으로 읽지 않게 앞에 '를 붙인다
     const cell = (v: unknown) => {
@@ -78,23 +83,66 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     };
     // 앞 열 순서는 그대로 두고(예전 파일과 맞게) 새 열은 뒤에 붙인다
     const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각", "한 일(조치)", "감정 단어", "한국어 정리", "언어", "마음 다스리기", "고치기 전 위험 표현"];
-    const did = (id: string) => data.riskActions.filter((x) => x.recordId === id).map((x) => `${x.date} ${x.kinds.map((k) => RISK_ACTION_KO[k]).join("·")}${x.note ? ` (${x.note})` : ""}`).join(" / ");
+    const did = (id: string) => actions.filter((x) => x.recordId === id).map((x) => `${x.date} ${x.kinds.map((k) => RISK_ACTION_KO[k]).join("·")}${x.note ? ` (${x.note})` : ""}`).join(" / ");
     const calm = (r: MoodRecord) => (r.calm ?? []).map((c) => `${CALM_KO[c.tool] ?? c.tool} → ${FELT_KO[c.felt] ?? c.felt}`).join(" / ");
-    const rows = records
-      .sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.slot.localeCompare(b.slot))
-      .map((r) => [
-        r.date, r.slot === "am" ? "아침" : "하교 전", r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id),
-        r.word ?? "", r.summaryKo ?? "", r.lang ? LANG_KO[r.lang] ?? r.lang : "", calm(r),
+    const lang = (l?: string) => (l ? LANG_KO[l] ?? l : "");
+    const slotKo = (x?: string) => (x === "am" ? "아침" : x === "pm" ? "하교 전" : "");
+    type Row = { date: string; no: number; k: string; cells: unknown[] };
+    const rows: Row[] = records.map((r) => ({
+      date: r.date, no: r.no, k: r.slot,
+      cells: [
+        r.date, slotKo(r.slot), r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id),
+        r.word ?? "", r.summaryKo ?? "", lang(r.lang), calm(r),
         // 같은 칸에 다시 남겨 지금 글에는 없지만, 고치기 전 글에 있던 위험 표현(때·글·걸린 말)
         (r.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.summaryKo || p.summary}${p.answer ? ` / ${p.answer}` : ""}” ${p.riskHits.join(" ") || "AI 판단"}`).join(" / "),
-      ]);
-    const csv = "﻿" + [head, ...rows].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
+      ],
+    }));
+    // 마음 기록 밖의 위험 표현(마치지 않은 기록 · 한 주 돌아보기 · 공감 쪽지): 감정·까닭 칸은 비우고 글은 「한 줄」에
+    const hitsOf = (t: string) => matchRisk(t, s.riskWords).join(" ") || "있음";
+    const other = (o: { id: string; date: string; slot?: string; no: number; method: string; line: string; risk: string; checked?: string | null; summaryKo?: string; lang?: string; earlier?: string }): Row => ({
+      date: o.date, no: o.no, k: `z${o.method}`,
+      cells: [o.date, slotKo(o.slot), o.no, alias(o.no), o.method, "", "", "", o.line, "", "", "", o.risk, o.checked ?? "", did(o.id), "", o.summaryKo ?? "", lang(o.lang), "", o.earlier ?? ""],
+    });
+    const extra: Row[] = [];
+    const done = new Set<string>();
+    for (const d of data.riskDrafts ?? []) {
+      done.add(`draft:${d.id}`);
+      extra.push(other({
+        id: `draft:${d.id}`, date: d.date, slot: d.slot, no: d.no, method: "마치지 않은 기록", line: d.text, risk: d.hits.join(" ") || "AI 판단", checked: d.checked,
+        summaryKo: d.summaryKo, lang: d.lang, earlier: (d.earlier ?? []).map((e) => `${ktime(e.at)} “${e.text}” ${e.hits.join(" ") || "AI 판단"}`).join(" / "),
+      }));
+    }
+    for (const x of data.reflects.filter(reflectEverRisk)) {
+      done.add(`reflect:${x.id}`);
+      const src = reflectSource(x, s.riskWords);
+      extra.push(other({
+        id: `reflect:${x.id}`, date: kday(x.createdAt), no: x.no, method: "돌아보기", line: x.text, risk: src.prev ? "" : hitsOf(x.text), checked: x.riskChecked, lang: x.lang,
+        earlier: (x.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.text}” ${hitsOf(p.text)}`).join(" / "),
+      }));
+    }
+    for (const l of data.letters.filter((l) => l.risk)) {
+      done.add(`letter:${l.id}`);
+      const status = { wait: "허락 기다림", ok: "전함", no: "돌려보냄" }[l.status];
+      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}) ${l.text}`, risk: hitsOf(l.text), checked: l.riskChecked, lang: l.lang }));
+    }
+    // 화면에 없는(오래됐거나 지워진) 것은 조치 기록에 남긴 글로
+    const METHOD = { draft: "마치지 않은 기록", reflect: "돌아보기", letter: "쪽지" } as const;
+    for (const id of new Set(actions.map((a) => a.recordId))) {
+      const as = actions.filter((a) => a.recordId === id);
+      const kind = as.find((a) => a.kind)?.kind ?? kindOfId(id);
+      if (kind === "record" || done.has(id)) continue;
+      const text = [...as].reverse().find((a) => a.text)?.text ?? "";
+      const first = [...as].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+      extra.push(other({ id, date: first.recordDate, no: first.no, method: METHOD[kind], line: text, risk: text ? hitsOf(text) : "있음", checked: first.createdAt }));
+    }
+    const all = [...rows, ...extra].sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.k.localeCompare(b.k));
+    const csv = "﻿" + [head, ...all.map((r) => r.cells)].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = `마음빛-기록-${data.today}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
-    say("export", `${records.length}건을 내보냈어요.`);
+    say("export", extra.length ? `마음 기록 ${records.length}건과 그 밖의 위험 표현 ${extra.length}건을 내보냈어요.` : `${records.length}건을 내보냈어요.`);
   }
 
   async function test(p: Provider) {
@@ -162,7 +210,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
               {adv && (
                 <label className="mt-2 block text-xs text-soft">
                   모델 이름
-                  <input value={models[p]} onChange={(e) => setModels({ ...models, [p]: e.target.value })} className="field mt-1 py-2 font-mono text-sm" />
+                  <input value={models[p]} onChange={(e) => setModels({ ...draft.models, [p]: e.target.value })} className="field mt-1 py-2 font-mono text-sm" />
                 </label>
               )}
               <div className="mt-3 flex items-center gap-2">
@@ -246,7 +294,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
           ] as [keyof Rules, string, number][]).map(([k, text, max]) => (
             <label key={k} className="flex items-center justify-between gap-3 rounded-2xl border border-line p-3 text-sm">
               {text}
-              <input type="number" min={1} max={max} value={rules[k]} onChange={(e) => setRules({ ...rules, [k]: Number(e.target.value) })} className="field w-20 py-2 text-center" />
+              <input type="number" min={1} max={max} value={rules[k]} onChange={(e) => setRules({ ...draft.rules, [k]: Number(e.target.value) })} className="field w-20 py-2 text-center" />
             </label>
           ))}
         </div>

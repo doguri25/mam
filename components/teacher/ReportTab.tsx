@@ -1,6 +1,6 @@
 "use client";
 // 주간 리포트: A4 한 장으로 인쇄(브라우저 인쇄 → PDF 저장도 됨). 기본은 학생을 번호로만 표시.
-import { everRisk } from "./alerts";
+import { everRisk, reflectEverRisk } from "./alerts";
 import { useState } from "react";
 import Doodle from "../Doodle";
 import { kindsText } from "./RiskActions";
@@ -33,7 +33,16 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const week = data.records.filter((r) => r.date >= weekStart && r.date <= today);
   const who = (no: number) => (onlyNo ? `${no}번` : `${no}번 ${nameOf(no)}`);
-  const risks = week.filter(everRisk); // 고치기 전 글에 있던 위험 표현도 센다
+  // 이번 주 위험 표현: 마음 기록(고치기 전 글에 있던 것도) · 마치지 않은 기록 · 한 주 돌아보기 · 공감 쪽지. 번호 순서(숫자로)대로
+  const inWeek = (d: string) => d >= weekStart && d <= today;
+  const risks: { no: number; date: string; what: string; id: string; open: boolean; checked: boolean }[] = [
+    ...week.filter(everRisk).map((r) => ({ no: r.no, date: r.date, what: "", id: r.id, open: r.risk && !r.riskChecked, checked: !!r.riskChecked })),
+    ...(data.riskDrafts ?? []).filter((d) => inWeek(d.date)).map((d) => ({ no: d.no, date: d.date, what: "마치지 않은 기록", id: `draft:${d.id}`, open: !d.checked, checked: !!d.checked })),
+    ...data.reflects.filter((x) => reflectEverRisk(x) && inWeek(kday(x.createdAt)))
+      .map((x) => ({ no: x.no, date: kday(x.createdAt), what: "돌아보기", id: `reflect:${x.id}`, open: !!x.risk && !x.riskChecked, checked: !!x.riskChecked })),
+    ...data.letters.filter((l) => l.risk && inWeek(kday(l.createdAt)))
+      .map((l) => ({ no: l.from, date: kday(l.createdAt), what: "쪽지", id: `letter:${l.id}`, open: !l.riskChecked, checked: !!l.riskChecked })),
+  ].sort((a, b) => a.no - b.no || a.date.localeCompare(b.date));
   const cheers = data.cheers.filter((c) => kday(c.createdAt) >= weekStart);
   const groups = Object.keys(GROUPS) as Group[];
   const total = students.length || 1;
@@ -173,8 +182,8 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
             {risks.length ? (
               <p>{risks.map((r) => {
                 const did = data.riskActions.filter((x) => x.recordId === r.id).flatMap((x) => x.kinds);
-                const open = r.risk && !r.riskChecked; // 조치한 뒤 새 위험 표현이 들어와 다시 열린 것도 「아직」
-                return `${who(r.no)}(${label(r.date)}${open ? ", 아직 살펴보지 않음" : did.length ? `, ${kindsText([...new Set(did)])}` : r.riskChecked ? ", 살펴봄" : ", 아직"})`;
+                // 조치한 뒤 새 위험 표현이 들어와 다시 열린 것도 「아직」
+                return `${who(r.no)}(${label(r.date)}${r.what && `, ${r.what}`}${r.open ? ", 아직 살펴보지 않음" : did.length ? `, ${kindsText([...new Set(did)])}` : r.checked ? ", 살펴봄" : ", 아직"})`;
               }).join(", ")}</p>
             ) : (
               <p className="text-soft">없어요.</p>
