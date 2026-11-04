@@ -1,9 +1,9 @@
 "use client";
 // 우리 반 감정 단어 사전: 12가지 감정마다 더 꼭 맞는 말·카드 낱말과 쉬운 뜻, 우리 반이 몇 번 썼는지(이름 없이), 내가 써 봤는지.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Doodle from "@/components/Doodle";
 import { EMOTION_COLOR, EmotionArt } from "@/components/Art";
-import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
+import StudentFrame, { Loading, useRetry, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { meaningOf } from "@/lib/game";
 import { w } from "@/lib/i18n";
@@ -14,10 +14,8 @@ type Dict = { counts: Record<string, number>; mine: string[]; vocab: string[] };
 export default function WordsPage() {
   const { me, lang, tt } = useStudent();
   const [dict, setDict] = useState<Dict | null>(null);
-  useEffect(() => {
-    api<Dict>("student", "dictionary").then(setDict, () => {});
-  }, []);
-  if (!me || !dict) return <Loading />;
+  useRetry(() => api<Dict>("student", "dictionary"), setDict); // 와이파이가 잠깐 끊겨도 다시 읽는다
+  if (!me || !dict) return <Loading lang={me ? lang : undefined} />;
   const extra = dict.vocab.filter((v) => !ALL_SUB_WORDS.includes(v)); // 교과서에서 더한 말
 
   const Word = ({ word }: { word: string }) => {

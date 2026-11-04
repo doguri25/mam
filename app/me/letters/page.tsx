@@ -1,9 +1,9 @@
 "use client";
 // 공감 쪽지: 친구에게 따뜻한 한마디를 쓰면 선생님이 먼저 읽고 전해 준다. 받은 쪽지·보낸 쪽지도 여기서 본다.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Doodle from "@/components/Doodle";
 import BuddyLazy from "@/components/BuddyLazy";
-import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
+import StudentFrame, { Loading, useRetry, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { errText, type UIKey } from "@/lib/i18n";
 
@@ -29,22 +29,11 @@ export default function LettersPage() {
     // 받은 쪽지를 열어 보면 읽음으로
     for (const l of b.inbox.filter((x) => !x.read)) api("student", "readLetter", { id: l.id }).catch(() => {});
   }, []);
-  useEffect(() => {
-    // 와이파이가 잠깐 끊겼으면 몇 초 뒤 다시 읽는다
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tryLoad = (wait: number) => {
-      load().catch(() => { if (alive) timer = setTimeout(() => tryLoad(Math.min(wait * 2, 10_000)), wait); });
-    };
-    tryLoad(2000);
-    api<{ friends: { no: number; alias: string }[] }>("student", "classmates").then((r) => setFriends(r.friends), () => {});
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [load]);
+  // 와이파이가 잠깐 끊겼으면 몇 초 뒤 다시 읽는다(쪽지함도, 쪽지 쓸 친구 목록도)
+  useRetry(load, () => {});
+  useRetry(() => api<{ friends: { no: number; alias: string }[] }>("student", "classmates"), (r) => setFriends(r.friends));
 
-  if (!me || !box) return <Loading />;
+  if (!me || !box) return <Loading lang={me ? lang : undefined} />;
 
   async function send() {
     if (sending) return;

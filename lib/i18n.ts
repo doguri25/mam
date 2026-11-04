@@ -346,6 +346,9 @@ const UI = {
   logoutFail: { ko: "인터넷이 연결되면 다시 눌러 주세요.", en: "Please tap again when the internet is back.", zh: "网络恢复后请再按一次。", vi: "Khi có mạng lại, em bấm lần nữa nhé.", ja: "インターネットが つながったら もういちど おしてね。" },
   loadFail: { ko: "인터넷 연결을 확인해 주세요.", en: "Please check the internet connection.", zh: "请检查网络连接。", vi: "Em hãy kiểm tra kết nối mạng.", ja: "インターネットの つながりを たしかめてね。" },
   retry: { ko: "다시 해 보기", en: "Try again", zh: "再试一次", vi: "Thử lại", ja: "もういちど" },
+  waitNet: { ko: "인터넷이 연결되기를 기다리고 있어요…", en: "Waiting for the internet to connect…", zh: "正在等待网络连接…", vi: "Đang chờ kết nối mạng…", ja: "インターネットに つながるのを まっているよ…" },
+  prevMonth: { ko: "지난달", en: "Previous month", zh: "上个月", vi: "Tháng trước", ja: "まえの つき" },
+  nextMonth: { ko: "다음 달", en: "Next month", zh: "下个月", vi: "Tháng sau", ja: "つぎの つき" },
 } satisfies Record<string, Record<Lang, string>>;
 export type UIKey = keyof typeof UI;
 
