@@ -36,6 +36,15 @@ test("먼저 살펴볼 학생: 한 역량 두 문항 모두 아니에요, 또는
   assert.deepEqual(selfWatch(now, before).map((x) => x.no), [1, 2]);
 });
 
+test("먼저 살펴볼 학생: 딱 0.5 내려간 것은 「0.5 넘게」가 아니라 넣지 않는다", () => {
+  const A = (no: number, answers: number[]): SelfAnswer => ({ kind: "selfAnswer", round: "r", no, answers, at: "" });
+  const before = [A(1, Array(10).fill(3)), A(2, Array(10).fill(3))];
+  const now = [A(1, [3, 3, 3, 3, 3, 2, 2, 2, 2, 2]), A(2, [3, 3, 3, 3, 2, 2, 2, 2, 2, 2])]; // 평균 2.5(−0.5) · 2.4(−0.6)
+  const out = selfWatch(now, before);
+  assert.deepEqual(out.map((x) => x.no), [2]);
+  assert.deepEqual(out[0].why, ["지난 회차보다 평균 0.6점 내려감"]);
+});
+
 test("연습 회차: 학기 초는 닫혔고 학기 말은 열려 있으며, 공감은 오르고 책임 행동은 제자리", () => {
   const { rounds, answers } = demoSelfChecks("2026-11-04");
   assert.equal(rounds.length, 2);
