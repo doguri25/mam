@@ -580,9 +580,11 @@ export async function seedPractice() {
 export async function clearPractice() {
   const doc = await db().get<{ students: Student[]; demo?: boolean }>("meta", "roster");
   const roster = doc?.students ?? [];
-  // 학생마다 연습 표시가 붙기 전에 만든 연습 명단(명단에 표시만 있고 학생에게는 없음)은 모두 가짜 학생
+  // 학생마다 연습 표시가 붙기 전에 만든 연습 명단(명단에 표시만 있고 학생에게는 없음): 연습 기록이 있는 번호만 가짜 학생으로 본다.
+  // (명단 표시가 잘못 켜진 실제 명단이면 연습 기록이 없으므로 아무도 지우지 않는다 — 실제 반을 통째로 지우지 않게)
   const legacy = doc?.demo === true && !roster.some((s) => s.demo);
-  const fake = new Set(roster.filter((s) => s.demo || legacy).map((s) => s.no));
+  const practiceNos = legacy ? new Set((await db().find<MoodRecord>("records", "demo", "==", true)).map((r) => r.no)) : new Set<number>();
+  const fake = new Set(roster.filter((s) => s.demo || (legacy && practiceNos.has(s.no))).map((s) => s.no));
   await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다
   await db().del("sheets", PRACTICE_SHEET);
   await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
