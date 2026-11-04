@@ -157,3 +157,15 @@ export function resetWait(ip: string, now = Date.now()): Promise<number> {
     return (await take(`reset:${hashId(ip)}`, RESET_PER_IP)) || (await take("reset:all", RESET_ALL));
   });
 }
+
+// ── 체험 반에서 여럿이 함께 쓰는 것 바꾸기(연습 데이터 다시 만들기는 resetWait, 명단 저장·코드 새로 받기는 이것) ──
+// IP마다 10분에 TRIAL_EDITS번까지. 체험 반 문서를 마구 다시 쓰거나(무료 저장소 부담) 다른 사람을 내보내지 못하게.
+export const TRIAL_EDITS = 10;
+export function trialEditWait(ip: string, now = Date.now()): Promise<number> {
+  return outOfSpace(async () => {
+    const span = 10 * MIN;
+    const end = (Math.floor(now / span) + 1) * span;
+    const r = await db().bump("sys", `tedit:${hashId(ip)}`, String(end), { max: TRIAL_EDITS, extra: { exp: end } });
+    return r.ok ? 0 : secs(end, now);
+  });
+}

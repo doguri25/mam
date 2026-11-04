@@ -316,6 +316,24 @@ export interface Letter {
 export interface Reflect {
   id: string; no: number; weekStart: string; text: string; reply: string; createdAt: string;
   lang?: string; risk?: boolean; demo?: boolean;
+  riskChecked?: string | null; // 선생님이 「살펴봤어요」를 누른 시각
+  prev?: { text: string; risk: boolean; createdAt: string }[]; // 고쳐 쓰기 전 글(선생님만 봄)
+}
+
+// 마치지 않은 위험 표현: 말로 쓴 문장에 위험 표현이 있었는데 학생이 기록을 마치지 않고 나간 것.
+// 정리하기(analyze) 때 바로 남기고, 그 칸 기록을 저장하면 지운다(기록에 같은 글이 담기므로). 선생님 마음 지도 알림에 보인다.
+export interface RiskDraft {
+  id: string; // `${no}_${date}_${slot}` — 그 칸 기록과 같은 이름
+  no: number;
+  date: string;
+  slot: Slot;
+  text: string;
+  summaryKo?: string;
+  hits: string[];
+  lang: string;
+  at: string;
+  checked: string | null;
+  demo?: boolean;
 }
 
 // 마음 친구 성장: 서로 다른 감정 단어를 몇 개 써 봤는지에 따라 꾸미개가 열린다(기록 횟수가 아니라 새 단어로)

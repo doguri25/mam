@@ -1,6 +1,6 @@
 import type { Flag } from "@/lib/rules";
 import type { Retention } from "@/lib/retention";
-import type { BuddyLook, Cheer, Letter, MoodRecord, Note, Provider, Reflect, RiskAction, Rules, Student, VoiceMode } from "@/lib/shared";
+import type { BuddyLook, Cheer, Letter, MoodRecord, Note, Provider, Reflect, RiskAction, RiskDraft, Rules, Student, VoiceMode } from "@/lib/shared";
 
 export interface Weekly {
   weekStart: string;
@@ -37,6 +37,7 @@ export interface OverviewRaw {
   letters: Letter[];
   reflects: Reflect[];
   riskActions: RiskAction[]; // 위험 표현 조치 기록(선생님만)
+  riskDrafts?: RiskDraft[]; // 학생이 기록을 마치지 않고 나간 위험 표현(살펴보기 전)
   expired: number; // 보관 기한이 지난 마음 기록 수
   trial: { aiUsed: number; aiCap: number; aiSource: "upstage" | "trial" | "class" | "none" | null } | null; // 심사용 체험 공간이면
   sharedAi: { used: number; cap: number } | null; // 실제 학급이 빌려 쓰는 공용 업스테이지 키(서버에 있을 때만)

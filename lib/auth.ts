@@ -48,7 +48,10 @@ export function isTeacher(cookie: string | undefined, v = 0, sp = spaceId()) {
 }
 
 // 와이파이가 끊겼을 때 기기에 잠시 담아 둔 기록을 나중에 보내는 표: 그 학급·학생·그날 기록만 저장할 수 있다
-export const queueToken = (no: number, code: string, date: string, sp = spaceId()) => sign(`q:${no}:${code}:${date}:${sp}`);
+// 표에는 학생 코드 대신 코드의 지문(HMAC)만 담는다(공용 태블릿 저장소에 남아도 코드를 알 수 없게)
+export const queueToken = (no: number, code: string, date: string, sp = spaceId()) => sign(`q:${no}:${hashId(`code:${code}`)}:${date}:${sp}`);
+// 예전 표(코드를 그대로 담음)도 그 기한 안에서는 받는다
+export const queueCodeOk = (code: string, inToken: string) => inToken === hashId(`code:${code}`) || inToken === code;
 export function readQueueToken(token: unknown) {
   const v = unsign(typeof token === "string" ? token : undefined);
   if (!v?.startsWith("q:")) return null;

@@ -3,9 +3,9 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
-import { DEMO_COOKIE, STUDENT_COOKIE, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
+import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
-import { saveLook } from "@/lib/data";
+import { dropRiskDraft, putRiskDraft, saveLook } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -14,7 +14,7 @@ import { matchRisk } from "@/lib/rules";
 import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
 import {
   ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, PREV_MAX, REASON_NAMES, TONES, cleanLook, isWordOf,
-  type CalmTool, type Felt, type Letter, type MoodRecord, type PrevVersion, type Reflect, type Student,
+  type CalmTool, type Felt, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type Student,
 } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
 
@@ -49,11 +49,17 @@ export async function POST(req: NextRequest) {
 // 코드 로그인: 틀린 코드는 IP마다 세어 너무 많으면 잠시 막는다(코드를 마구 넣어 맞히기 막기). 맞힌 로그인은 세지 않는다.
 // 학교는 태블릿 여럿이 공인 IP 하나를 함께 쓰므로 넉넉히(10분에 30번) — lib/limit.ts. 코드 색인을 읽기 전에 막는다.
 async function codeLogin(req: NextRequest, body: Body) {
+  // 들어가기에 실패하면 이 기기에 남아 있던 앞 친구 로그인도 끊는다(다른 코드로 들어오려던 것이므로).
+  // 그대로 두면 「코드로 들어가기」를 눌렀을 때 첫 화면이 앞 친구 화면으로 바로 넘어간다.
   const gate = await codeAttempt(clientIp(req.headers));
-  if (gate.wait) return bad(`코드를 너무 여러 번 틀렸어요. ${waitText(gate.wait)} 뒤에 다시 해 주세요.`, 429);
+  const out = (res: NextResponse) => {
+    if (!res.ok) res.cookies.delete(STUDENT_COOKIE);
+    return res;
+  };
+  if (gate.wait) return out(bad(`코드를 너무 여러 번 틀렸어요. ${waitText(gate.wait)} 뒤에 다시 해 주세요.`, 429));
   const res = await inSpace(await studentSpace(req, body), () => handle(req, body));
   await gate.done(res.status !== 401); // 401 = 없는 코드
-  return res;
+  return out(res);
 }
 
 // 학생 쿠키 「번호:코드:공간」. 로그인은 코드 색인으로, 끊김 기록은 qtoken에 적힌 공간으로.
@@ -90,12 +96,13 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "saveQueued") {
       const q = readQueueToken(body.qtoken);
       if (!q) return bad("보낼 수 없는 기록이에요.", 410);
-      const s = (await getRoster()).find((x) => x.no === q.no && x.code === q.code);
+      const s = (await getRoster()).find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
       if (!s) return bad("학생 코드가 바뀌었어요.", 410);
       const made = Date.parse(String(body.madeAt ?? ""));
       const now = today();
       const date = Number.isFinite(made) && made <= Date.now() + 60_000 ? today(new Date(made)) : q.date;
-      if (date < q.date || date > now || date < addDays(now, -3)) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
+      // 표는 만든 날부터 사흘까지만 쓴다(공용 태블릿에 남은 표로 다른 날 기록을 써 넣지 못하게)
+      if (date < q.date || date > addDays(q.date, 3) || date > now || date < addDays(now, -3)) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
       return saveRecord(s, body.record ?? {}, await getSettings(), { date, madeAt: Number.isFinite(made) ? made : undefined });
     }
 
@@ -244,8 +251,17 @@ async function handle(req: NextRequest, body: Body) {
           }
         }
       }
-      const ref: Reflect = { id: `${s.no}_${ws}`, no: s.no, weekStart: ws, text, reply, createdAt: new Date().toISOString(), lang, risk, ...(isDemo() || s.demo ? { demo: true } : {}) };
-      await db().set("reflects", ref.id, { ...ref });
+      // 고쳐 쓰면 앞 글은 prev에 남기고, 선생님이 아직 살펴보지 않은 위험 표시는 이어받는다(고쳐 써서 알림이 사라지지 않게)
+      const id = `${s.no}_${ws}`;
+      await db().update<Reflect>("reflects", id, (old) => {
+        const carry = !!old?.risk && !old.riskChecked;
+        return {
+          id, no: s.no, weekStart: ws, text, reply, createdAt: new Date().toISOString(), lang,
+          risk: risk || carry, riskChecked: risk || carry ? null : (old?.riskChecked ?? null),
+          ...(old ? { prev: [...(old.prev ?? []), { text: old.text, risk: !!old.risk, createdAt: old.createdAt }].slice(-5) } : {}),
+          ...(isDemo() || s.demo ? { demo: true } : {}),
+        };
+      });
       await touch("other");
       return NextResponse.json({ reply });
     }
@@ -273,11 +289,26 @@ async function handle(req: NextRequest, body: Body) {
         if (tn) tone = { tone: tn.tone, why: tn.why, by: "device" };
       }
 
-      const ruleRisk = matchRisk(text, settings.riskWords).length > 0;
+      const ruleHits = matchRisk(text, settings.riskWords);
+      const ruleRisk = ruleHits.length > 0;
+      const slot = body.slot === "am" || body.slot === "pm" ? body.slot : slotNow();
+      // 쓴 문장에 위험한 말이 있으면 기록을 마치기 전에 바로 남기고 선생님께 알린다(학생이 중간에 나가도 놓치지 않게).
+      // 그 칸 기록을 저장하면 saveRecord가 지운다.
+      const draft = async (summaryKo = "", hits = ruleHits) => {
+        if (!text) return;
+        const d: RiskDraft = {
+          id: `${s.no}_${today()}_${slot}`, no: s.no, date: today(), slot, text, hits, lang, at: new Date().toISOString(), checked: null,
+          ...(lang !== "ko" && summaryKo ? { summaryKo: summaryKo.slice(0, 120) } : {}), ...(isDemo() || s.demo ? { demo: true } : {}),
+        };
+        await putRiskDraft(d);
+        alertTeacher(s.no, "기록", `risk-${d.id}`);
+      };
       // 위험한 마음이면 되묻지 않고 고맙다는 말만 남긴 채 바로 저장(skipAsk)
-      const finish = (r: Analysis, ai: boolean) => {
+      const finish = async (r: Analysis, ai: boolean) => {
         const out = { ...r, ai, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features };
-        return NextResponse.json(r.risk || ruleRisk ? { ...out, risk: true, question: RISK_REPLY[lang], options: [], skipAsk: true } : out);
+        if (!(r.risk || ruleRisk)) return NextResponse.json(out);
+        await draft(r.summary ?? "", ruleHits.length ? ruleHits : matchRisk(r.summary ?? "", settings.riskWords));
+        return NextResponse.json({ ...out, risk: true, question: RISK_REPLY[lang], options: [], skipAsk: true });
       };
       const input = { text: text || undefined, card, vocab: settings.vocab, voiceTone: tone ? `${tone.tone} · ${tone.why}` : undefined, lang };
 
@@ -303,7 +334,11 @@ async function handle(req: NextRequest, body: Body) {
         }
       }
       // AI가 없거나 실패: 카드는 기본 되묻기로, 문장은 카드 단계로 돌려 학생이 직접 고르게
-      if (!card) return NextResponse.json({ needCard: true, summary: text, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features });
+      // 문장만 있고 AI가 정리하지 못함: 카드로 고르게 한다. 위험한 말이 있었으면 바로 남기고 고맙다는 말을 보여 준다.
+      if (!card) {
+        if (ruleRisk) await draft();
+        return NextResponse.json({ needCard: true, risk: ruleRisk, summary: text, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features });
+      }
       return finish({ ...card, summary: "", ...fallbackQuestion(card.reason, card.emotion, lang), risk: false, word: "" }, false);
     }
 
@@ -365,16 +400,18 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     };
   }
   await putRecord(saved);
+  await dropRiskDraft(saved.id); // 마치지 않은 위험 표현은 이제 이 기록에 담겼다
   if (own) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
   return NextResponse.json({ record: publicRecord(saved) });
 }
 
 // 앞 기록으로 넘길 때 남길 것(말투 숫자·목소리 특징은 빼고, 그 기록 자체의 위험 여부만)
 function toPrev(r: MoodRecord): PrevVersion {
+  // Firestore는 undefined 값을 받지 않으므로 없는 칸은 아예 넣지 않는다
   return {
-    method: r.method, emotion: r.emotion, intensity: r.intensity, reason: r.reason, word: r.word || undefined,
-    summary: r.summary, summaryKo: r.summaryKo || undefined, question: r.question, answer: r.answer,
-    risk: r.riskSelf ?? r.risk, riskHits: r.riskSelf === false ? [] : r.riskHits, lang: r.lang, createdAt: r.createdAt,
+    method: r.method, emotion: r.emotion, intensity: r.intensity, reason: r.reason, ...(r.word ? { word: r.word } : {}),
+    summary: r.summary ?? "", ...(r.summaryKo ? { summaryKo: r.summaryKo } : {}), question: r.question ?? "", answer: r.answer ?? "",
+    risk: r.riskSelf ?? r.risk, riskHits: r.riskSelf === false ? [] : r.riskHits ?? [], ...(r.lang ? { lang: r.lang } : {}), createdAt: r.createdAt,
   };
 }
 

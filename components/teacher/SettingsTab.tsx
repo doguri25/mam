@@ -1,5 +1,6 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
+import { ktime } from "./when";
 import { useState } from "react";
 import Doodle from "../Doodle";
 import RetentionCard from "./RetentionCard";
@@ -22,14 +23,21 @@ const LINKS: Record<Provider, string> = {
 export default function SettingsTab({ data, reload }: { data: Overview; reload: Reload }) {
   const s = data.settings;
   const shared = data.sharedAi; // 서버의 공용 업스테이지 키(있으면 키 없이도 하루 정해진 번까지)
-  const [provider, setProvider] = useState<Provider>(s.provider);
-  const [className, setClassName] = useState(s.className);
-  const [models, setModels] = useState(s.models);
+  // 선생님이 이 기기에서 고친 칸만 기억하고 보낸다. 고치지 않은 칸은 늘 서버 값을 보여 주고 보내지도 않는다
+  // → 다른 기기에서 더한 위험 표현·규칙을 이 기기의 오래된 화면이 덮어쓰지 않게.
+  type Draft = { provider: Provider; className: string; models: Record<Provider, string>; vocab: string; risk: string; voiceMode: VoiceMode; rules: Rules };
+  const [draft, setDraft] = useState<Partial<Draft>>({});
+  const edit = <K extends keyof Draft>(k: K) => (v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const provider = draft.provider ?? s.provider;
+  const className = draft.className ?? s.className;
+  const models = draft.models ?? s.models;
+  const vocab = draft.vocab ?? s.vocab.join(", ");
+  const risk = draft.risk ?? s.riskWords.join(", ");
+  const voiceMode = draft.voiceMode ?? s.voiceMode;
+  const rules = draft.rules ?? s.rules;
+  const setProvider = edit("provider"), setClassName = edit("className"), setModels = edit("models"), setVocab = edit("vocab");
+  const setRisk = edit("risk"), setVoiceMode = edit("voiceMode"), setRules = edit("rules");
   const [keys, setKeys] = useState<Partial<Record<Provider, string>>>({});
-  const [vocab, setVocab] = useState(s.vocab.join(", "));
-  const [risk, setRisk] = useState(s.riskWords.join(", "));
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>(s.voiceMode);
-  const [rules, setRules] = useState<Rules>(s.rules);
   const [msg, setMsg] = useState<Record<string, string>>({});
   const [advRaw, setAdv] = useLocal("mb_adv"); // 자세한 설정(모델 이름·단어 목록·말투·규칙·연습 데이터)은 펼칠 때만
   const adv = advRaw === "1";
@@ -38,8 +46,15 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
 
   async function save(extraKeys: Partial<Record<Provider, string>> = keys) {
     try {
-      await api("teacher", "settings", { provider, className, models, keys: extraKeys, vocab: split(vocab), riskWords: split(risk), voiceMode, rules });
+      const d = draft;
+      await api("teacher", "settings", {
+        keys: extraKeys,
+        ...(d.provider ? { provider: d.provider } : {}), ...(d.className !== undefined ? { className: d.className } : {}),
+        ...(d.models ? { models: d.models } : {}), ...(d.vocab !== undefined ? { vocab: split(d.vocab) } : {}),
+        ...(d.risk !== undefined ? { riskWords: split(d.risk) } : {}), ...(d.voiceMode ? { voiceMode: d.voiceMode } : {}), ...(d.rules ? { rules: d.rules } : {}),
+      });
       setKeys({});
+      setDraft({});
       say("save", "저장했어요.");
       await reload();
     } catch (e) {
@@ -62,7 +77,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       return `"${(/^[=+\-@\t\r]/.test(t) ? `'${t}` : t).replace(/"/g, '""')}"`;
     };
     // 앞 열 순서는 그대로 두고(예전 파일과 맞게) 새 열은 뒤에 붙인다
-    const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각", "한 일(조치)", "감정 단어", "한국어 정리", "언어", "마음 다스리기"];
+    const head = ["날짜", "시점", "번호", "가명", "방법", "감정", "세기", "까닭", "한 줄", "되묻기", "답", "말투", "위험 표현", "살펴본 시각", "한 일(조치)", "감정 단어", "한국어 정리", "언어", "마음 다스리기", "고치기 전 위험 표현"];
     const did = (id: string) => data.riskActions.filter((x) => x.recordId === id).map((x) => `${x.date} ${x.kinds.map((k) => RISK_ACTION_KO[k]).join("·")}${x.note ? ` (${x.note})` : ""}`).join(" / ");
     const calm = (r: MoodRecord) => (r.calm ?? []).map((c) => `${CALM_KO[c.tool] ?? c.tool} → ${FELT_KO[c.felt] ?? c.felt}`).join(" / ");
     const rows = records
@@ -70,6 +85,8 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       .map((r) => [
         r.date, r.slot === "am" ? "아침" : "하교 전", r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id),
         r.word ?? "", r.summaryKo ?? "", r.lang ? LANG_KO[r.lang] ?? r.lang : "", calm(r),
+        // 같은 칸에 다시 남겨 지금 글에는 없지만, 고치기 전 글에 있던 위험 표현(때·글·걸린 말)
+        (r.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.summaryKo || p.summary}${p.answer ? ` / ${p.answer}` : ""}” ${p.riskHits.join(" ") || "AI 판단"}`).join(" / "),
       ]);
     const csv = "﻿" + [head, ...rows].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
     const a = document.createElement("a");
@@ -98,7 +115,11 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       clearDemo: "연습용(시연) 기록만 지울까요? 실제로 남긴 기록은 그대로예요.",
     }[mode];
     if (!confirm(ask)) return;
-    await api("teacher", "demo", { mode });
+    try {
+      await api("teacher", "demo", { mode });
+    } catch (e) {
+      return say("demo", (e as Error).message); // 체험 반에서 너무 자주 누르면 기다리라는 안내
+    }
     say("demo", { seed: "연습 데이터를 만들었어요. 「마음 지도」를 보세요.", clear: "모두 지웠어요.", clearDemo: "연습 데이터를 지웠어요." }[mode]);
     await reload();
   }

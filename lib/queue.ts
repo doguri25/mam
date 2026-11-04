@@ -21,6 +21,13 @@ const write = (key: string, v: unknown) => {
 };
 
 export const rememberToken = (no: number, token: string) => write(TOKEN, { no, token });
+export const forgetToken = () => {
+  try {
+    localStorage.removeItem(TOKEN);
+  } catch {
+    // 저장소를 못 쓰면 지울 것도 없다
+  }
+};
 export const pendingCount = () => read<Item[]>(PENDING, []).length;
 
 // 담아 두었으면 true(그 학생의 표가 없으면 담지 못함)

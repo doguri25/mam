@@ -1,5 +1,6 @@
 "use client";
 // 주간 리포트: A4 한 장으로 인쇄(브라우저 인쇄 → PDF 저장도 됨). 기본은 학생을 번호로만 표시.
+import { everRisk } from "./alerts";
 import { useState } from "react";
 import Doodle from "../Doodle";
 import { kindsText } from "./RiskActions";
@@ -32,7 +33,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const week = data.records.filter((r) => r.date >= weekStart && r.date <= today);
   const who = (no: number) => (onlyNo ? `${no}번` : `${no}번 ${nameOf(no)}`);
-  const risks = week.filter((r) => r.risk);
+  const risks = week.filter(everRisk); // 고치기 전 글에 있던 위험 표현도 센다
   const cheers = data.cheers.filter((c) => kday(c.createdAt) >= weekStart);
   const groups = Object.keys(GROUPS) as Group[];
   const total = students.length || 1;
@@ -172,7 +173,8 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
             {risks.length ? (
               <p>{risks.map((r) => {
                 const did = data.riskActions.filter((x) => x.recordId === r.id).flatMap((x) => x.kinds);
-                return `${who(r.no)}(${label(r.date)}${did.length ? `, ${kindsText([...new Set(did)])}` : r.riskChecked ? ", 살펴봄" : ", 아직"})`;
+                const open = r.risk && !r.riskChecked; // 조치한 뒤 새 위험 표현이 들어와 다시 열린 것도 「아직」
+                return `${who(r.no)}(${label(r.date)}${open ? ", 아직 살펴보지 않음" : did.length ? `, ${kindsText([...new Set(did)])}` : r.riskChecked ? ", 살펴봄" : ", 아직"})`;
               }).join(", ")}</p>
             ) : (
               <p className="text-soft">없어요.</p>

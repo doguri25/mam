@@ -12,16 +12,17 @@ import Timeline from "./Timeline";
 import Weather from "./Weather";
 import type { NameOf, Overview, Reload } from "./types";
 import { flagChecked, flagKey } from "./when";
+import { riskAlerts, riskySource } from "./alerts";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { isHard } from "@/lib/shared";
 
-export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void }) {
+export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void }) {
   const [open, setOpen] = useState<number | null>(null);
   const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
   const { students, records, today, flags, settings, absent } = data;
   const todays = records.filter((r) => r.date === today);
-  const alerts = records.filter((r) => r.risk && !r.riskChecked).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const alerts = riskAlerts(data);
   // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
   const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
   const openFlags = flags.filter((f) => !checkedAt(f.no));
@@ -50,24 +51,66 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
             (청소년상담 1388, 자살예방상담 109)
           </p>
           <ul className="mt-3 space-y-2">
-            {alerts.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
-                <span className="flex items-start gap-2">
-                  <EmotionArt name={r.emotion} size={34} className="shrink-0" />
-                  <span>
-                    <b>{r.no}번 {nameOf(r.no)}</b> · {label(r.date)} {r.slot === "am" ? "아침" : "하교 전"} · {r.emotion}
-                    {(r.summary || r.answer) && <span className="block text-sm">“{[r.summary, r.answer].filter(Boolean).join(" / ")}”</span>}
-                    <span className="block text-xs text-soft">{r.riskHits.length ? `걸린 말: ${r.riskHits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
-                    <PrevList prev={r.prev} now={r.createdAt} />
+            {alerts.map((a) => {
+              const slot = "slot" in a ? (a.slot === "am" ? " 아침" : " 하교 전") : "";
+              const head = (what: string) => <><b>{a.no}번 {nameOf(a.no)}</b> · {label(a.date)}{slot} · {what}</>;
+              let body: React.ReactNode;
+              if (a.kind === "record") {
+                const r = a.rec;
+                const src = riskySource(r);
+                body = (
+                  <span className="flex items-start gap-2">
+                    <EmotionArt name={r.emotion} size={34} className="shrink-0" />
+                    <span>
+                      {head(r.emotion)}
+                      {src.prev ? (
+                        <span className="block text-sm"><span className="font-bold text-alert">고치기 전 글에 위험 표현</span> “{src.text}”</span>
+                      ) : (
+                        src.text && <span className="block text-sm">“{src.text}”</span>
+                      )}
+                      <span className="block text-xs text-soft">{src.hits.length ? `걸린 말: ${src.hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
+                      <PrevList prev={r.prev} now={r.createdAt} />
+                    </span>
                   </span>
-                </span>
-                {acting === r.id ? (
-                  <RiskActionForm recordId={r.id} today={today} first onCancel={() => setActing(null)} onDone={async () => { setActing(null); await reload(); }} />
-                ) : (
-                  <button onClick={() => setActing(r.id)} className="btn-sub min-h-10 text-sm">살펴봤어요</button>
-                )}
-              </li>
-            ))}
+                );
+              } else if (a.kind === "draft") {
+                body = (
+                  <span>
+                    {head("기록을 마치지 않고 나감")}
+                    <span className="block text-sm">“{a.text}”</span>
+                    <span className="block text-xs text-soft">{a.hits.length ? `걸린 말: ${a.hits.join(", ")}` : "AI가 위험 내용으로 판단"} · 말로 쓴 뒤 카드를 고르지 않았어요</span>
+                  </span>
+                );
+              } else if (a.kind === "reflect") {
+                body = (
+                  <span>
+                    {head("한 주 돌아보기")}
+                    <span className="block text-sm">“{a.text}”</span>
+                  </span>
+                );
+              } else {
+                body = (
+                  <span>
+                    {head(`공감 쪽지 → ${a.to}번 ${nameOf(a.to)}`)}
+                    <span className="block text-sm">“{a.text}”</span>
+                    <span className="block text-xs text-soft">허락을 기다리는 쪽지예요. 「공감 쪽지」에서 읽고 전하거나 돌려보내 주세요.</span>
+                  </span>
+                );
+              }
+              return (
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
+                  {body}
+                  {a.kind === "letter" ? (
+                    onLetters && <button onClick={onLetters} className="btn-sub min-h-10 text-sm">공감 쪽지로</button>
+                  ) : acting === a.id ? (
+                    <RiskActionForm recordId={a.id} today={today} first seen={a.kind === "record" ? a.rec.createdAt : undefined}
+                      onCancel={() => setActing(null)} onStale={async () => { setActing(null); await reload(); }} onDone={async () => { setActing(null); await reload(); }} />
+                  ) : (
+                    <button onClick={() => setActing(a.id)} className="btn-sub min-h-10 text-sm">살펴봤어요</button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

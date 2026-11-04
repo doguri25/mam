@@ -7,7 +7,7 @@ import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_ADDED, RISK_WORDS_V, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_ADDED, RISK_WORDS_V, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -61,9 +61,12 @@ export async function getRoster(): Promise<Student[]> {
 }
 
 // 연습 데이터가 남아 있나: 연습 명단이거나, 명단에 연습용 가짜 학생이 한 명이라도 있으면
+// 연습 명단이 아니어도 연습 회차(자기진단·역량 진단)가 남아 있으면 「연습 데이터만 지우기」를 보여 준다
 export async function rosterIsDemo() {
   const doc = await db().get<{ demo?: boolean; students?: Student[] }>("meta", "roster");
-  return doc?.demo === true || !!doc?.students?.some((s) => s.demo);
+  if (doc?.demo === true || doc?.students?.some((s) => s.demo)) return true;
+  const [rounds, sel] = await Promise.all([getSelfRounds(), getSelChecks()]);
+  return rounds.some((r) => r.demo) || sel.some((c) => c.demo);
 }
 
 // demo: 시연(연습)용 가짜 명단인지 — 교사 화면에 「연습 데이터」 띠를 띄운다
@@ -422,6 +425,28 @@ export async function editRiskActions(fn: (items: RiskAction[]) => RiskAction[])
 export const addRiskAction = (act: RiskAction) => editRiskActions((items) => [...items.filter((x) => x.id !== act.id), act]);
 export const deleteRiskAction = (id: string) => editRiskActions((items) => items.filter((x) => x.id !== id));
 
+// 마치지 않은 위험 표현(학생이 정리하기에서 위험한 말을 쓰고 기록을 마치지 않은 것). 문서 하나에 모아 두고 40일 지나면 뺀다.
+const DRAFT_DAYS = 40;
+export async function getRiskDrafts(): Promise<RiskDraft[]> {
+  return (await db().get<{ items: RiskDraft[] }>("meta", "riskDrafts"))?.items ?? [];
+}
+async function editRiskDrafts(fn: (items: RiskDraft[]) => RiskDraft[]) {
+  const from = addDays(today(), -DRAFT_DAYS);
+  let changed = false;
+  await db().update<{ items: RiskDraft[] }>("meta", "riskDrafts", (cur) => {
+    const before = cur?.items ?? [];
+    const items = fn(before).filter((d) => d.date >= from);
+    changed = JSON.stringify(items) !== JSON.stringify(before);
+    return changed ? { ...cur, items } : undefined;
+  });
+  if (changed) await touch("other");
+}
+// 같은 칸은 마지막 글 하나만(살펴본 표시는 새 글이 오면 다시 비움)
+export const putRiskDraft = (d: RiskDraft) => editRiskDrafts((items) => [...items.filter((x) => x.id !== d.id), d]);
+// 그 칸 기록을 저장했으면 지운다(기록에 같은 글과 위험 표시가 담김)
+export const dropRiskDraft = (id: string) => editRiskDrafts((items) => items.filter((x) => x.id !== id));
+export const checkRiskDraft = (id: string) => editRiskDrafts((items) => items.map((x) => (x.id === id ? { ...x, checked: new Date().toISOString() } : x)));
+
 // 학생 자기진단: 회차 목록은 문서 하나, 학생 답은 학생마다 문서 하나(meta 모음 안, kind로 찾음)
 // 회차는 한 해 몇 번이라 개수로 잘라 버리지 않는다(문서 크기 걱정 없음). 너무 많으면 여는 쪽(selfOpen)이 분명한 오류를 낸다.
 export const SELF_ROUNDS_MAX = 100;
@@ -560,7 +585,10 @@ export async function clearPractice() {
   await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다
   await db().del("sheets", PRACTICE_SHEET);
   await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
+  // 연습 회차와, 그 회차에 실제 학생이 낸 답도 함께(회차가 없어진 답이 남지 않게)
+  const gone = new Set((await getSelfRounds()).filter((r) => r.demo).map((r) => r.id));
   await editSelfRounds((rs) => rs.filter((r) => !r.demo));
+  if (gone.size) await deleteSelfAnswers((a) => !gone.has(a.round));
   if (fake.size) await saveRoster(roster.filter((s) => !fake.has(s.no)), false);
   else if (doc?.demo) await saveRoster(roster, false);
   await saveSettings({ ...(await getSettings()), checks: {} });
@@ -569,18 +597,29 @@ export async function clearPractice() {
 }
 
 // 연습 표시가 붙은 것, 그리고 gone(번호)이 참인 학생(연습용 가짜 학생)에게 매인 것을 지운다.
-// 명단을 고쳐 연습 학생을 실제 학생으로 바꿀 때도 그 번호에 남은 연습 흔적을 바로 지우는 데 쓴다.
-export async function purgePractice(gone: (no: number) => boolean) {
+// onlyThese: 명단을 고쳐 연습 학생 몇 명만 실제 학생으로 바꿀 때 — 그 번호의 것만 지우고 다른 연습 학생 것은 남긴다
+// (그 번호의 「살펴봤어요」 표시와 활동지 예시 피드백도 함께 — 실제 학생의 신호를 가리지 않게).
+export async function purgePractice(gone: (no: number) => boolean, opt: { onlyThese?: boolean } = {}) {
+  const hit = (demo: boolean | undefined, ...nos: number[]) => (!opt.onlyThese && !!demo) || nos.some(gone);
   const recs = await db().all<MoodRecord>("records");
   const dropped = new Set<string>();
-  for (const r of recs) if (r.demo || gone(r.no)) { await db().del("records", r.id); dropped.add(r.id); }
+  for (const r of recs) if (hit(r.demo, r.no)) { await db().del("records", r.id); dropped.add(r.id); }
   for (const col of ["cheers", "notes", "reflects"] as const)
-    for (const x of await db().all<{ id: string; no: number; demo?: boolean }>(col)) if (x.demo || gone(x.no)) await db().del(col, x.id);
+    for (const x of await db().all<{ id: string; no: number; demo?: boolean }>(col)) if (hit(x.demo, x.no)) await db().del(col, x.id);
   for (const l of await db().all<{ id: string; from: number; to: number; demo?: boolean }>("letters"))
-    if (l.demo || gone(l.from) || gone(l.to)) await db().del("letters", l.id);
-  await editRiskActions((xs) => xs.filter((a) => !a.demo && !gone(a.no) && !dropped.has(a.recordId)));
-  await deleteSelfAnswers((a) => !a.demo && !gone(a.no));
+    if (hit(l.demo, l.from, l.to)) await db().del("letters", l.id);
+  await editRiskActions((xs) => xs.filter((a) => !hit(a.demo, a.no) && !dropped.has(a.recordId)));
+  await deleteSelfAnswers((a) => !hit(a.demo, a.no));
+  const drafts = await getRiskDrafts();
+  if (drafts.some((d) => hit(d.demo, d.no))) await editRiskDrafts((xs) => xs.filter((d) => !hit(d.demo, d.no)));
   const looks = await getLooks();
   const nos = Object.keys(looks).map(Number);
   if (nos.some(gone)) await saveLooks(Object.fromEntries(Object.entries(looks).filter(([no]) => !gone(Number(no)))));
+  if (opt.onlyThese) {
+    const st = await getSettings();
+    const checks = Object.fromEntries(Object.entries(st.checks).filter(([k]) => !gone(Number(k.split("_")[0]))));
+    if (Object.keys(checks).length !== Object.keys(st.checks).length) await saveSettings({ ...st, checks });
+    const sheet = await db().get<SheetRun>("sheets", PRACTICE_SHEET);
+    if (sheet?.items.some((x) => gone(x.no))) await db().set("sheets", PRACTICE_SHEET, { ...sheet, items: sheet.items.filter((x) => !gone(x.no)) });
+  }
 }

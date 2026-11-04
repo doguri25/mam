@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
-import { flushQueue, queueRecord, rememberToken } from "@/lib/queue";
+import { flushQueue, forgetToken, queueRecord, rememberToken } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
@@ -15,7 +15,7 @@ import MoodPicker, { STEP_START, stepBack, stepDepth, type Pick, type StepNav } 
 import { atMe, leftMe, useBackGuard, useBackSteps } from "@/lib/back";
 import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
-import { CHEER, CHEER_TIRED, LANGS, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
+import { CHEER, CHEER_TIRED, LANGS, RISK_REPLY, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
 import { ACC_UNLOCK, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
@@ -167,7 +167,9 @@ export default function MePage() {
 
   const tt = (key: UIKey, vars?: Record<string, string | number>) => t(lang, key, vars);
   const slotName = (s: Slot) => w(lang, SLOT_KO[s]);
-  const msg = (x: string) => (x in { micDenied: 1, noSpeech: 1, speechFail: 1, notUnderstood: 1, loadFail: 1, logoutFail: 1 } ? tt(x as UIKey) : errText(lang, x));
+  const msg = (x: string) =>
+    x === "riskReply" ? RISK_REPLY[lang]
+    : x in { micDenied: 1, noSpeech: 1, speechFail: 1, notUnderstood: 1, loadFail: 1, logoutFail: 1 } ? tt(x as UIKey) : errText(lang, x);
   const done = me.records.find((r) => r.slot === slot);
   const complete = !!(pick.emotion && pick.intensity && pick.reason);
 
@@ -193,7 +195,7 @@ export default function MePage() {
     setBusy("thinking");
     try {
       // 말하기에서 카드로 넘어온 경우 그 문장도 함께 보내 위험 표현을 놓치지 않게
-      const r = await api<Analyzed>("student", "analyze", { card: p, lang, ...(method === "voice" && text ? { text, voice: tone.voice } : {}) });
+      const r = await api<Analyzed>("student", "analyze", { card: p, lang, slot, ...(method === "voice" && text ? { text, voice: tone.voice } : {}) });
       const q = toQa(r);
       setQa(q);
       if (method === "voice") {
@@ -216,10 +218,11 @@ export default function MePage() {
     setBusy("listeningSort");
     try {
       const v = spoke ? await speech.takeVoice() : null;
-      const r = await api<Analyzed>("student", "analyze", { text, lang, voice: v?.features, audio: v?.wav });
+      const r = await api<Analyzed>("student", "analyze", { text, lang, slot, voice: v?.features, audio: v?.wav });
       setTone(toTone(r));
       if (r.needCard) {
-        setNote("notUnderstood");
+        // 위험한 말이 있었으면 「못 알아들었어」 대신 고맙다는 말(선생님께는 이미 알렸다). 카드를 고르면 기록이 마저 저장된다.
+        setNote(r.risk ? "riskReply" : "notUnderstood");
         setPickNav(STEP_START);
         setStep("card");
       } else {
@@ -292,6 +295,7 @@ export default function MePage() {
   async function nextFriend() {
     try {
       await api("student", "logout");
+      forgetToken(); // 담아 둔 기록은 저마다 표를 들고 있으니, 이 학생의 새 표만 지운다
     } catch {
       setNote("logoutFail");
       setBackHint(false);

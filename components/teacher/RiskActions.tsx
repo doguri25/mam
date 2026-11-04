@@ -4,6 +4,7 @@
 import { useState } from "react";
 import Doodle from "../Doodle";
 import PrevList from "./PrevList";
+import { everRisk, riskySource } from "./alerts";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { RISK_ACTIONS, RISK_ACTION_KO, type MoodRecord, type RiskAction, type RiskActionKind } from "@/lib/shared";
@@ -11,8 +12,9 @@ import { RISK_ACTIONS, RISK_ACTION_KO, type MoodRecord, type RiskAction, type Ri
 export const kindsText = (kinds: RiskActionKind[]) => kinds.map((k) => RISK_ACTION_KO[k]).join(" · ");
 
 // 한 일 고르기 + 한 날 + 메모. action: 처음 살펴볼 때 checkAlert(알림이 닫힘), 그 뒤에 더 적을 때 riskAction
-export function RiskActionForm({ recordId, today, first, onDone, onCancel }: {
-  recordId: string; today: string; first: boolean; onDone: (items: RiskAction[]) => void | Promise<void>; onCancel: () => void;
+// seen: 선생님이 보고 있는 기록의 만든 시각 — 그사이 학생이 같은 칸에 새로 남겼으면 서버가 닫지 않고(409) onStale로 알린다
+export function RiskActionForm({ recordId, today, first, seen, onDone, onCancel, onStale }: {
+  recordId: string; today: string; first: boolean; seen?: string; onDone: (items: RiskAction[]) => void | Promise<void>; onCancel: () => void; onStale?: () => void | Promise<void>;
 }) {
   const [kinds, setKinds] = useState<RiskActionKind[]>([]);
   const [date, setDate] = useState(today);
@@ -27,11 +29,12 @@ export function RiskActionForm({ recordId, today, first, onDone, onCancel }: {
     setBusy(true);
     setErr("");
     try {
-      const r = await api<{ riskActions: RiskAction[] }>("teacher", first ? "checkAlert" : "riskAction", first ? { id: recordId, kinds, date, note } : { recordId, kinds, date, note });
+      const r = await api<{ riskActions: RiskAction[] }>("teacher", first ? "checkAlert" : "riskAction", first ? { id: recordId, kinds, date, note, ...(seen ? { seen } : {}) } : { recordId, kinds, date, note });
       await onDone(r.riskActions);
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
+      if ((e as { status?: number }).status === 409) await onStale?.(); // 새 글을 화면에 불러온다(적던 것은 메시지로 남김)
     }
   }
 
@@ -74,7 +77,8 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
   const [adding, setAdding] = useState<string | null>(null);
   const [err, setErr] = useState("");
   // 기록은 보관 기한이 지나 지웠어도 조치 기록은 남아 있을 수 있다
-  const ids = [...new Set([...records.filter((r) => r.risk).map((r) => r.id), ...actions.map((a) => a.recordId)])];
+  // 지금 글이 아니어도 고치기 전 글에 위험 표현이 있었으면 보인다
+  const ids = [...new Set([...records.filter(everRisk).map((r) => r.id), ...actions.map((a) => a.recordId)])];
   const items = ids
     .map((id) => ({ id, rec: records.find((r) => r.id === id), acts: actions.filter((a) => a.recordId === id) }))
     .sort((a, b) => (b.rec?.date ?? b.acts[0]?.recordDate ?? "").localeCompare(a.rec?.date ?? a.acts[0]?.recordDate ?? ""));
@@ -99,10 +103,18 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
           <p className="text-sm">
             <b>{label(rec?.date ?? acts[0].recordDate)}</b>
             {rec && <> {rec.slot === "am" ? "아침" : "하교 전"} · {rec.emotion}</>}
-            {rec && (rec.summaryKo || rec.summary || rec.answer) && <span className="block">“{[rec.summaryKo || rec.summary, rec.answer].filter(Boolean).join(" / ")}”</span>}
-            {rec && <span className="block text-xs text-soft">{rec.riskHits.length ? `걸린 말: ${rec.riskHits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>}
+            {rec && (() => {
+              const src = riskySource(rec);
+              return (
+                <>
+                  {src.text && <span className="block">{src.prev && <span className="font-bold text-alert">고치기 전 글 </span>}“{src.text}”</span>}
+                  <span className="block text-xs text-soft">{src.hits.length ? `걸린 말: ${src.hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
+                </>
+              );
+            })()}
           </p>
           {rec && !print && <PrevList prev={rec.prev} now={rec.createdAt} />}
+          {rec?.risk && !rec.riskChecked && acts.length > 0 && <p className="mt-2 text-sm font-bold text-alert">새 위험 표현 · 아직 살펴보지 않았어요</p>}
           {acts.length ? (
             <ol className="mt-2 space-y-1.5 border-l-2 border-leaf/40 pl-3">
               {acts.map((a) => (
@@ -118,10 +130,11 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
           )}
           {!print && (adding === id ? (
             <div className="no-print mt-2">
-              <RiskActionForm recordId={id} today={today} first={!rec?.riskChecked && !acts.length && !!rec} onCancel={() => setAdding(null)} onDone={async (x) => { setAdding(null); await onChange(x); }} />
+              <RiskActionForm recordId={id} today={today} first={!!rec?.risk && !rec.riskChecked} seen={rec?.createdAt}
+                onCancel={() => setAdding(null)} onStale={async () => { setAdding(null); await onChange(actions); }} onDone={async (x) => { setAdding(null); await onChange(x); }} />
             </div>
           ) : (
-            <button onClick={() => setAdding(id)} className="no-print btn-sub mt-2 min-h-9 px-3 text-sm"><Doodle name="memo" /> {acts.length || rec?.riskChecked ? "조치 더 적기" : "살펴보고 적기"}</button>
+            <button onClick={() => setAdding(id)} className="no-print btn-sub mt-2 min-h-9 px-3 text-sm"><Doodle name="memo" /> {rec?.risk && !rec.riskChecked ? "살펴보고 적기" : "조치 더 적기"}</button>
           ))}
         </li>
       ))}
