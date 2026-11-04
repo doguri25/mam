@@ -14,7 +14,8 @@ import {
 
 type View = { kind: "check"; edit?: SelCheck } | { kind: "result"; id: string } | { kind: "history" };
 const LEVEL: Record<SelLevel, string> = { 상: "bg-[#e3f4e8] text-[#1d7144]", 중: "bg-[#eef0ee] text-[#4f5a53]", 하: "bg-alert-soft text-[#b8352d]" };
-const DRAFT = "mb_sel_draft";
+// 하다 만 체크: 학급(저장 공간)마다 따로 두어 다른 반에서 이어지지 않게
+const draftKey = (space: string) => `mb_sel_draft:${space}`;
 const short = (d: string) => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
 
 export default function SelCheckTab({ data }: { data: Overview }) {
@@ -58,7 +59,9 @@ export default function SelCheckTab({ data }: { data: Overview }) {
         <CheckFlow key={view.edit?.id ?? "new"} data={data} edit={view.edit} onSaved={(check, all) => { setItems(all); go({ kind: "result", id: check.id }); }} />
       )}
       {view.kind === "result" && open && (
+        // key: 회차를 바꾸면 메모 칸도 그 회차 것으로 새로 시작(앞 회차 메모가 남아 덮어쓰지 않게)
         <Result
+          key={open.id}
           check={open} items={items}
           onItems={setItems}
           onEdit={() => go({ kind: "check", edit: open })}
@@ -75,11 +78,11 @@ export default function SelCheckTab({ data }: { data: Overview }) {
 
 // ── 체크하기: 기본 정보 → 20문항(누르면 다음으로) → 저장 ──
 interface Draft { date: string; school: string; group: string; rater: string; answers: number[]; step: number }
-function readDraft(): Draft | null {
-  try { return JSON.parse(localStorage.getItem(DRAFT) ?? "null"); } catch { return null; }
+function readDraft(key: string): Draft | null {
+  try { return JSON.parse(localStorage.getItem(key) ?? "null"); } catch { return null; }
 }
-function writeDraft(d: Draft | null) {
-  try { if (d) localStorage.setItem(DRAFT, JSON.stringify(d)); else localStorage.removeItem(DRAFT); } catch { /* 저장 못 해도 계속 */ }
+function writeDraft(key: string, d: Draft | null) {
+  try { if (d) localStorage.setItem(key, JSON.stringify(d)); else localStorage.removeItem(key); } catch { /* 저장 못 해도 계속 */ }
 }
 
 function CheckFlow({ data, edit, onSaved }: { data: Overview; edit?: SelCheck; onSaved: (c: SelCheck, all: SelCheck[]) => void }) {
@@ -88,11 +91,12 @@ function CheckFlow({ data, edit, onSaved }: { data: Overview; edit?: SelCheck; o
   const fresh: Draft = edit
     ? { date: edit.date, school: edit.school, group: edit.group, rater: edit.rater, answers: [...edit.answers], step: -1 }
     : { date: data.today, school, group: data.settings.className, rater: rater || "담임", answers: [], step: -1 };
-  const [d, setD] = useState<Draft>(() => (!edit && readDraft()) || fresh);
-  const [resumed] = useState(() => !edit && !!readDraft()?.answers.length);
+  const dk = draftKey(data.dataPrefix);
+  const [d, setD] = useState<Draft>(() => (!edit && readDraft(dk)) || fresh);
+  const [resumed] = useState(() => !edit && !!readDraft(dk)?.answers.length);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const put = (next: Draft) => { setD(next); if (!edit) writeDraft(next); };
+  const put = (next: Draft) => { setD(next); if (!edit) writeDraft(dk, next); };
   const q = d.step;
   const done = d.answers.filter(Boolean).length === SEL_ITEMS.length;
 
@@ -103,7 +107,7 @@ function CheckFlow({ data, edit, onSaved }: { data: Overview; edit?: SelCheck; o
       const r = await api<{ check: SelCheck; items: SelCheck[] }>("teacher", "selSave", {
         check: { id: edit?.id, date: d.date, school: d.school, group: d.group, rater: d.rater, answers, memo: edit?.memo ?? "" },
       });
-      if (!edit) { writeDraft(null); setSchool(d.school); setRater(d.rater); }
+      if (!edit) { writeDraft(dk, null); setSchool(d.school); setRater(d.rater); }
       onSaved(r.check, r.items);
     } catch (e) {
       setErr((e as Error).message);
