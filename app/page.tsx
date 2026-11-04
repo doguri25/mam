@@ -2,7 +2,7 @@
 // 학생 첫 화면: 내 코드 넣기 (QR을 찍으면 /join으로 바로 들어온다)
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import BuddyParade from "@/components/BuddyParade";
 import { api } from "@/lib/api";
 import { rememberToken } from "@/lib/queue";
@@ -16,6 +16,13 @@ export default function Home() {
   useEffect(() => {
     api("student", "me").then(() => router.replace("/me"), () => {});
   }, [router]);
+  // 들어간 뒤 이 화면은 숨겨진 채 상태가 남는다(Next.js Activity). 숨겨질 때 비워 두어
+  // 다시 돌아왔을 때 「들어가는 중…」에 멈춰 있거나 앞 친구 코드가 남아 있지 않게 한다.
+  useLayoutEffect(() => () => {
+    setCode("");
+    setError("");
+    setBusy(false);
+  }, []);
 
   async function enter(e: React.FormEvent) {
     e.preventDefault();
