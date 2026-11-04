@@ -168,8 +168,11 @@ export default function TeacherPage() {
     await load();
   }
 
+  // 잠글 때 이 기기의 휴대폰 알림도 끊는다(잠근 기기로 위험 알림이 계속 가지 않게)
   const lock = async () => {
-    await api("teacher", "logout");
+    const sub = await navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).catch(() => null);
+    await api("teacher", "logout", sub ? { endpoint: sub.endpoint } : {}).catch(() => {});
+    await sub?.unsubscribe().catch(() => false);
     lockOut();
   };
   const badge: Partial<Record<Tab, number>> = {

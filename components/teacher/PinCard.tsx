@@ -19,8 +19,11 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
   async function change(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api("teacher", "changePin", { current, next });
-      setMsg({ ok: true, text: "바꿨어요. 다른 기기에서 열려 있던 선생님 화면은 잠겼어요. 새 비밀번호로 다시 열면 돼요." });
+      // 이 기기의 휴대폰 알림은 그대로 두고, 다른 기기 알림은 모두 끈다
+      const keep = await navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).catch(() => null);
+      const r = await api<{ pushRemoved?: number }>("teacher", "changePin", { current, next, ...(keep ? { keepEndpoint: keep.endpoint } : {}) });
+      const off = r.pushRemoved ? ` 알림 받던 다른 기기 ${r.pushRemoved}대의 알림도 껐어요.` : "";
+      setMsg({ ok: true, text: `바꿨어요. 다른 기기에서 열려 있던 선생님 화면은 잠겼어요. 새 비밀번호로 다시 열면 돼요.${off}` });
       setCurrent("");
       setNext("");
       setAgain("");

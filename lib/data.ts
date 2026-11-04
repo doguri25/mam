@@ -560,7 +560,7 @@ export async function clearPractice() {
   await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다
   await db().del("sheets", PRACTICE_SHEET);
   await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
-  await saveSelfRounds((await getSelfRounds()).filter((r) => !r.demo));
+  await editSelfRounds((rs) => rs.filter((r) => !r.demo));
   if (fake.size) await saveRoster(roster.filter((s) => !fake.has(s.no)), false);
   else if (doc?.demo) await saveRoster(roster, false);
   await saveSettings({ ...(await getSettings()), checks: {} });
@@ -578,9 +578,7 @@ export async function purgePractice(gone: (no: number) => boolean) {
     for (const x of await db().all<{ id: string; no: number; demo?: boolean }>(col)) if (x.demo || gone(x.no)) await db().del(col, x.id);
   for (const l of await db().all<{ id: string; from: number; to: number; demo?: boolean }>("letters"))
     if (l.demo || gone(l.from) || gone(l.to)) await db().del("letters", l.id);
-  const acts = await getRiskActions();
-  const keep = acts.filter((a) => !a.demo && !gone(a.no) && !dropped.has(a.recordId));
-  if (keep.length !== acts.length) await saveRiskActions(keep);
+  await editRiskActions((xs) => xs.filter((a) => !a.demo && !gone(a.no) && !dropped.has(a.recordId)));
   await deleteSelfAnswers((a) => !a.demo && !gone(a.no));
   const looks = await getLooks();
   const nos = Object.keys(looks).map(Number);

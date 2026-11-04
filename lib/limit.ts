@@ -53,9 +53,9 @@ export async function tidy(now = Date.now()) {
 // 10분 칸마다 IP 하나가 CODE_PER_IP번까지 틀릴 수 있다. 모든 IP를 합쳐 CODE_ALL번 넘게 틀린 10분 칸(여러 곳에서 한꺼번에 두드림)에는
 // IP마다 CODE_TIGHT번까지만 → 한두 번 잘못 친 다른 학교 학생은 그대로 들어온다. 맞힌 로그인은 세지 않는다.
 export const CODE_WINDOW = 10 * MIN;
-export const CODE_PER_IP = 30;
-export const CODE_ALL = 300;
-export const CODE_TIGHT = 3;
+export const CODE_PER_IP = 60; // 큰 학교는 여러 반이 한 IP를 쓰므로 잘못 친 코드가 몰려도 막히지 않게
+export const CODE_ALL = 1000;
+export const CODE_TIGHT = 10;
 export interface Attempt { wait: number; done: (ok: boolean) => Promise<void> }
 const noop = async () => {};
 

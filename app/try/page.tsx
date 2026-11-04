@@ -86,6 +86,7 @@ export default function TryPage() {
             <button onClick={() => start("reset")} disabled={busy} className="btn-sub">체험 반을 처음 판으로</button>
             <button onClick={end} className="btn-sub">체험 끝내기</button>
           </div>
+          {err && <p role="alert" className="text-center text-alert">{err}</p>}
         </>
       )}
       <p className="text-center text-sm text-soft">
