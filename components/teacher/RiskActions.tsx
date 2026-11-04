@@ -71,6 +71,7 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
   records: MoodRecord[]; actions: RiskAction[]; today: string; onChange: (items: RiskAction[]) => void | Promise<void>; print?: boolean;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
+  const [err, setErr] = useState("");
   // 기록은 보관 기한이 지나 지웠어도 조치 기록은 남아 있을 수 있다
   const ids = [...new Set([...records.filter((r) => r.risk).map((r) => r.id), ...actions.map((a) => a.recordId)])];
   const items = ids
@@ -78,13 +79,20 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
     .sort((a, b) => (b.rec?.date ?? b.acts[0]?.recordDate ?? "").localeCompare(a.rec?.date ?? a.acts[0]?.recordDate ?? ""));
   if (!items.length) return <p className="text-sm text-soft">위험 표현이 들어온 적이 없어요.</p>;
 
-  async function remove(id: string) {
-    const r = await api<{ riskActions: RiskAction[] }>("teacher", "riskActionDelete", { id });
-    await onChange(r.riskActions);
+  async function remove(a: RiskAction) {
+    if (!confirm(`${label(a.date)} 「${kindsText(a.kinds)}」 조치 기록을 지울까요? 되돌릴 수 없어요.`)) return;
+    setErr("");
+    try {
+      const r = await api<{ riskActions: RiskAction[] }>("teacher", "riskActionDelete", { id: a.id });
+      await onChange(r.riskActions);
+    } catch (e) {
+      setErr(`지우지 못했어요: ${(e as Error).message}`);
+    }
   }
 
   return (
     <ul className="space-y-3">
+      {err && <li role="alert" className="text-sm text-alert">{err}</li>}
       {items.map(({ id, rec, acts }) => (
         <li key={id} className="rounded-2xl border border-alert/40 bg-alert-soft/50 p-3">
           <p className="text-sm">
@@ -99,7 +107,7 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
                 <li key={a.id} className="text-sm">
                   <span className="font-bold text-leaf">{label(a.date)}</span> {kindsText(a.kinds)}
                   {a.note && <span className="block text-soft">{a.note}</span>}
-                  {!print && <button onClick={() => remove(a.id)} className="no-print ml-1 text-xs text-soft underline underline-offset-2">지우기</button>}
+                  {!print && <button onClick={() => remove(a)} className="no-print ml-1 text-xs text-soft underline underline-offset-2">지우기</button>}
                 </li>
               ))}
             </ol>
