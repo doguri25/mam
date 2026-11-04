@@ -325,6 +325,8 @@ async function handle(req: NextRequest) {
         id: `${Date.now()}_${r?.no ?? before!.no}`, no: r?.no ?? before!.no, recordId: id, recordDate: r?.date ?? before!.recordDate,
         date: isDay(body.date) && body.date <= today() ? body.date : today(), kinds, note: String(body.note ?? "").trim().slice(0, 300),
         createdAt: new Date().toISOString(),
+        // 연습(시연) 기록에 대한 조치면 연습 표시 → 「연습 데이터만 지우기」가 함께 지운다
+        ...((r ? r.demo : before?.demo) ? { demo: true } : {}),
       };
       await addRiskAction(act); // 목록을 읽고 고쳐 쓰기를 한 번에(두 기기에서 같은 순간 적어도 둘 다 남음)
       return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
