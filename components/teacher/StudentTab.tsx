@@ -6,19 +6,20 @@ import Doodle from "../Doodle";
 import BuddyFace from "../BuddyFace";
 import { StudentStrip } from "./StudentPick";
 import Timeline from "./Timeline";
-import { RiskHistory } from "./RiskActions";
+import { RiskHistory, riskItems } from "./RiskActions";
 import { SEL_COMPS } from "@/lib/selcheck";
 import { selfComps } from "@/lib/selfcheck";
 import type { NameOf, Overview } from "./types";
 import { kday } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
-import { CALM_KO, GROUPS, SEL_AREAS, groupOf, type Cheer, type Group, type Letter, type MoodRecord, type Reflect, type RiskAction, type SheetItem } from "@/lib/shared";
+import { CALM_KO, GROUPS, SEL_AREAS, groupOf, type Cheer, type Group, type Letter, type MoodRecord, type Reflect, type RiskAction, type RiskDraft, type SheetItem } from "@/lib/shared";
 
 interface All {
   records: MoodRecord[]; cheers: Cheer[]; notes: Cheer[]; sent: Letter[]; got: Letter[]; reflects: Reflect[];
   sheets: (SheetItem & { runId: string; date: string })[];
   riskActions: RiskAction[];
+  drafts?: RiskDraft[]; // 이 학생의 마치지 않은 위험 표현(살펴본 것도)
   self: { round: string; title: string; openedAt: string; answers: number[] }[]; // 학생 자기진단(마음 점검) 회차별 답
 }
 
@@ -43,6 +44,8 @@ export default function StudentTab({ data, nameOf, no, setNo, version }: { data:
   // 받아 온 기록·오류는 어느 학생 것인지 함께 둔다(다른 학생을 고르면 그 학생 것이 올 때까지 「불러오는 중」)
   const [got, setGot] = useState<{ no: number; all: All } | null>(null);
   const [fail, setFail] = useState<{ no: number; msg: string } | null>(null);
+  const [tick, setTick] = useState(0); // 「살펴봤어요」 뒤·그사이 학생이 고쳐 썼을 때 이 학생 기록을 다시 불러온다
+  const refresh = () => setTick((t) => t + 1);
   const s = data.students.find((x) => x.no === no);
 
   useEffect(() => {
@@ -53,7 +56,7 @@ export default function StudentTab({ data, nameOf, no, setNo, version }: { data:
       (e) => { if (live) setFail({ no, msg: (e as Error).message }); },
     );
     return () => { live = false; };
-  }, [no, version]);
+  }, [no, version, tick]);
 
   const all = got?.no === no ? got.all : null;
   const err = fail?.no === no && !all ? fail.msg : "";
@@ -67,13 +70,13 @@ export default function StudentTab({ data, nameOf, no, setNo, version }: { data:
       ) : !all ? (
         <div className="card text-soft">불러오는 중…</div>
       ) : (
-        <Report all={all} data={data} no={s.no} nameOf={nameOf} onActions={(riskActions) => setGot({ no: s.no, all: { ...all, riskActions } })} />
+        <Report all={all} data={data} no={s.no} nameOf={nameOf} refresh={refresh} onActions={(riskActions) => setGot({ no: s.no, all: { ...all, riskActions } })} />
       )}
     </div>
   );
 }
 
-function Report({ all, data, no, nameOf, onActions }: { all: All; data: Overview; no: number; nameOf: NameOf; onActions: (x: RiskAction[]) => void }) {
+function Report({ all, data, no, nameOf, onActions, refresh }: { all: All; data: Overview; no: number; nameOf: NameOf; onActions: (x: RiskAction[]) => void; refresh: () => void }) {
   const rs = all.records;
   const first = rs[0]?.date, last = rs.at(-1)?.date;
   const days = new Set(rs.map((r) => r.date)).size;
@@ -87,6 +90,8 @@ function Report({ all, data, no, nameOf, onActions }: { all: All; data: Overview
   const areas = SEL_AREAS.map((a) => [a, all.sheets.flatMap((x) => x.strengths).filter((p) => p.area === a).length, all.sheets.flatMap((x) => x.grow).filter((p) => p.area === a).length] as const);
   const maxA = Math.max(1, ...areas.map(([, n]) => n));
   const span = first ? Math.round((Date.parse(data.today) - Date.parse(first)) / 864e5) + 1 : 0;
+  // 위험 표현: 마음 기록 · 마치지 않은 기록 · 한 주 돌아보기 · 보낸 쪽지
+  const risks = { records: rs, actions: all.riskActions, drafts: all.drafts ?? [], reflects: all.reflects, letters: all.sent, words: data.settings.riskWords };
 
   return (
     <div className="space-y-4">
@@ -228,10 +233,11 @@ function Report({ all, data, no, nameOf, onActions }: { all: All; data: Overview
         </section>
       )}
 
-      {(rs.some((r) => r.risk) || all.riskActions.length > 0) && (
+      {riskItems(risks).length > 0 && (
         <section className="card space-y-3">
           <h3 className="font-display text-xl"><Doodle name="warning" /> 위험 표현과 조치 <span className="text-sm text-soft">(선생님만 · AI에 보내지 않음)</span></h3>
-          <RiskHistory records={rs} actions={all.riskActions} today={data.today} onChange={(x) => onActions(x.filter((a) => a.no === no))} />
+          {/* 살펴본 뒤에는 기록의 「살펴봄」도 바뀌므로 조치 기록만 바꾸지 않고 이 학생 것을 다시 불러온다 */}
+          <RiskHistory {...risks} today={data.today} nameOf={nameOf} onStale={refresh} onChange={(x) => { onActions(x.filter((a) => a.no === no)); refresh(); }} />
         </section>
       )}
 

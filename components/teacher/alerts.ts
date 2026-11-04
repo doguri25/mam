@@ -1,25 +1,36 @@
 // 「바로 살펴봐 주세요」에 모아 보여 줄 위험 표현: 마음 기록 · 마치지 않은 기록 · 한 주 돌아보기 · 허락 기다리는 쪽지.
 // 마음 지도 알림과 메뉴의 빨간 수가 같은 목록을 쓴다.
-import type { MoodRecord, PrevVersion } from "@/lib/shared";
+// seen: 「살펴봤어요」 때 서버에 알리는 「선생님이 본 판」 — 그사이 학생이 고쳐 썼으면 서버가 닫지 않는다(409).
+import { matchRisk } from "@/lib/rules";
+import type { Letter, MoodRecord, PrevVersion, Reflect, RiskAction, RiskDraft } from "@/lib/shared";
 import type { OverviewRaw } from "./types";
 import { kday } from "./when";
 
 export type RiskAlert =
-  | { kind: "record"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; rec: MoodRecord }
-  | { kind: "draft"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; text: string; hits: string[] }
-  | { kind: "reflect"; id: string; no: number; date: string; at: string; text: string; lang?: string }
-  | { kind: "letter"; id: string; no: number; to: number; date: string; at: string; text: string };
+  | { kind: "record"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; seen: string; rec: MoodRecord }
+  | { kind: "draft"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; seen: string; text: string; hits: string[]; draft: RiskDraft }
+  | { kind: "reflect"; id: string; no: number; date: string; at: string; seen: string; text: string; lang?: string; ref: Reflect }
+  | { kind: "letter"; id: string; no: number; to: number; date: string; at: string; seen: string; text: string; letter: Letter };
+
+// 마치지 않은 기록의 글: 한국어가 아니면 한국어 정리와 원문을 함께
+export const draftText = (d: Pick<RiskDraft, "text" | "summaryKo">) => (d.summaryKo ? `${d.summaryKo} (원문: ${d.text})` : d.text);
+// 마음 기록의 「살펴봤어요」 판: 위험 내용이 마지막으로 바뀐 때(없으면 만든 때)
+export const recordSeen = (r: MoodRecord) => r.riskAt ?? r.createdAt;
 
 export function riskAlerts(data: Pick<OverviewRaw, "records" | "reflects" | "letters"> & { riskDrafts?: OverviewRaw["riskDrafts"] }): RiskAlert[] {
   const out: RiskAlert[] = [];
-  for (const r of data.records) if (r.risk && !r.riskChecked) out.push({ kind: "record", id: r.id, no: r.no, date: r.date, slot: r.slot, at: r.createdAt, rec: r });
+  for (const r of data.records)
+    if (r.risk && !r.riskChecked) out.push({ kind: "record", id: r.id, no: r.no, date: r.date, slot: r.slot, at: r.createdAt, seen: recordSeen(r), rec: r });
   // 마치지 않은 위험 표현: 그 칸을 저장하면 서버가 지우므로, 남아 있으면 그 칸에 앞서 남긴 기록이 있어도 따로 보여 준다
+  // (서버는 살펴본 것도 최근 것은 보내 준다 — 주간 리포트·누적 기록용. 알림에는 살펴보지 않은 것만)
   for (const d of data.riskDrafts ?? [])
-    if (!d.checked) out.push({ kind: "draft", id: `draft:${d.id}`, no: d.no, date: d.date, slot: d.slot, at: d.at, text: d.summaryKo ? `${d.summaryKo} (원문: ${d.text})` : d.text, hits: d.hits });
+    if (!d.checked) out.push({ kind: "draft", id: `draft:${d.id}`, no: d.no, date: d.date, slot: d.slot, at: d.at, seen: d.at, text: draftText(d), hits: d.hits, draft: d });
   for (const x of data.reflects)
-    if (x.risk && !x.riskChecked) out.push({ kind: "reflect", id: `reflect:${x.id}`, no: x.no, date: kday(x.createdAt), at: x.createdAt, text: x.text, lang: x.lang });
+    if (x.risk && !x.riskChecked) out.push({ kind: "reflect", id: `reflect:${x.id}`, no: x.no, date: kday(x.createdAt), at: x.createdAt, seen: x.createdAt, text: x.text, lang: x.lang, ref: x });
+  // 위험 표현 쪽지: 허락을 기다리는 동안, 선생님이 「살펴보고 적기」로 살펴보기 전까지
   for (const l of data.letters)
-    if (l.risk && l.status === "wait") out.push({ kind: "letter", id: l.id, no: l.from, to: l.to, date: kday(l.createdAt), at: l.createdAt, text: l.text });
+    if (l.risk && l.status === "wait" && !l.riskChecked)
+      out.push({ kind: "letter", id: `letter:${l.id}`, no: l.from, to: l.to, date: kday(l.createdAt), at: l.createdAt, seen: l.createdAt, text: l.text, letter: l });
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
@@ -36,3 +47,20 @@ export function riskySource(r: MoodRecord): { text: string; hits: string[]; prev
   const text = src ? [src.summaryKo ? `${src.summaryKo} (원문: ${src.summary})` : src.summary, src.answer].filter(Boolean).join(" / ") : "";
   return { text, hits: src?.riskHits ?? r.riskHits, prev: p };
 }
+
+// 한 주 돌아보기도 같은 방식: 지금 글에 위험 표현이 없고(riskSelf가 false) 고쳐 쓰기 전 글에 있었으면 그 글(가장 최근)을 보인다.
+// riskSelf가 없는 예전 글은 고쳐 쓰기 전 글에 위험 표시가 있을 때만 지금 글을 위험 단어로 다시 견준다(돌아보기는 단어로만 찾으므로).
+export const reflectEverRisk = (x: Reflect) => !!x.risk || !!x.prev?.some((p) => p.risk);
+export function reflectSource(x: Reflect, words: string[] = []): { text: string; prev: { text: string; createdAt: string } | null } {
+  const earlier = [...(x.prev ?? [])].reverse().find((p) => p.risk) ?? null;
+  const self = x.riskSelf ?? (earlier ? matchRisk(x.text, words).length > 0 : !!x.risk);
+  if (self || !earlier) return { text: x.text, prev: null };
+  return { text: earlier.text, prev: earlier };
+}
+
+// 조치 기록의 recordId 앞머리로 무엇을 살펴봤는지
+export type RiskKind = NonNullable<RiskAction["kind"]>;
+export function kindOfId(id: string): RiskKind {
+  return id.startsWith("draft:") ? "draft" : id.startsWith("reflect:") ? "reflect" : id.startsWith("letter:") ? "letter" : "record";
+}
+export const KIND_KO: Record<RiskKind, string> = { record: "마음 기록", draft: "마치지 않은 기록", reflect: "한 주 돌아보기", letter: "공감 쪽지" };
