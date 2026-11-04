@@ -8,9 +8,9 @@ import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { MEANING, makeRound } from "@/lib/game";
 import { w } from "@/lib/i18n";
 import { speak } from "@/lib/local";
-import { NUANCE } from "@/lib/shared";
+import { parentEmotion } from "@/lib/shared";
 
-const parentOf = (word: string) => Object.keys(NUANCE).find((k) => NUANCE[k].includes(word));
+const parentOf = (word: string) => { const p = parentEmotion(word); return p === word ? undefined : p; };
 
 export default function GamePage() {
   const { me, lang, tt } = useStudent();

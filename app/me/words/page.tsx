@@ -1,5 +1,5 @@
 "use client";
-// 우리 반 감정 단어 사전: 12가지 감정마다 더 꼭 맞는 말 3개와 쉬운 뜻, 우리 반이 몇 번 썼는지(이름 없이), 내가 써 봤는지.
+// 우리 반 감정 단어 사전: 12가지 감정마다 더 꼭 맞는 말·카드 낱말과 쉬운 뜻, 우리 반이 몇 번 썼는지(이름 없이), 내가 써 봤는지.
 import { useEffect, useState } from "react";
 import Doodle from "@/components/Doodle";
 import { EMOTION_COLOR, EmotionArt } from "@/components/Art";
@@ -7,7 +7,7 @@ import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { MEANING } from "@/lib/game";
 import { w } from "@/lib/i18n";
-import { NUANCE } from "@/lib/shared";
+import { ALL_SUB_WORDS, SUB_WORDS } from "@/lib/shared";
 
 type Dict = { counts: Record<string, number>; mine: string[]; vocab: string[] };
 
@@ -18,7 +18,7 @@ export default function WordsPage() {
     api<Dict>("student", "dictionary").then(setDict, () => {});
   }, []);
   if (!me || !dict) return <Loading />;
-  const extra = dict.vocab.filter((v) => !Object.values(NUANCE).flat().includes(v)); // 교과서에서 더한 말
+  const extra = dict.vocab.filter((v) => !ALL_SUB_WORDS.includes(v)); // 교과서에서 더한 말
 
   const Word = ({ word }: { word: string }) => {
     const n = dict.counts[word] ?? 0;
@@ -43,7 +43,7 @@ export default function WordsPage() {
     <StudentFrame title={tt("tileWords")} lang={lang} wide>
       <p className="mb-4 rounded-2xl bg-leaf-soft p-3 text-lg">{tt("growWords", { n: dict.mine.length })}</p>
       <div className="grid gap-4 md:grid-cols-2">
-        {Object.entries(NUANCE).map(([emotion, words]) => (
+        {Object.entries(SUB_WORDS).map(([emotion, words]) => (
           <section key={emotion} className="card space-y-2">
             <h2 className="flex items-center gap-2 font-display text-2xl" style={{ color: EMOTION_COLOR[emotion] }}>
               <EmotionArt name={emotion} size={40} /> {w(lang, emotion)}

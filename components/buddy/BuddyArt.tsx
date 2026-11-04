@@ -1,7 +1,7 @@
 "use client";
 // 마음 친구 그림: 손으로 그린 셀 애니메이션처럼 — 따뜻한 세피아 잉크선(아래·오른쪽이 굵음), 한 단계 셀 그림자(차가운 보라),
 // 반사광과 윤기 한 줄, 선이 살짝 떨리는 「boil」. 배경 장면은 선 없이 수채·과슈처럼 칠한다(인물은 선, 배경은 물감).
-// 그림 하나(정지 화면)만 그린다. 움직임은 Buddy.tsx가 1초 12장으로 t를 넘겨 준다.
+// 그림 하나(정지 화면)만 그린다. 움직임은 Buddy.tsx가 1초 24장으로 t를 넘겨 준다.
 import { memo, useId, type ReactNode } from "react";
 import { GROUPS, type BuddyLook } from "@/lib/shared";
 import type { BrowKind, EyeKind, Expr, Fx, MouthKind, Pose } from "./expr";
@@ -99,7 +99,7 @@ export default function BuddyArt({ look, mood, expr, pose, t, boil, scene = fals
     </svg>
   );
   if (!scene) return person;
-  // 장면은 겹친 층으로: 멈춰 있는 배경·종이 결은 한 번만 그려 두고(따로 합성 층), 구름은 0.5초마다, 인물·풀·날씨만 1초 12장
+  // 장면은 겹친 층으로: 멈춰 있는 배경·종이 결은 한 번만 그려 두고(따로 합성 층), 구름은 0.5초마다, 인물·풀·날씨만 1초 24장
   return (
     <div className={className} style={{ position: "relative", width: className ? undefined : size, height: className ? undefined : size, borderRadius: "11%", overflow: "hidden", isolation: "isolate" }} aria-hidden>
       <SceneStill id={`${id}s`} kit={kit} mood={mood} />
@@ -141,7 +141,21 @@ function Character({ id, look, pal, geo, expr, pose, t, lw, detail, glow, fx }: 
     <g transform={`translate(${n2(pose.x)} ${n2(pose.y)}) rotate(${n2(pose.rot)}) scale(${n2(pose.sx)} ${n2(pose.sy)}) translate(0 ${n2(-bottom)})`}>
       {glow && <ellipse cx="0" cy="0" rx={rx * 1.42} ry={ry * 1.42} fill={`url(#${id}aura)`} />}
       <BackAcc acc={look.acc} pal={pal} geo={geo} t={t} lw={lw} />
-      {look.limbs === "both" && [-1, 1].map((d) => (
+      {/* 팔다리: 날개(팔 + 등에 작은 날개, 파닥) · 꼬리(팔·발 + 살랑 꼬리) */}
+      {look.limbs === "wings" && [-1, 1].map((d) => (
+        <g key={`w${d}`} transform={`translate(${n2(d * geo.half(-ry * 0.2) * 0.8)} ${n2(-ry * 0.22)}) scale(${d} 1) rotate(${n2(-16 + Math.sin(t * 7) * 11)})`}>
+          <path d={`M0,0 Q${18 * sc},${-30 * sc} ${36 * sc},${-17 * sc} Q${27 * sc},${-9 * sc} ${32 * sc},${-1 * sc} Q${20 * sc},0 ${22 * sc},${9 * sc} Q${9 * sc},${8 * sc} 0,0Z`} fill="#fffaf1" stroke={INK} strokeWidth={lw} strokeLinejoin="round" />
+          {!tiny && <path d={`M${8 * sc},${-6 * sc} Q${18 * sc},${-16 * sc} ${28 * sc},${-15 * sc}`} fill="none" stroke="#c9d6e6" strokeWidth={lw * 0.8} strokeLinecap="round" />}
+        </g>
+      ))}
+      {look.limbs === "tail" && (
+        <g transform={`translate(${n2(geo.half(ry * 0.5) * 0.86)} ${n2(ry * 0.55)}) rotate(${n2(Math.sin(t * 3.2) * 14)})`}>
+          {([[INK, 4.4], [pal.base, 2.6]] as const).map(([c, k]) => (
+            <path key={c} d={`M0,0 Q${20 * sc},${-2 * sc} ${26 * sc},${-20 * sc} Q${29 * sc},${-31 * sc} ${20 * sc},${-33 * sc}`} fill="none" stroke={c} strokeWidth={lw * k} strokeLinecap="round" />
+          ))}
+        </g>
+      )}
+      {(look.limbs === "both" || look.limbs === "tail") && [-1, 1].map((d) => (
         <g key={d} transform={`translate(${n2(d * rx * 0.42)} ${n2(bottom - 2 - (d < 0 ? pose.footL : pose.footR))})`}>
           <ellipse cx="0" cy="0" rx={16 * sc} ry={9 * sc} fill={pal.shade} stroke={INK} strokeWidth={lw} />
           <ellipse cx={-3 * sc} cy={-2.5 * sc} rx={10 * sc} ry={4.5 * sc} fill={pal.base} />
@@ -159,6 +173,15 @@ function Character({ id, look, pal, geo, expr, pose, t, lw, detail, glow, fx }: 
           <ellipse key={i} cx={x * rx} cy={y * ry} rx={r * rx} ry={r * rx * 0.86} fill={pal.soft} opacity="0.8" transform={`rotate(${i * 23} ${x * rx} ${y * ry})`} />
         ))}
         {look.pattern === "belly" && <ellipse cx={-rx * 0.03} cy={ry * 0.62} rx={rx * 0.52} ry={ry * 0.36} fill={pal.soft} opacity="0.9" />}
+        {look.pattern === "stripes" && ([[-0.7, 0.16], [0.44, 0.13], [0.7, 0.13]] as const).map(([y, h], i) => (
+          <path key={i} d={`M${n2(-rx * 1.1)},${n2(y * ry)} Q0,${n2((y + 0.1) * ry)} ${n2(rx * 1.1)},${n2(y * ry)} L${n2(rx * 1.1)},${n2((y + h) * ry)} Q0,${n2((y + h + 0.1) * ry)} ${n2(-rx * 1.1)},${n2((y + h) * ry)}Z`} fill={pal.soft} opacity="0.72" />
+        ))}
+        {(look.pattern === "stars" || look.pattern === "hearts") && ([[-0.58, -0.48, 0.15], [0.62, -0.36, 0.12], [-0.5, 0.46, 0.12], [0.56, 0.5, 0.14], [0.04, 0.68, 0.1]] as const).map(([x, y, r], i) => (
+          <path key={i} d={look.pattern === "stars" ? star5(x * rx, y * ry, r * rx) : heartD(x * rx, y * ry, r * rx * 0.85)} fill={look.pattern === "stars" ? pal.soft : mix(pal.soft, "#ff8fab", 0.45)} opacity="0.85" transform={`rotate(${(i - 2) * 12} ${n2(x * rx)} ${n2(y * ry)})`} />
+        ))}
+        {look.pattern === "patch" && ([[-0.56, -0.5, 0.26, 0.2], [0.62, 0.34, 0.22, 0.17], [-0.32, 0.64, 0.18, 0.13], [0.42, -0.72, 0.14, 0.1]] as const).map(([x, y, a, b], i) => (
+          <ellipse key={i} cx={x * rx} cy={y * ry} rx={a * rx} ry={b * rx} fill={mix(pal.base, INK, 0.55)} opacity="0.42" transform={`rotate(${i * 37 - 20} ${n2(x * rx)} ${n2(y * ry)})`} />
+        ))}
         {full && <rect x={-rx} y={-ry} width={rx * 2} height={ry * 2} filter={`url(#${id}grain)`} opacity="0.32" style={{ mixBlendMode: "multiply" }} />}
         {!tiny && <ellipse cx={-rx * 0.45} cy={-ry * 0.52} rx={rx * 0.3} ry={ry * 0.2} fill={`url(#${id}hi)`} opacity="0.55" />}
       </g>
@@ -189,6 +212,13 @@ function Character({ id, look, pal, geo, expr, pose, t, lw, detail, glow, fx }: 
         {look.cheek === "freckle" && [-1, 1].flatMap((side) => ([[0.5, 0.02], [0.6, 0.1], [0.44, 0.13]] as const).map(([x, y], j) => (
           <circle key={`${side}${j}`} cx={side * x * rx} cy={y * ry} r={(tiny ? 2.2 : 1.4) * sc} fill="#9b5b3c" />
         )))}
+        {look.cheek === "heart" && [-1, 1].map((side) => (
+          <path key={side} d={heartD(side * rx * 0.6, ry * 0.15, (tiny ? 6 : 4.4) * sc)} fill="#ff7f95" opacity="0.85" />
+        ))}
+        {look.cheek === "swirl" && !tiny && [-1, 1].map((side) => {
+          const cx = side * rx * 0.6, cy = ry * 0.15, r = 4.2 * sc;
+          return <path key={side} d={`M${n2(cx)},${n2(cy)} m${n2(-r * 0.35)},0 a${n2(r * 0.35)},${n2(r * 0.35)} 0 1 1 ${n2(r * 0.7)},0 a${n2(r * 0.7)},${n2(r * 0.7)} 0 1 1 ${n2(-r * 1.25)},${n2(-r * 0.15)} a${n2(r)},${n2(r)} 0 1 1 ${n2(r * 1.9)},${n2(r * 0.3)}`} fill="none" stroke="#e8708a" strokeWidth={lw * 0.75} strokeLinecap="round" />;
+        })}
         {look.acc === "glasses" && <Glasses ex={ex} ey={ey} s={s} lw={lw} />}
       </g>
 
@@ -292,8 +322,8 @@ function Eye({ kind, style, s, side, blink, lx, ly, t, lw, skin, detail }: {
   const wide = kind === "wide";
   const moved = kind === "moved";
   const sclera = style === "big" || wide || moved;
-  const pr = wide ? s * 0.33 : style === "dot" ? s * 0.55 : s * 0.63;
-  const pry = wide ? s * 0.36 : style === "dot" ? s * 0.62 : s * 0.86;
+  const pr = wide ? s * 0.33 : style === "dot" ? s * 0.55 : style === "tall" ? s * 0.46 : s * 0.63;
+  const pry = wide ? s * 0.36 : style === "dot" ? s * 0.62 : style === "tall" ? s * 1.08 : s * 0.86;
   const shaky = wide ? Math.sin(t * 31) * s * 0.06 : 0;
   const px = lx * s * 0.28 + shaky, py = ly * s * 0.25 + (kind === "down" ? s * 0.3 : 0);
   const half = blink >= 0.25;
@@ -321,6 +351,10 @@ function Eye({ kind, style, s, side, blink, lx, ly, t, lw, skin, detail }: {
       {wet && detail === "full" && <circle cx={px + Math.sin(t * 7) * pr * 0.2} cy={py + pry * 0.1} r={pr * 0.14} fill="#ffffff" opacity="0.85" />}
       {kind === "star" && detail === "full" && <path d={star4(s * 1.15, -s * 1.05, s * 0.32 * (0.7 + 0.3 * Math.abs(Math.sin(t * 5))))} fill="#fff3b0" stroke={INK} strokeWidth={lw * 0.4} />}
       {moved && detail !== "tiny" && <path d={star4(px + pr * 0.25 * side, py + pry * 0.15, pr * 0.32 * (0.6 + 0.4 * Math.abs(Math.sin(t * 6))))} fill="#ffffff" />}
+      {/* 속눈썹: 바깥 위로 세 가닥 */}
+      {style === "lash" && !lid && detail !== "tiny" && (
+        <path d={`M${s * 0.5},${-s * 0.72} l${s * 0.16},${-s * 0.46} M${s * 0.74},${-s * 0.52} l${s * 0.36},${-s * 0.34} M${s * 0.86},${-s * 0.22} l${s * 0.46},${-s * 0.14}`} fill="none" stroke={INK} strokeWidth={lw * 0.85} strokeLinecap="round" />
+      )}
       {/* 웃는 눈: 아래 눈꺼풀이 둥글게 올라와 눈웃음 */}
       {smiling && (
         <>
@@ -488,6 +522,20 @@ function BackAcc({ acc, pal, geo, t, lw }: { acc: BuddyLook["acc"]; pal: Pal; ge
       </g>
     );
   }
+  if (acc === "bear") {
+    const y = top + ry * 0.24;
+    const x = Math.min(rx * 0.56, geo.half(y) * 0.86);
+    return (
+      <g>
+        {[-1, 1].map((d) => (
+          <g key={d} transform={`translate(${n2(d * x)} ${n2(y - 4)})`}>
+            <circle r="14" fill={pal.base} stroke={INK} strokeWidth={lw} />
+            <circle r="7.5" cx={-d * 1.5} cy="1" fill={pal.soft} />
+          </g>
+        ))}
+      </g>
+    );
+  }
   if (acc === "bunny") {
     const flop = Math.sin(t * 1.3) * 4;
     const y = top + ry * 0.2;
@@ -566,6 +614,88 @@ function FrontAcc({ acc, geo, t, lw, sc, tiny }: { acc: BuddyLook["acc"]; geo: G
         <circle r="5.5" fill="#f6c445" {...st} strokeWidth={lw * 0.8} />
       </g>
     );
+  if (acc === "beret")
+    return (
+      <g transform={`translate(${rx * 0.1} ${top + 7}) rotate(${-14 + Math.sin(t * 1.5) * 2})`}>
+        <path d="M-30,2 Q-30,-17 0,-19 Q30,-17 31,0 Q16,8 -30,2Z" fill="#e25a52" {...st} />
+        {!tiny && <path d="M-22,-6 Q-6,-12 14,-10" fill="none" stroke="#ff9a8a" strokeWidth={lw * 0.9} strokeLinecap="round" />}
+        <path d="M1,-19 L3,-27" stroke={INK} strokeWidth={lw * 1.4} strokeLinecap="round" />
+      </g>
+    );
+  if (acc === "cap")
+    return (
+      <g transform={`translate(${-rx * 0.04} ${top + 9})`}>
+        <path d="M-27,2 Q-27,-27 0,-28 Q27,-27 27,2Z" fill="#5a8de0" {...st} />
+        <path d="M14,0 Q38,-5 46,4 Q32,9 14,5Z" fill="#3f6fc4" {...st} />
+        {!tiny && <path d="M0,-28 L0,1 M-14,-24 Q-17,-10 -16,1 M14,-24 Q17,-10 16,1" fill="none" stroke="#3f6fc4" strokeWidth={lw * 0.6} />}
+        <circle cy="-28" r="3.5" fill="#f6c445" {...st} strokeWidth={lw * 0.6} />
+      </g>
+    );
+  if (acc === "wizard")
+    return (
+      <g transform={`translate(${rx * 0.06} ${top + 8}) rotate(${-8 + Math.sin(t * 1.8) * 3})`}>
+        <path d="M-22,0 Q-8,-32 4,-58 Q12,-64 22,-58 Q10,-50 10,-34 Q14,-14 22,0Z" fill="#7c6bd6" {...st} />
+        <ellipse cy="1" rx="34" ry="8" fill="#6a59c4" {...st} />
+        {!tiny && <path d={star4(0, -22, 7)} fill="#f6c445" stroke={INK} strokeWidth={lw * 0.5} />}
+      </g>
+    );
+  if (acc === "chef")
+    return (
+      <g transform={`translate(${rx * 0.02} ${top + 8})`}>
+        <path d="M-20,0 Q-34,-6 -28,-22 Q-24,-34 -10,-30 Q-6,-44 6,-42 Q18,-42 18,-30 Q32,-32 32,-18 Q32,-4 20,0Z" fill="#fffaf1" {...st} />
+        <rect x="-21" y="-4" width="42" height="10" rx="3" fill="#f2ece2" {...st} />
+        {!tiny && <path d="M-8,-30 Q-4,-22 -6,-14 M10,-28 Q12,-20 10,-12" fill="none" stroke="#d9d0c4" strokeWidth={lw * 0.7} strokeLinecap="round" />}
+      </g>
+    );
+  if (acc === "grad")
+    return (
+      <g transform={`translate(0 ${top + 6})`}>
+        <path d="M-17,0 Q-17,-12 0,-13 Q17,-12 17,0Z" fill="#3a3f5c" {...st} />
+        <path d="M-38,-14 L0,-28 L38,-14 L0,0Z" fill="#454b6e" {...st} />
+        <path d={`M0,-14 Q22,-12 28,${n2(-2 + Math.sin(t * 2.4) * 2)} L29,8`} fill="none" stroke="#f6c445" strokeWidth={lw * 1.1} strokeLinecap="round" />
+        <circle cx="29" cy="10" r="3.2" fill="#f6c445" {...st} strokeWidth={lw * 0.5} />
+      </g>
+    );
+  if (acc === "antenna") {
+    const sw = Math.sin(t * 2.6) * 5;
+    return (
+      <g>
+        {[-1, 1].map((d) => (
+          <g key={d}>
+            <path d={`M${d * 10},${top + 4} Q${d * 14},${top - 16} ${n2(d * 22 + sw)},${top - 30}`} fill="none" stroke={INK} strokeWidth={lw * 1.1} strokeLinecap="round" />
+            <path d={heartD(d * 22 + sw, top - 33, 7.5)} fill="#ff6f91" {...st} strokeWidth={lw * 0.8} />
+          </g>
+        ))}
+      </g>
+    );
+  }
+  if (acc === "leaf") {
+    const sw = Math.sin(t * 1.4) * 5;
+    return (
+      <g transform={`translate(${-rx * 0.06} ${top + 4}) rotate(${n2(-10 + sw)})`}>
+        <path d="M0,0 Q-2,-8 2,-14" fill="none" stroke="#3f7d39" strokeWidth={lw * 1.4} strokeLinecap="round" />
+        <path d="M2,-14 Q-34,-20 -40,-34 Q-8,-48 30,-36 Q36,-22 2,-14Z" fill="#7cc06a" {...st} />
+        {!tiny && <path d="M2,-14 Q-6,-28 -32,-32 M-6,-24 L-10,-32 M8,-24 L16,-34" fill="none" stroke="#4f8a36" strokeWidth={lw * 0.7} strokeLinecap="round" />}
+      </g>
+    );
+  }
+  if (acc === "bowtie")
+    return (
+      <g transform={`translate(0 ${n2(ry * 0.56)}) rotate(${n2(Math.sin(t * 2) * 3)})`}>
+        {[-1, 1].map((d) => <path key={d} d="M0,0 L15,-9 Q18,0 15,9Z" fill="#e25a52" {...st} transform={`scale(${d} 1)`} />)}
+        <rect x="-4.5" y="-5" width="9" height="10" rx="3" fill="#c9443d" {...st} />
+      </g>
+    );
+  if (acc === "scarf") {
+    const y = ry * 0.46, w = geo.half(y) * 1.02, wv = Math.sin(t * 2.2) * 3;
+    return (
+      <g>
+        <path d={`M${n2(-w)},${n2(y - 6)} Q0,${n2(y + 4)} ${n2(w)},${n2(y - 6)} L${n2(w)},${n2(y + 6)} Q0,${n2(y + 16)} ${n2(-w)},${n2(y + 6)}Z`} fill="#5cc8c0" {...st} />
+        <path d={`M${n2(w * 0.42)},${n2(y + 8)} L${n2(w * 0.48 + wv)},${n2(y + 30)} L${n2(w * 0.72 + wv)},${n2(y + 28)} L${n2(w * 0.66)},${n2(y + 6)}Z`} fill="#4fb3ab" {...st} />
+        {!tiny && <path d={`M${n2(-w * 0.6)},${n2(y - 1)} L${n2(-w * 0.52)},${n2(y + 9)} M${n2(-w * 0.2)},${n2(y + 2)} L${n2(-w * 0.12)},${n2(y + 12)} M${n2(w * 0.2)},${n2(y + 2)} L${n2(w * 0.12)},${n2(y + 12)}`} stroke="#f6f1e6" strokeWidth={lw * 0.9} strokeLinecap="round" />}
+      </g>
+    );
+  }
   const hx = geo.half(-ry * 0.2) * 1.02;
   if (acc === "headphones")
     return (
@@ -862,6 +992,9 @@ function InkPuff({ bumps, fill, lw }: { bumps: [number, number, number][]; fill:
   );
 }
 
+function heartD(cx: number, cy: number, s: number) {
+  return `M${n2(cx)},${n2(cy + s * 0.95)}C${n2(cx - s * 1.7)},${n2(cy - s * 0.1)} ${n2(cx - s * 0.75)},${n2(cy - s * 1.45)} ${n2(cx)},${n2(cy - s * 0.45)}C${n2(cx + s * 0.75)},${n2(cy - s * 1.45)} ${n2(cx + s * 1.7)},${n2(cy - s * 0.1)} ${n2(cx)},${n2(cy + s * 0.95)}Z`;
+}
 function star5(cx: number, cy: number, r: number) {
   let d = "";
   for (let i = 0; i < 10; i++) {
@@ -994,7 +1127,7 @@ const SceneClouds = memo(function SceneClouds({ id, kit, mood, step }: { id: str
   );
 });
 
-// 앞쪽 풀포기·날씨(비·나비·민들레 씨·잎·반딧불)·웅덩이 물결: 필터 없이 가볍게, 1초 12장
+// 앞쪽 풀포기·날씨(비·나비·민들레 씨·잎·반딧불)·웅덩이 물결: 필터 없이 가볍게, 1초 24장
 function SceneFront({ kit, mood, t }: { kit: Kit; mood: Group; t: number }) {
   const parts: ReactNode[] = [];
   if (kit.particle === "rain") {

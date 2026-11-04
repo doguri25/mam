@@ -1,12 +1,13 @@
 "use client";
-// 감정 그림카드 12장 → (더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개. 처음엔 아무것도 골라 두지 않는다.
+// 감정 낱말 카드 72장 중 고를 때마다 무작위 12장(긍정·보통·부정 4장씩) → (큰 감정이면 더 꼭 맞는 말) → 마음 크기 1~5 → 까닭 5개.
+// 고른 낱말은 기록에서 큰 감정 12가지 아래로 묶인다(선생님 화면·규칙은 그대로). 처음엔 아무것도 골라 두지 않는다.
 // stepwise: 한 화면에 질문 하나씩, 누르면 바로 다음으로(초등학생용). 아니면 세 가지를 한 화면에(말로 한 뒤 고쳐 볼 때).
 import { useState } from "react";
 import Doodle from "./Doodle";
-import { EmotionArt, EMOTION_COLOR, ReasonArt } from "./Art";
+import { EmotionArt, EMOTION_COLOR, ReasonArt, cardColor } from "./Art";
 import { t, w, type Lang } from "@/lib/i18n";
 import { speak } from "@/lib/local";
-import { EMOTIONS, GROUPS, INTENSITY, NUANCE, REASONS, type Group } from "@/lib/shared";
+import { EMOTIONS, GROUPS, INTENSITY, NUANCE, REASONS, drawCards, parentEmotion, type Group } from "@/lib/shared";
 
 export interface Pick {
   emotion?: string;
@@ -25,11 +26,21 @@ export default function MoodPicker({ value, onChange, vocab, lang, stepwise, onD
 // 한 화면에 하나씩: ① 감정 카드 → (더 꼭 맞는 말) → ② 마음 크기 → ③ 까닭. 누르면 잠깐 뒤 다음 화면.
 function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; onChange: (v: Pick) => void; vocab: string[]; lang: Lang; onDone?: (v: Pick) => void; onBack?: () => void }) {
   const [stage, setStage] = useState(0);
-  const color = value.emotion ? EMOTION_COLOR[value.emotion] : "#f2b705";
+  const [deck, setDeck] = useState(() => drawCards()); // 열 때마다 새로 뽑은 12장
+  const [direct, setDirect] = useState(false); // 낱말 카드를 바로 골라 「더 꼭 맞는 말」을 건너뜀
+  const color = value.emotion ? cardColor(value.word ?? value.emotion) : "#f2b705";
   const say = (ko: string) => speak(w(lang, ko), false, lang);
   const go = (n: number, delay = 260) => setTimeout(() => setStage(n), delay);
   const dots = [0, 1, 2, 3];
-  const back = () => (stage === 0 ? onBack?.() : setStage(stage === 2 && !NUANCE[value.emotion ?? ""] ? 0 : stage - 1));
+  const back = () => (stage === 0 ? onBack?.() : setStage(stage === 2 && (direct || !NUANCE[value.emotion ?? ""]) ? 0 : stage - 1));
+  const pickCard = (word: string) => {
+    const parent = parentEmotion(word);
+    const isBig = parent === word;
+    onChange({ ...value, emotion: parent, word: isBig ? undefined : word });
+    setDirect(!isBig);
+    say(word);
+    go(isBig && NUANCE[word] ? 1 : 2);
+  };
   const head = (title: string) => (
     <div className="mb-4 flex items-center gap-3">
       <button type="button" onClick={back} className="btn-sub min-h-12 shrink-0 px-4 text-xl" aria-label={t(lang, "goBack")}>←</button>
@@ -45,20 +56,26 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack }: { value: Pick; 
       <section>
         {head(t(lang, "q1").replace(/^①\s*/, ""))}
         <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4">
-          {EMOTIONS.map((e) => {
-            const on = value.emotion === e.name;
+          {deck.map((word) => {
+            const on = (value.word ?? value.emotion) === word;
+            const c = cardColor(word);
             return (
-              <button key={e.name} type="button" aria-pressed={on}
-                onClick={() => { onChange({ ...value, emotion: e.name, word: undefined }); say(e.name); go(NUANCE[e.name] ? 1 : 2); }}
-                className={`chip flex min-h-28 flex-col items-center justify-center gap-1.5 py-3 ${on ? "chip-on" : ""}`}
-                style={on ? { borderColor: EMOTION_COLOR[e.name], background: `${EMOTION_COLOR[e.name]}1f` } : undefined}>
-                <EmotionArt name={e.name} size={72} />
-                <span className="text-base font-bold">{w(lang, e.name)}</span>
-                {lang !== "ko" && <span className="text-[11px] text-soft">{e.name}</span>}
+              <button key={word} type="button" aria-pressed={on} onClick={() => pickCard(word)}
+                className={`chip flex min-h-28 flex-col items-center justify-center gap-1.5 px-1 py-3 ${on ? "chip-on" : ""}`}
+                style={on ? { borderColor: c, background: `${c}1f` } : undefined}>
+                <EmotionArt name={word} size={72} />
+                <span className="text-center text-base font-bold leading-tight">
+                  {w(lang, word)}
+                  {vocab.includes(word) && <span className="ml-1 inline-block" title={t(lang, "learned")}><Doodle name="star" size={16} /></span>}
+                </span>
+                {lang !== "ko" && <span className="text-[11px] text-soft">{word}</span>}
               </button>
             );
           })}
         </div>
+        <button type="button" onClick={() => setDeck(drawCards())} className="btn-sub mt-3 min-h-12 w-full">
+          <Doodle name="dice" size={24} /> {t(lang, "reshuffle")}
+        </button>
       </section>
     );
 
@@ -195,7 +212,7 @@ function All({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick
           <div className="mt-3 rounded-2xl border-2 border-dashed p-3" style={{ borderColor: `${color}88` }}>
             <p className="font-bold">{t(lang, "nuance")} <span className="text-xs font-normal text-soft">{t(lang, "nuanceSkip")}</span></p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {NUANCE[value.emotion].map((word) => {
+              {[...NUANCE[value.emotion], ...(value.word && !NUANCE[value.emotion].includes(value.word) ? [value.word] : [])].map((word) => {
                 const on = value.word === word;
                 const learned = vocab.includes(word);
                 return (

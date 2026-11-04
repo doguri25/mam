@@ -1,6 +1,6 @@
 // 마음 친구 표정·몸짓: 큰 감정 12가지와 「더 꼭 맞는 말」 36가지, 모두 48가지 표정이 저마다 눈·눈썹·입·볼·효과·몸짓·팔을 가진다.
-// 시간(t초)에 따라 자세를 계산한다. 손그림 애니메이션처럼 1초에 12장(「투스」)으로만 바뀌게 그리는 쪽에서 t를 끊어 준다.
-import { NUANCE, breathOf, groupOf, type Group } from "../../lib/shared.ts";
+// 시간(t초)에 따라 자세를 계산한다. 1초에 24장으로 바뀌게 그리는 쪽에서 t를 끊어 준다(선 떨림은 1초 8번).
+import { breathOf, groupOf, parentEmotion, type Group } from "../../lib/shared.ts";
 
 export type EyeKind =
   | "open" | "star" | "half" | "sleepy" | "worried" | "wide" | "sad" | "teary" | "down" | "angry" | "frustrated" // 뜬 눈
@@ -29,7 +29,7 @@ export interface Expr {
 const E = (eye: EyeKind, brow: BrowKind, mouth: MouthKind, blush: number, fx: Fx[], motion: Motion, arms: Arms, tint: Tint = null, look?: [number, number]): Expr =>
   ({ eye, brow, mouth, blush, fx, motion, arms, tint, look });
 
-// 감정 이름 → 표정. 큰 감정 12가지 + 더 꼭 맞는 말 36가지(lib/shared의 NUANCE와 같은 순서)
+// 감정 이름 → 표정. 큰 감정 12가지 + 더 꼭 맞는 말 36가지 + 카드에 더한 낱말 24가지(lib/shared의 NUANCE·MORE_WORDS)
 export const EXPR: Record<string, Expr> = {
   기뻐요: E("happy", "up", "laugh", 0.9, ["sparkle"], "bounce", "up", "warm"),
   뿌듯해요: E("relax", "up", "smile", 0.7, ["sparkle", "medal"], "proud", "hips", "warm", [0, -0.6]),
@@ -90,20 +90,46 @@ export const EXPR: Record<string, Expr> = {
   "짜증 나요": E("half", "angry", "side", 0.3, ["vein", "puff"], "stomp", "crossed", "hot"),
   "약 올라요": E("angry", "angry", "pout", 0.7, ["earSteam"], "puffUp", "fists", "hot"),
   부글부글해요: E("angry", "angry", "teeth", 0.5, ["boilUp", "steam"], "shake", "fists", "hot"),
+
+  // 마음 남기기 카드에 더한 낱말 24가지 — 긍정
+  흐뭇해요: E("relax", "soft", "smile", 0.8, ["warmth", "sparkle"], "sway", "clasp", "warm"),
+  "자신 있어요": E("smiling", "up", "grin", 0.5, ["sparkle", "glowRing"], "proud", "hips", "warm", [0.2, -0.5]),
+  반가워요: E("happy", "up", "laugh", 0.7, ["hearts", "notes"], "bounce", "wave", "warm"),
+  신기해요: E("star", "up", "o", 0.4, ["sparkle", "exclaim"], "startle", "open", "warm", [0, -0.4]),
+  기대돼요: E("smiling", "up", "grin", 0.7, ["heartbeat", "stars"], "skip", "clasp", "warm"),
+  다행이에요: E("relax", "worried", "smile", 0.3, ["sweat", "puff"], "melt", "rest"),
+  포근해요: E("closed", "soft", "cat", 0.6, ["warmth", "petals"], "sway", "hug", "warm"),
+  개운해요: E("smiling", "up", "grin", 0.3, ["sparkle", "bubbles"], "bounce", "up"),
+  // 보통
+  궁금해요: E("open", "up", "smallO", 0, ["questions"], "idle", "reach", null, [0.7, -0.3]),
+  헷갈려요: E("worried", "frown", "wavy", 0, ["tangle", "questions"], "rock", "fidget"),
+  어색해요: E("half", "worried", "side", 0.4, ["sweat"], "stiff", "fidget", null, [-0.6, 0]),
+  지루해요: E("half", "flat", "flat", 0, ["dots"], "lazy", "rest", null, [0.5, -0.4]),
+  차분해요: E("relax", "flat", "soft", 0.2, [], "float", "clasp"),
+  "생각이 많아요": E("open", "frown", "side", 0, ["thought"], "idle", "reach", null, [0.5, -0.6]),
+  괜찮아요: E("smiling", "soft", "soft", 0.3, [], "idle", "wave"),
+  평범해요: E("open", "none", "flat", 0.1, [], "idle", "rest"),
+  낯설어요: E("wide", "worried", "smallO", 0, ["sweat"], "cower", "clasp", null, [-0.5, 0]),
+  집중돼요: E("flat", "frown", "flat", 0, ["speed"], "still", "clasp", null, [0, 0.3]),
+  귀찮아요: E("half", "flat", "pout", 0, ["puff"], "slump", "down", null, [-0.4, 0.2]),
+  바빠요: E("open", "worried", "pant", 0.2, ["sweat", "speed"], "fidget", "up"),
+  정신없어요: E("blank", "worried", "wavy", 0, ["daze", "tangle"], "fidget", "cover"),
+  "조용히 있고 싶어요": E("closed", "soft", "flat", 0, ["dots"], "still", "hug"),
+  나른해요: E("sleepy", "flat", "soft", 0.2, ["sleepBubble"], "melt", "rest"),
+  "쉬고 싶어요": E("half", "sad", "flat", 0, ["battery"], "slump", "down"),
 };
 // 감정을 모를 때(첫 화면 등): 반짝 눈으로 두리번거리는 기본 모습
 export const NEUTRAL: Expr = E("open", "soft", "smile", 0.4, [], "idle", "rest");
 
-const PARENT: Record<string, string> = Object.fromEntries(Object.entries(NUANCE).flatMap(([p, ws]) => ws.map((w) => [w, p])));
-// 더 꼭 맞는 말 → 큰 감정(큰 감정이면 그대로)
-export const parentOf = (emotion: string) => PARENT[emotion] ?? emotion;
+// 낱말 → 큰 감정(큰 감정이면 그대로)
+export const parentOf = parentEmotion;
 export function exprOf(emotion?: string): Expr {
   if (!emotion) return NEUTRAL;
-  return EXPR[emotion] ?? EXPR[PARENT[emotion]] ?? EXPR[{ joy: "기뻐요", calm: "편안해요", sad: "슬퍼요", angry: "화나요", fear: "걱정돼요" }[groupOf(emotion)]];
+  return EXPR[emotion] ?? EXPR[parentOf(emotion)] ?? EXPR[{ joy: "기뻐요", calm: "편안해요", sad: "슬퍼요", angry: "화나요", fear: "걱정돼요" }[groupOf(emotion)]];
 }
 export function moodOf(emotion?: string): Group {
   if (!emotion) return "calm";
-  return groupOf(PARENT[emotion] ?? emotion);
+  return groupOf(parentOf(emotion));
 }
 
 export interface Pose {
@@ -116,7 +142,7 @@ export interface Pose {
 }
 
 export interface PoseIn {
-  t: number; // 초(12장/초로 끊긴 값)
+  t: number; // 초(24장/초로 끊긴 값)
   expr: Expr;
   intensity: number; // 1~5
   cheer: number | null; // 인사 시작부터 지난 초(없으면 null)

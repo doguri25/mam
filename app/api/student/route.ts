@@ -10,7 +10,7 @@ import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import {
-  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, NUANCE, REASON_NAMES, TONES, cleanLook,
+  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, isWordOf,
   type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type Student,
 } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
@@ -294,7 +294,7 @@ async function saveRecord(s: Student, r: any, settings: Settings) {
     toneWhy: voice ? String(r.toneWhy ?? "").slice(0, 40) : "",
     toneBy: voice && (r.toneBy === "device" || r.toneBy === "gemini") ? r.toneBy : null,
     voice,
-    word: NUANCE[r.emotion]?.includes(r.word) ? r.word : "",
+    word: isWordOf(r.emotion, r.word) ? r.word : "", // 더 꼭 맞는 말·카드에 더한 낱말
     lang: isLang(r.lang) ? r.lang : "ko",
     summaryKo: isLang(r.lang) && r.lang !== "ko" ? String(r.summaryKo ?? "").slice(0, 120) : "",
     ...(isDemo() ? { demo: true } : {}),

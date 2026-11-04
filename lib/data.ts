@@ -297,7 +297,7 @@ export async function saveSelChecks(items: SelCheck[]) {
 }
 
 // 연습 데이터의 판: 연습 데이터에 새 내용(예: 역량 진단 회차)을 더하면 올린다 → 체험 반이 그날 안에도 새 판으로 다시 만들어진다
-export const PRACTICE_VERSION = 2;
+export const PRACTICE_VERSION = 3;
 
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
 export async function seedPractice() {

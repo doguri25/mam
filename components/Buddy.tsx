@@ -1,6 +1,6 @@
 "use client";
 // 마음 친구: 손으로 그린 2D 셀 애니메이션처럼 움직인다(WebGL 없이 SVG).
-// - 1초에 12장(「투스」)만 바꿔 그리고, 선은 1초에 8번 다시 그린 듯 떨린다(boil).
+// - 1초에 24장(극장 애니메이션의 「원스」)으로 부드럽게 움직이고, 선은 1초에 8번만 다시 그린 듯 떨린다(boil) → 손그림 느낌은 그대로.
 // - 감정 12가지마다 눈·눈썹·입·볼·몸짓·효과(반짝임·하트·눈물·김…)가 다르고, 세기(1~5)만큼 크게.
 // - cheer: 값이 바뀔 때마다 한 번 인사(폴짝 두 번 + 손 흔들기, 힘든 마음은 끄덕이며 가슴 토닥)
 // - breath: 숨 고르기 시작부터 지난 ms(들이쉬며 부풀고 내쉬며 「후~」) · squeeze: 꼭 쥐었다 펴기(움츠렸다 「휴~」)
@@ -23,7 +23,8 @@ export interface BuddyProps {
   scene?: boolean;
 }
 
-const FPS = 12;
+const FPS = 24;
+const BOIL_EVERY = 3; // 24장 중 3장마다 선을 새로 그림 = 1초에 8번
 
 export default function Buddy({ emotion, intensity = 3, look = DEFAULT_LOOK, cheer, breath, squeeze, size = 200, className, scene }: BuddyProps) {
   const box = useRef<HTMLDivElement>(null);
@@ -59,7 +60,7 @@ export default function Buddy({ emotion, intensity = 3, look = DEFAULT_LOOK, che
   const p = pose({ t, expr, intensity, cheer: since < 1.8 ? since : null, hard: mood === "sad" || mood === "angry" || mood === "fear", breath, squeeze });
   return (
     <div ref={box} className={className} style={className ? undefined : { width: size, height: size }} aria-hidden>
-      <BuddyArt look={look} mood={mood} expr={expr} pose={p} t={t} boil={Math.floor(clock.frame / 1.5) % 3} scene={scene} size={size} className="size-full" />
+      <BuddyArt look={look} mood={mood} expr={expr} pose={p} t={t} boil={Math.floor(clock.frame / BOIL_EVERY) % 3} scene={scene} size={size} className="size-full" />
     </div>
   );
 }
