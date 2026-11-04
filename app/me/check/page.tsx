@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Doodle from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
-import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
+import StudentFrame, { Loading, useRetry, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { errText, t, type Lang } from "@/lib/i18n";
 import { speak } from "@/lib/local";
@@ -33,16 +33,15 @@ export default function CheckPage() {
   const [cheer, setCheer] = useState(0);
   const lock = useRef(false); // 두 번 눌러 다음 문장까지 같은 답으로 넘어가지 않게 잠깐 잠근다
 
-  useEffect(() => {
-    api<Open>("student", "selfCheck").then(setOpen, () => setOpen({ round: null, answers: null }));
-  }, []);
+  // 와이파이가 잠깐 끊긴 것을 「지금은 점검하는 때가 아니에요」로 보이지 않게, 받을 때까지 다시 묻는다
+  useRetry(() => api<Open>("student", "selfCheck"), setOpen);
   const item = step >= 0 && step < SELF_ITEMS.length ? SELF_ITEMS[step] : null;
   const line = item ? item.text[lang] : "";
   useEffect(() => { if (line) speak(line, false, lang); }, [line, lang]); // 「읽어 주기」를 켠 학생에게만
   // 브라우저 뒤로 가기 = 앞 문장으로(첫 문장이면 시작 화면으로). 다 보낸 뒤에는 마음 점검을 나간다.
   useBackSteps(step >= 0 && step < SELF_ITEMS.length ? step + 1 : 0, () => setStep((n) => n - 1), "check");
 
-  if (!me || !open) return <Loading />;
+  if (!me || !open) return <Loading lang={me ? lang : undefined} />;
   const title = tt("tileCheck");
 
   if (!open.round)

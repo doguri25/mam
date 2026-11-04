@@ -7,14 +7,14 @@ import { backToMe, returnToMe } from "@/lib/back";
 import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
+import { Loading, useStudentLang } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
-import { errText, isLang, t, type Lang, type UIKey } from "@/lib/i18n";
-import { useLocal } from "@/lib/local";
+import { errText, t, type UIKey } from "@/lib/i18n";
 import {
   ACC_UNLOCK, BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, GROUPS, type BuddyAcc, type BuddyLook, type MoodRecord,
 } from "@/lib/shared";
 
-type Me = { no: number; alias: string; look: BuddyLook; records: MoodRecord[]; words: string[] };
+type Me = { no: number; space?: string; alias: string; look: BuddyLook; records: MoodRecord[]; words: string[] };
 type Part = "shape" | "eyes" | "cheek" | "pattern" | "limbs" | "acc";
 
 // 고르는 칸: 제목 · 고를 것 · 칸 수(넓은 화면)
@@ -43,8 +43,7 @@ export default function BuddyPage() {
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState<Tab>("shape");
-  const [langRaw] = useLocal(`mb_lang_${me?.no ?? 0}`);
-  const lang: Lang = isLang(langRaw) ? langRaw : "ko";
+  const [lang] = useStudentLang(me);
   const tt = (k: UIKey, vars?: Record<string, string | number>) => t(lang, k, vars);
 
   const leave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -74,7 +73,7 @@ export default function BuddyPage() {
     };
   }, [router]);
 
-  if (!me || !look) return <main className="grid min-h-dvh place-items-center text-soft">…</main>;
+  if (!me || !look) return <Loading lang={me ? lang : undefined} />;
   // 미리보기 표정: 오늘 마지막으로 남긴 마음(없으면 기쁨)
   const emotion = me.records.at(-1)?.word || me.records.at(-1)?.emotion || "기뻐요";
   function set(p: Partial<BuddyLook>) {

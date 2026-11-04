@@ -1,10 +1,10 @@
 "use client";
 // 한 주 돌아보기: 이번 주(월요일부터) 내 마음 스티커를 보고 「이번 주 나는…」 한 줄을 쓰면 마음 친구가 답한다.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Doodle from "@/components/Doodle";
 import { EmotionArt } from "@/components/Art";
 import BuddyLazy from "@/components/BuddyLazy";
-import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
+import StudentFrame, { Loading, useRetry, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { addDays } from "@/lib/date";
 import { WEEKDAYS, errText, w, type UIKey } from "@/lib/i18n";
@@ -23,11 +23,9 @@ export default function WeekPage() {
   const [cheer, setCheer] = useState(0);
   const [editing, setEditing] = useState(false);
 
-  useEffect(() => {
-    api<Week>("student", "week").then(setWeek, () => {});
-  }, []);
+  useRetry(() => api<Week>("student", "week"), setWeek); // 와이파이가 잠깐 끊겨도 다시 읽는다
 
-  if (!me || !week) return <Loading />;
+  if (!me || !week) return <Loading lang={me ? lang : undefined} />;
   const days = Array.from({ length: 7 }, (_, i) => addDays(week.weekStart, i)).filter((d) => d <= week.today);
   const last = week.records.at(-1)?.word || week.records.at(-1)?.emotion;
 
