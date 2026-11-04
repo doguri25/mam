@@ -8,6 +8,7 @@ import { kindsText } from "./RiskActions";
 import StyleNote from "./StyleNote";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 
@@ -18,7 +19,7 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
   // 위험 표현 조치 기록도 함께(한 날 순서대로)
   const memo = (n: number | null) => [
     ...data.riskActions.filter((x) => x.no === n).map((x) => `· ${label(x.date)}: ${kindsText(x.kinds)}${x.note ? ` — ${x.note}` : ""}`),
-    ...data.notes.filter((x) => x.no === n).slice(0, 3).map((x) => `· ${label(x.createdAt.slice(0, 10))}: ${x.text}`),
+    ...data.notes.filter((x) => x.no === n).slice(0, 3).map((x) => `· ${label(kday(x.createdAt))}: ${x.text}`),
   ].join("\n");
   const first = data.flags[0]?.no ?? null;
   const [no, setNo] = useState<number | null>(first);

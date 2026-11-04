@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import Doodle from "../Doodle";
 import type { Overview, Reload } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { PURGE_KO, RETENTIONS, RETENTION_KO, type PurgeLog, type Retention } from "@/lib/retention";
@@ -92,7 +93,7 @@ export default function RetentionCard({ data, reload, onExport, exportMsg }: { d
             <p className="text-xs text-soft">학급 역량 진단(학생 이름·번호 없음)과 반 명단은 지우지 않아요.</p>
           </div>
         )}
-        {last && <p className="text-xs text-soft">마지막 정리: {full(last.at.slice(0, 10))} · {full(last.cutoff)} 앞 기록 {sum(last.counts)}건</p>}
+        {last && <p className="text-xs text-soft">마지막 정리: {full(kday(last.at))} · {full(last.cutoff)} 앞 기록 {sum(last.counts)}건</p>}
         {msg && <p role="status" className="text-sm">{msg}</p>}
       </div>
     </section>

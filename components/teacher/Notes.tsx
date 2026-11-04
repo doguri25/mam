@@ -2,6 +2,7 @@
 // 면담 메모: 선생님만 보고, AI에는 보내지 않는다
 import { useState } from "react";
 import type { Reload } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import type { Note } from "@/lib/shared";
 
@@ -27,7 +28,7 @@ export default function Notes({ no, notes, reload }: { no: number; notes: Note[]
       </div>
       {mine.map((n) => (
         <p key={n.id} className="flex items-start justify-between gap-2 border-t border-line pt-2 text-sm">
-          <span><span className="text-soft">{n.createdAt.slice(5, 10).replace("-", "/")}</span> {n.text}</span>
+          <span><span className="text-soft">{kday(n.createdAt).slice(5).replace("-", "/")}</span> {n.text}</span>
           <button onClick={() => remove(n.id)} className="shrink-0 text-xs text-soft underline">지우기</button>
         </p>
       ))}

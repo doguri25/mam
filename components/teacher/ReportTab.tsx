@@ -6,6 +6,7 @@ import { kindsText } from "./RiskActions";
 import StyleNote from "./StyleNote";
 import { Bars, Legend } from "./Weather";
 import type { NameOf, Overview, Reload, Weekly } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import { addDays, label, weekday } from "@/lib/date";
 import { calmStats } from "@/lib/rules";
@@ -32,7 +33,7 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const week = data.records.filter((r) => r.date >= weekStart && r.date <= today);
   const who = (no: number) => (onlyNo ? `${no}번` : `${no}번 ${nameOf(no)}`);
   const risks = week.filter((r) => r.risk);
-  const cheers = data.cheers.filter((c) => c.createdAt.slice(0, 10) >= weekStart);
+  const cheers = data.cheers.filter((c) => kday(c.createdAt) >= weekStart);
   const groups = Object.keys(GROUPS) as Group[];
   const total = students.length || 1;
   const rates = days.map((d) => new Set(week.filter((r) => r.date === d).map((r) => r.no)).size);

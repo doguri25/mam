@@ -10,6 +10,7 @@ import { RiskHistory } from "./RiskActions";
 import { SEL_COMPS } from "@/lib/selcheck";
 import { selfComps } from "@/lib/selfcheck";
 import type { NameOf, Overview } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { CALM_KO, GROUPS, SEL_AREAS, groupOf, type Cheer, type Group, type Letter, type MoodRecord, type Reflect, type RiskAction, type SheetItem } from "@/lib/shared";
@@ -245,7 +246,7 @@ function Report({ all, data, no, nameOf, onActions }: { all: All; data: Overview
             [...all.sent.map((l) => ({ l, out: true })), ...all.got.map((l) => ({ l, out: false }))]
               .sort((a, b) => b.l.createdAt.localeCompare(a.l.createdAt)).slice(0, 10).map(({ l, out }) => (
                 <p key={l.id + out} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0">
-                  <span className="text-xs text-soft">{l.createdAt.slice(0, 10)} · {out ? `→ ${l.to}번 ${nameOf(l.to)}에게` : `← ${l.from}번 ${nameOf(l.from)}에게서`} · {{ wait: "확인 전", ok: "전함", no: "보내지 않음" }[l.status]}</span>
+                  <span className="text-xs text-soft">{kday(l.createdAt)} · {out ? `→ ${l.to}번 ${nameOf(l.to)}에게` : `← ${l.from}번 ${nameOf(l.from)}에게서`} · {{ wait: "확인 전", ok: "전함", no: "보내지 않음" }[l.status]}</span>
                   <br />{l.text}
                 </p>
               ))
@@ -254,13 +255,13 @@ function Report({ all, data, no, nameOf, onActions }: { all: All; data: Overview
         <section className="card space-y-2">
           <h3 className="font-display text-xl"><Doodle name="letter" /> 전한 응원</h3>
           {!all.cheers.length ? <p className="text-sm text-soft">아직 없어요.</p> : all.cheers.map((c) => (
-            <p key={c.id} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0"><span className="text-xs text-soft">{c.createdAt.slice(0, 10)}</span><br />{c.text}</p>
+            <p key={c.id} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0"><span className="text-xs text-soft">{kday(c.createdAt)}</span><br />{c.text}</p>
           ))}
         </section>
         <section className="card space-y-2">
           <h3 className="font-display text-xl"><Doodle name="memo" /> 면담 메모 <span className="text-sm text-soft">(선생님만)</span></h3>
           {!all.notes.length ? <p className="text-sm text-soft">아직 없어요.</p> : all.notes.map((c) => (
-            <p key={c.id} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0"><span className="text-xs text-soft">{c.createdAt.slice(0, 10)}</span><br />{c.text}</p>
+            <p key={c.id} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0"><span className="text-xs text-soft">{kday(c.createdAt)}</span><br />{c.text}</p>
           ))}
         </section>
       </div>

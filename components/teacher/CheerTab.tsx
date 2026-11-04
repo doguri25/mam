@@ -6,6 +6,7 @@ import StyleNote from "./StyleNote";
 import Notes from "./Notes";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview, Reload } from "./types";
+import { kday } from "./when";
 import { api } from "@/lib/api";
 import { leaks } from "@/lib/rules";
 import { PROVIDERS } from "@/lib/shared";
@@ -88,7 +89,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                   <h2 className="mb-2 font-display text-xl">전에 쓴 응원</h2>
                   {saved.map((c) => (
                     <p key={c.id} className="border-t border-line py-2 text-sm">
-                      <span className="text-soft">{c.createdAt.slice(0, 10)}</span> {c.text}
+                      <span className="text-soft">{kday(c.createdAt)}</span> {c.text}
                     </p>
                   ))}
                 </section>

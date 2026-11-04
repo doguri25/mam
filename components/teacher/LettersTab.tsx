@@ -9,7 +9,7 @@ import type { Letter } from "@/lib/shared";
 
 type View = "wait" | "ok" | "no";
 const VIEWS: [View, string][] = [["wait", "허락을 기다려요"], ["ok", "전했어요"], ["no", "돌려보냈어요"]];
-const when = (iso: string) => new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+const when = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 function Card({ l, nameOf, reload }: { l: Letter; nameOf: NameOf; reload: Reload }) {
   const [text, setText] = useState(l.text);
