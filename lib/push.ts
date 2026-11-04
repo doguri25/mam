@@ -29,6 +29,18 @@ export async function saveSub(sub: PushSubscription, label: string) {
 export const removeSub = (endpoint: string) => db().del("subs", subId(endpoint));
 export const countSubs = async () => (await db().all<Sub>("subs")).length;
 
+// 이 학급의 알림 받는 기기를 모두 뺀다(잃어버린 휴대폰 끊기·비밀번호를 바꿀 때). keepEndpoint로 보낸 기기 하나만 남길 수 있다. 뺀 수를 돌려준다.
+export async function clearSubs(keepEndpoint?: string) {
+  const keep = keepEndpoint ? subId(keepEndpoint) : null;
+  let removed = 0;
+  for (const s of await db().all<Sub>("subs")) {
+    if (s.id === keep) continue;
+    await db().del("subs", s.id);
+    removed++;
+  }
+  return removed;
+}
+
 export async function notifyTeachers(payload: { title: string; body: string; url: string; tag?: string }) {
   if (!pushReady()) return { sent: 0, failed: 0 };
   webpush.setVapidDetails(subject(), process.env.VAPID_PUBLIC_KEY!, process.env.VAPID_PRIVATE_KEY!);

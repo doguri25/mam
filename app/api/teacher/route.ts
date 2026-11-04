@@ -3,6 +3,7 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, noteTeacherLogin, setConsent } from "@/lib/data";
 import { clientIp, passwordAttempt, waitText } from "@/lib/limit";
+import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
   DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, saveRiskActions, getSelfRounds, saveSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, putRecord, recordsChangedAfter, recordsFrom, recordsOf,
@@ -24,8 +25,8 @@ const strList = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).trim(
 const lean = (r: MoodRecord) => ({ ...r, voice: undefined }); // 목소리 숫자는 화면에 필요 없음
 const DAYS = 34; // 교사 화면이 들고 있는 기록 범위(월간 그래프 30일 + 여유)
 
-function withTeacherCookie(v: number) {
-  const res = NextResponse.json({ ok: true });
+function withTeacherCookie(v: number, extra: Record<string, unknown> = {}) {
+  const res = NextResponse.json({ ok: true, ...extra });
   res.cookies.set(TEACHER_COOKIE, teacherToken(v), {
     httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge: TEACHER_HOURS * 3600, path: "/",
   });
@@ -39,13 +40,15 @@ export async function POST(req: NextRequest) {
 }
 
 // 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
-const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush"]);
+const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush", "pushClear"]);
 const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
 async function handle(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   try {
+    // 잠그기(로그아웃): 이 기기의 알림 주소(endpoint)를 보내면 이 학급 알림 목록에서도 뺀다(잠근 기기로 위험 알림이 가지 않게)
     if (body.action === "logout") {
+      if (typeof body.endpoint === "string" && !isDemo() && isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, (await getPin())?.v ?? 0)) await removeSub(body.endpoint);
       const res = NextResponse.json({ ok: true });
       res.cookies.delete(TEACHER_COOKIE);
       return res;
@@ -78,7 +81,8 @@ async function handle(req: NextRequest) {
 
     if (isDemo() && DEMO_BLOCKED.has(body.action)) return bad("체험에서는 쓸 수 없는 기능이에요.", 403);
 
-    // 비밀번호 바꾸기: 지금 비밀번호를 확인하고, 바꾼 기기만 계속 열려 있게 새 표를 준다
+    // 비밀번호 바꾸기: 지금 비밀번호를 확인하고, 바꾼 기기만 계속 열려 있게 새 표를 준다.
+    // 비밀번호를 바꾸는 것은 잃어버린 기기를 끊으려는 때가 많으므로 알림 받는 기기도 모두 뺀다(keepEndpoint로 보낸 이 기기만 남김).
     if (body.action === "changePin") {
       const next = String(body.next ?? "");
       if (!validPin(next)) return bad("새 비밀번호는 숫자 4~12자리로 해 주세요.");
@@ -89,7 +93,8 @@ async function handle(req: NextRequest) {
       if (!r.ok) return bad("지금 비밀번호가 맞지 않아요.", 401);
       const np = makePin(next, (pin?.v ?? 0) + 1);
       await savePin(np);
-      return withTeacherCookie(np.v);
+      const pushRemoved = await clearSubs(typeof body.keepEndpoint === "string" ? body.keepEndpoint : undefined);
+      return withTeacherCookie(np.v, { pushRemoved, devices: await countSubs() });
     }
 
     // 변경 표시만(문서 1개 읽기). 교사 화면은 이것만 20초마다 묻는다.
@@ -500,6 +505,11 @@ async function handle(req: NextRequest) {
     if (body.action === "unsubscribe") {
       if (typeof body.endpoint === "string") await removeSub(body.endpoint);
       return NextResponse.json({ ok: true, devices: await countSubs() });
+    }
+    // 알림 받는 기기 모두 끄기(잃어버린 휴대폰 등): 이 학급에 등록된 알림 주소를 모두 지운다
+    if (body.action === "pushClear") {
+      const removed = await clearSubs();
+      return NextResponse.json({ ok: true, removed, devices: await countSubs() });
     }
     if (body.action === "testPush") {
       const r = await notifyTeachers({ title: "마음빛 길잡이 알림 시험", body: "이 알림이 보이면 위험 표현 알림을 받을 수 있어요.", url: "/teacher", tag: "test" });
