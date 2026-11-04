@@ -6,6 +6,7 @@ import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
 import { saveLook } from "@/lib/data";
+import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
@@ -41,7 +42,18 @@ export async function POST(req: NextRequest) {
   // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
   if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
   const body = await req.json().catch(() => ({}));
+  if (body.action === "login") return codeLogin(req, body);
   return inSpace(await studentSpace(req, body), () => handle(req, body));
+}
+
+// 코드 로그인: 틀린 코드는 IP마다 세어 너무 많으면 잠시 막는다(코드를 마구 넣어 맞히기 막기). 맞힌 로그인은 세지 않는다.
+// 학교는 태블릿 여럿이 공인 IP 하나를 함께 쓰므로 넉넉히(10분에 30번) — lib/limit.ts. 코드 색인을 읽기 전에 막는다.
+async function codeLogin(req: NextRequest, body: Body) {
+  const gate = await codeAttempt(clientIp(req.headers));
+  if (gate.wait) return bad(`코드를 너무 여러 번 틀렸어요. ${waitText(gate.wait)} 뒤에 다시 해 주세요.`, 429);
+  const res = await inSpace(await studentSpace(req, body), () => handle(req, body));
+  await gate.done(res.status !== 401); // 401 = 없는 코드
+  return res;
 }
 
 // 학생 쿠키 「번호:코드:공간」. 로그인은 코드 색인으로, 끊김 기록은 qtoken에 적힌 공간으로.

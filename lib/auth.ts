@@ -70,22 +70,16 @@ const same = (a: string, b: string) => {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 };
 
-// 숫자 비밀번호는 금방 맞혀지므로, 한 학급에서 5번 틀리면 그 학급만 1분 잠근다
-// ponytail: 메모리 잠금이라 서버가 여러 대면 대마다 따로 센다. 막아야 할 일이 생기면 저장소에 세도록 바꿀 것.
-const locks = new Map<string, { fails: number; until: number }>();
+// 비밀번호 맞춰 보기만 한다. 너무 많이 틀릴 때 잠그는 것은 저장소에 세는 lib/limit.ts(passwordAttempt)가 맡는다
+// — 서버가 여러 대여도 함께 세고, 학급 × IP마다 따로 잠가 다른 곳의 선생님은 잠기지 않게. wait는 예전 모양을 남겨 둔 것(늘 비어 있음).
 export function checkPassword(input: string, pin?: Pin | null): { ok: boolean; wait?: number } {
-  const lock = locks.get(spaceId()) ?? { fails: 0, until: 0 };
-  if (Date.now() < lock.until) return { ok: false, wait: Math.ceil((lock.until - Date.now()) / 1000) };
   const got = String(input);
   const ok = pin ? same(scrypt(got, pin.salt), pin.hash) : spaceId() === "" && same(process.env.TEACHER_PASSWORD || "1324", got);
-  if (ok) lock.fails = 0;
-  else if (++lock.fails >= 5) {
-    lock.fails = 0;
-    lock.until = Date.now() + 60_000;
-  }
-  locks.set(spaceId(), lock);
   return { ok };
 }
+
+// IP처럼 그대로 남기면 안 되는 값을 서명 열쇠로 해시해 셈 문서 이름으로 쓴다(같은 값 → 같은 이름, 거꾸로 풀 수 없음)
+export const hashId = (v: string) => mac(`id:${v}`).slice(0, 22);
 
 const keyBytes = () => crypto.createHash("sha256").update(secret() + ":api-keys").digest();
 
