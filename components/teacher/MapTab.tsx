@@ -7,6 +7,7 @@ import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
 import Notes from "./Notes";
+import PrevList from "./PrevList";
 import Timeline from "./Timeline";
 import Weather from "./Weather";
 import type { NameOf, Overview, Reload } from "./types";
@@ -57,6 +58,7 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
                     <b>{r.no}번 {nameOf(r.no)}</b> · {label(r.date)} {r.slot === "am" ? "아침" : "하교 전"} · {r.emotion}
                     {(r.summary || r.answer) && <span className="block text-sm">“{[r.summary, r.answer].filter(Boolean).join(" / ")}”</span>}
                     <span className="block text-xs text-soft">{r.riskHits.length ? `걸린 말: ${r.riskHits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
+                    <PrevList prev={r.prev} now={r.createdAt} />
                   </span>
                 </span>
                 {acting === r.id ? (

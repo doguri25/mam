@@ -1,6 +1,7 @@
 // 학생 한 명의 최근 2주: 날마다 아침·하교 전 두 칸
 import Doodle from "../Doodle";
 import { EmotionArt, EMOTION_COLOR } from "../Art";
+import PrevList from "./PrevList";
 import { addDays, label } from "@/lib/date";
 import { CALM_KO, FELT_KO, type MoodRecord } from "@/lib/shared";
 
@@ -31,6 +32,7 @@ function Cell({ r }: { r?: MoodRecord }) {
             <Doodle name="calm" /> {CALM_KO[c.tool]} → {FELT_KO[c.felt]}
           </span>
         ))}
+        <PrevList prev={r.prev} now={r.createdAt} />
       </span>
     </span>
   );
