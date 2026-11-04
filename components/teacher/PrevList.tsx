@@ -9,10 +9,9 @@ export default function PrevList({ prev, now, className = "" }: { prev?: PrevVer
   const risky = prev.some((p) => p.risk);
   return (
     <details className={`group mt-1 text-xs ${className}`}>
-      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full border border-line bg-paper px-2 py-0.5 font-bold text-soft hover:text-ink [&::-webkit-details-marker]:hidden">
-        <span aria-hidden className="inline-block transition-transform group-open:rotate-90">▸</span>
-        고치기 전 기록 {prev.length}개
-        {risky && <span className="rounded bg-alert px-1 font-normal text-white">위험 표현</span>}
+      <summary className="inline-flex cursor-pointer list-none flex-wrap items-center gap-1 rounded-xl border border-line bg-paper px-2 py-0.5 font-bold text-soft hover:text-ink [&::-webkit-details-marker]:hidden">
+        <span className="whitespace-nowrap"><span aria-hidden className="mr-1 inline-block transition-transform group-open:rotate-90">▸</span>고치기 전 기록 {prev.length}개</span>
+        {risky && <span className="whitespace-nowrap rounded bg-alert px-1 font-normal text-white">위험 표현</span>}
       </summary>
       <ol className="mt-1.5 space-y-1.5 border-l-2 border-line pl-2.5">
         {prev.map((p, i) => {
