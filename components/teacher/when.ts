@@ -8,6 +8,13 @@ export function kday(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : today(d);
 }
 
+const hm = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+// 시각(ISO) → 한국 시각 「08:52」
+export function ktime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : hm.format(d);
+}
+
 // 「먼저 살펴볼 학생」의 「살펴봤어요」: 이번 주(월요일부터) 한 번 누르면 그 주 내내 남는다.
 // 열쇠는 `${번호}_${그 주 월요일}`. 예전에는 `${번호}_${오늘-6일}`이라 날마다 풀렸으므로,
 // 열쇠 모양이 달라도 이번 주 월요일 뒤에 누른 표시(값 = 누른 시각)면 살펴본 것으로 본다.

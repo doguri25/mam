@@ -3,6 +3,7 @@
 // 선생님만 보고 AI에는 보내지 않는다. 학생별 누적 기록·상담 의견서·주간 리포트에 함께 보인다.
 import { useState } from "react";
 import Doodle from "../Doodle";
+import PrevList from "./PrevList";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { RISK_ACTIONS, RISK_ACTION_KO, type MoodRecord, type RiskAction, type RiskActionKind } from "@/lib/shared";
@@ -101,6 +102,7 @@ export function RiskHistory({ records, actions, today, onChange, print }: {
             {rec && (rec.summaryKo || rec.summary || rec.answer) && <span className="block">“{[rec.summaryKo || rec.summary, rec.answer].filter(Boolean).join(" / ")}”</span>}
             {rec && <span className="block text-xs text-soft">{rec.riskHits.length ? `걸린 말: ${rec.riskHits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>}
           </p>
+          {rec && !print && <PrevList prev={rec.prev} now={rec.createdAt} />}
           {acts.length ? (
             <ol className="mt-2 space-y-1.5 border-l-2 border-leaf/40 pl-3">
               {acts.map((a) => (
