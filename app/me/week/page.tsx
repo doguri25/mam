@@ -7,7 +7,7 @@ import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { addDays } from "@/lib/date";
-import { WEEKDAYS, w, type UIKey } from "@/lib/i18n";
+import { WEEKDAYS, errText, w, type UIKey } from "@/lib/i18n";
 import { speak } from "@/lib/local";
 import type { MoodRecord } from "@/lib/shared";
 
@@ -42,7 +42,7 @@ export default function WeekPage() {
       setCheer((n) => n + 1);
       speak(reply, false, lang);
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(errText(lang, (e as Error).message));
     }
     setBusy(false);
   }

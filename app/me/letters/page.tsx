@@ -5,7 +5,7 @@ import Doodle from "@/components/Doodle";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
-import type { UIKey } from "@/lib/i18n";
+import { errText, type UIKey } from "@/lib/i18n";
 
 type Inbox = { id: string; text: string; from: string | null; at: string; read: boolean };
 type Sent = { id: string; text: string; to: string; status: "wait" | "ok" | "no"; at: string };
@@ -21,6 +21,7 @@ export default function LettersPage() {
   const [showName, setShowName] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [cheer, setCheer] = useState(0);
+  const [sending, setSending] = useState(false); // 두 번 눌러 같은 쪽지가 두 통 가지 않게
 
   const load = useCallback(async () => {
     const b = await api<{ inbox: Inbox[]; sent: Sent[] }>("student", "letters");
@@ -29,14 +30,25 @@ export default function LettersPage() {
     for (const l of b.inbox.filter((x) => !x.read)) api("student", "readLetter", { id: l.id }).catch(() => {});
   }, []);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load는 fetch가 끝난 뒤에만 setState한다
-    load().catch(() => {});
+    // 와이파이가 잠깐 끊겼으면 몇 초 뒤 다시 읽는다
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tryLoad = (wait: number) => {
+      load().catch(() => { if (alive) timer = setTimeout(() => tryLoad(Math.min(wait * 2, 10_000)), wait); });
+    };
+    tryLoad(2000);
     api<{ friends: { no: number; alias: string }[] }>("student", "classmates").then((r) => setFriends(r.friends), () => {});
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [load]);
 
   if (!me || !box) return <Loading />;
 
   async function send() {
+    if (sending) return;
+    setSending(true);
     setMsg(null);
     try {
       await api("student", "letter", { to, text, showName, lang });
@@ -46,8 +58,9 @@ export default function LettersPage() {
       setCheer((n) => n + 1);
       await load();
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message });
+      setMsg({ ok: false, text: errText(lang, (e as Error).message) });
     }
+    setSending(false);
   }
 
   const tabs: [Tab, UIKey][] = [["inbox", "lettersInbox"], ["write", "lettersWrite"], ["sent", "lettersSent"]];
@@ -102,7 +115,7 @@ export default function LettersPage() {
           {msg && <p className={msg.ok ? "text-lg text-leaf" : "text-alert"}>{msg.text}</p>}
           <div className="flex items-center justify-between gap-3">
             <BuddyLazy look={me.look} emotion="고마워요" cheer={cheer} size={110} className="size-24" />
-            <button onClick={send} disabled={!to || text.trim().length < 2} className="btn-main px-10 text-lg">{tt("lettersSend")}</button>
+            <button onClick={send} disabled={sending || !to || text.trim().length < 2} className="btn-main px-10 text-lg">{tt("lettersSend")}</button>
           </div>
         </section>
       )}

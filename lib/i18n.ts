@@ -342,6 +342,10 @@ const UI = {
   checkThanks: { ko: "고마워요! 선생님이 우리 반을 더 잘 도울 수 있어요.", en: "Thank you! This helps your teacher take care of our class.", zh: "谢谢你！这样老师能更好地帮助我们班。", vi: "Cảm ơn em! Thầy cô sẽ giúp lớp mình tốt hơn.", ja: "ありがとう！せんせいが クラスを もっと たすけられるよ。" },
   checkDone: { ko: "이번 마음 점검을 마쳤어요.", en: "You finished this heart check.", zh: "这次心灵小检查完成了。", vi: "Em đã hoàn thành lần kiểm tra này.", ja: "こんかいの こころ チェックは おわったよ。" },
   checkClosed: { ko: "지금은 마음 점검을 하는 때가 아니에요.", en: "There is no heart check right now.", zh: "现在不是做心灵小检查的时候。", vi: "Bây giờ chưa có kiểm tra tâm hồn.", ja: "いまは こころ チェックの じかんじゃ ないよ。" },
+  offlineDropped: { ko: "담아 둔 기록 {n}개는 너무 오래돼서 보내지 못했어요.", en: "{n} saved records were too old to send.", zh: "有{n}条暂存记录太久了，没能发送。", vi: "{n} bản ghi đã lưu quá cũ nên không gửi được.", ja: "ほぞんしていた きろく {n}こは ふるすぎて おくれなかったよ。" },
+  logoutFail: { ko: "인터넷이 연결되면 다시 눌러 주세요.", en: "Please tap again when the internet is back.", zh: "网络恢复后请再按一次。", vi: "Khi có mạng lại, em bấm lần nữa nhé.", ja: "インターネットが つながったら もういちど おしてね。" },
+  loadFail: { ko: "인터넷 연결을 확인해 주세요.", en: "Please check the internet connection.", zh: "请检查网络连接。", vi: "Em hãy kiểm tra kết nối mạng.", ja: "インターネットの つながりを たしかめてね。" },
+  retry: { ko: "다시 해 보기", en: "Try again", zh: "再试一次", vi: "Thử lại", ja: "もういちど" },
 } satisfies Record<string, Record<Lang, string>>;
 export type UIKey = keyof typeof UI;
 
@@ -421,3 +425,25 @@ export const CHEER: Record<Lang, Record<string, string>> = {
 export const WEEKDAYS: Record<Lang, string[]> = {
   ko: [..."일월화수목금토"], en: [..."SMTWTFS"], zh: [..."日一二三四五六"], vi: ["CN", "T2", "T3", "T4", "T5", "T6", "T7"], ja: [..."日月火水木金土"],
 };
+
+// 서버가 보낸 오류 문장(한국어)을 학생 화면 언어로. 모르는 문장은 한국어 화면에서는 그대로, 다른 언어에서는 「문제가 생겼어요」로.
+const ERR: Record<string, Tr> = {
+  "코드를 다시 확인해 주세요.": { en: "Please check your code again.", zh: "请再检查一下你的代码。", vi: "Em hãy kiểm tra lại mã nhé.", ja: "コードを もういちど たしかめてね。" },
+  "다시 들어와 주세요.": { en: "Please sign in again.", zh: "请重新进入。", vi: "Em hãy vào lại nhé.", ja: "もういちど はいってね。" },
+  "기록 모양이 맞지 않아요.": { en: "Something didn't look right. Please try again.", zh: "内容不太对，请再试一次。", vi: "Có gì đó chưa đúng. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },
+  "모양이 맞지 않아요.": { en: "Something didn't look right. Please try again.", zh: "内容不太对，请再试一次。", vi: "Có gì đó chưa đúng. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },
+  "먼저 마음을 남겨 주세요.": { en: "Please share your feelings first.", zh: "请先记录你的心情。", vi: "Em hãy ghi lại cảm xúc trước nhé.", ja: "さきに きもちを のこしてね。" },
+  "받는 친구와 쪽지 내용을 확인해 주세요.": { en: "Please check who it's for and what you wrote.", zh: "请检查收信的同学和留言内容。", vi: "Em hãy kiểm tra người nhận và nội dung thư.", ja: "だれに おくるかと なかみを たしかめてね。" },
+  "쪽지는 하루에 5통까지 보낼 수 있어요.": { en: "You can send up to 5 notes a day.", zh: "每天最多可以发5张小纸条。", vi: "Mỗi ngày em gửi được tối đa 5 lá thư.", ja: "おてがみは 1にち 5つまで おくれるよ。" },
+  "아직 열리지 않은 꾸미개예요.": { en: "That decoration isn't unlocked yet.", zh: "这个装饰还没有解锁。", vi: "Món trang trí này chưa mở khóa.", ja: "その かざりは まだ ひらいていないよ。" },
+  "한 줄을 적어 주세요.": { en: "Please write one line.", zh: "请写一句话。", vi: "Em hãy viết một dòng nhé.", ja: "ひとこと かいてね。" },
+  "지금은 마음 점검을 하는 때가 아니에요.": { en: "The heart check isn't open right now.", zh: "现在不是做心灵小检查的时候。", vi: "Bây giờ chưa có kiểm tra tâm hồn.", ja: "いまは こころ チェックの じかんじゃ ないよ。" },
+  "답이 다 채워지지 않았어요.": { en: "Some answers are missing.", zh: "还有没回答的题目。", vi: "Em chưa trả lời hết.", ja: "まだ こたえていない ところが あるよ。" },
+  "카드나 문장이 필요해요.": { en: "Please pick a card or write a sentence.", zh: "请选卡片或写一句话。", vi: "Em hãy chọn thẻ hoặc viết một câu.", ja: "カードを えらぶか ぶんを かいてね。" },
+  "인터넷 연결을 확인해 주세요.": { en: "Please check the internet connection.", zh: "请检查网络连接。", vi: "Em hãy kiểm tra kết nối mạng.", ja: "インターネットの つながりを たしかめてね。" },
+  "문제가 생겼어요.": { en: "Something went wrong. Please try again.", zh: "出了点问题，请再试一次。", vi: "Có lỗi xảy ra. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },
+};
+export function errText(lang: Lang, message: string) {
+  if (lang === "ko") return message;
+  return (ERR[message] ?? ERR["문제가 생겼어요."])[lang];
+}

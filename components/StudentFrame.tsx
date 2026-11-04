@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { backToMe } from "@/lib/back";
 import { isLang, t, type Lang, type UIKey } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
 import type { BuddyLook } from "@/lib/shared";
@@ -19,8 +20,25 @@ export function useStudent() {
   const [me, setMe] = useState<StudentMe | null>(null);
   const [langRaw] = useLocal(`mb_lang_${me?.no ?? 0}`);
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
+  // 로그인이 풀렸을 때(401)만 첫 화면으로. 와이파이가 잠깐 끊긴 것이면 머문 채 몇 초 뒤 다시 묻는다.
   useEffect(() => {
-    api<StudentMe>("student", "me").then(setMe, () => router.replace("/"));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let alive = true;
+    const load = (wait: number) => {
+      api<StudentMe>("student", "me").then(
+        (m) => alive && setMe(m),
+        (e) => {
+          if (!alive) return;
+          if ((e as { status?: number }).status === 401) return router.replace("/");
+          timer = setTimeout(() => load(Math.min(wait * 2, 10_000)), wait);
+        },
+      );
+    };
+    load(2000);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [router]);
   const tt = (k: UIKey, vars?: Record<string, string | number>) => t(lang, k, vars);
   return { me, lang, tt };
@@ -31,7 +49,7 @@ export default function StudentFrame({ title, lang, children, wide, root }: { ti
   return (
     <main data-back-root={root} className={`mx-auto px-4 py-4 sm:px-6 sm:py-6 ${wide ? "max-w-5xl" : "max-w-3xl"}`} lang={lang}>
       <header className="mb-4 flex items-center gap-3">
-        <Link href="/me" className="btn-sub min-h-12 shrink-0 whitespace-nowrap px-4 text-base">← {t(lang, "buddyBack")}</Link>
+        <Link href="/me" onClick={backToMe} className="btn-sub min-h-12 shrink-0 whitespace-nowrap px-4 text-base">← {t(lang, "buddyBack")}</Link>
         <h1 className="font-display text-2xl sm:text-3xl">{title}</h1>
       </header>
       {children}

@@ -2,12 +2,13 @@
 // 마음 친구 꾸미기: 몸 색 · 모양 · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름. 고르는 대로 마음 친구가 바로 바뀐다(인사는 저장할 때만).
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { backToMe, returnToMe } from "@/lib/back";
 import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
-import { isLang, t, type Lang, type UIKey } from "@/lib/i18n";
+import { errText, isLang, t, type Lang, type UIKey } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
 import {
   ACC_UNLOCK, BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, GROUPS, type BuddyAcc, type BuddyLook, type MoodRecord,
@@ -46,8 +47,31 @@ export default function BuddyPage() {
   const lang: Lang = isLang(langRaw) ? langRaw : "ko";
   const tt = (k: UIKey, vars?: Record<string, string | number>) => t(lang, k, vars);
 
+  const leave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // 다시 들어올 때마다(숨겨졌다 보일 때도) 지금 모습을 새로 읽는다.
+  // 로그인이 풀렸을 때(401)만 첫 화면으로, 와이파이가 끊긴 것이면 잠시 뒤 다시 묻는다.
   useEffect(() => {
-    api<Me>("student", "me").then((m) => { setMe(m); setLook(m.look); }, () => router.replace("/"));
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (wait: number) =>
+      api<Me>("student", "me").then(
+        (m) => { if (alive) { setMe(m); setLook(m.look); } },
+        (e) => {
+          if (!alive) return;
+          if ((e as { status?: number }).status === 401) return router.replace("/");
+          timer = setTimeout(() => load(Math.min(wait * 2, 10_000)), wait);
+        },
+      );
+    load(2000);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      clearTimeout(leave.current); // 저장 뒤 돌아가기 전에 먼저 나갔으면 다시 끌고 가지 않는다
+      // 숨겨질 때 저장 상태를 비워 두어, 다시 들어오면 저장 단추가 살아 있게
+      setBusy(false);
+      setSaved(false);
+      setErr("");
+    };
   }, [router]);
 
   if (!me || !look) return <main className="grid min-h-dvh place-items-center text-soft">…</main>;
@@ -64,9 +88,9 @@ export default function BuddyPage() {
       await api("student", "look", { look });
       setSaved(true);
       setCheer((n) => n + 1);
-      setTimeout(() => router.push("/me"), 1400); // 새 모습으로 한 번 인사하고 돌아가기
+      leave.current = setTimeout(() => returnToMe(() => router.push("/me")), 1400); // 새 모습으로 한 번 인사하고 돌아가기
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(errText(lang, (e as Error).message));
       setBusy(false);
     }
   }
@@ -86,9 +110,9 @@ export default function BuddyPage() {
   return (
     <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 sm:px-6" lang={lang}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <Link href="/me" className="btn-sub min-h-12 shrink-0 whitespace-nowrap px-4">← {tt("buddyBack")}</Link>
-        <h1 className="flex items-center gap-2 font-display text-xl sm:text-3xl"><Doodle name="palette" size={34} className="hidden shrink-0 sm:block" />{tt("buddyEdit")}</h1>
-        <button onClick={random} className="btn-sub min-h-12 shrink-0 px-4"><Doodle name="dice" size={24} />{tt("buddyRandom")}</button>
+        <Link href="/me" onClick={backToMe} className="btn-sub min-h-12 shrink-0 whitespace-nowrap px-4">← {tt("buddyBack")}</Link>
+        <h1 className="flex min-w-0 items-center gap-2 font-display text-xl break-keep sm:text-3xl"><Doodle name="palette" size={34} className="hidden shrink-0 sm:block" />{tt("buddyEdit")}</h1>
+        <button onClick={random} aria-label={tt("buddyRandom")} className="btn-sub min-h-12 shrink-0 px-3 sm:px-4"><Doodle name="dice" size={24} /><span className="hidden sm:inline">{tt("buddyRandom")}</span></button>
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
         <section className="card flex flex-col items-center gap-2 self-start lg:sticky lg:top-5">

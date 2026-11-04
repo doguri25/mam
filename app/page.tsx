@@ -1,21 +1,20 @@
 "use client";
 // 학생 첫 화면: 내 코드 넣기 (QR을 찍으면 /join으로 바로 들어온다)
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useState } from "react";
 import BuddyParade from "@/components/BuddyParade";
 import { api } from "@/lib/api";
 import { rememberToken } from "@/lib/queue";
 
 export default function Home() {
-  const router = useRouter();
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // 들어갈 때는 화면을 통째로 새로 불러온다. Next.js가 숨겨 둔 앞 친구의 학생 화면(쓰던 글·고른 카드)이 다시 보이지 않게.
   useEffect(() => {
-    api("student", "me").then(() => router.replace("/me"), () => {});
-  }, [router]);
+    api("student", "me").then(() => window.location.replace("/me"), () => {});
+  }, []);
   // 들어간 뒤 이 화면은 숨겨진 채 상태가 남는다(Next.js Activity). 숨겨질 때 비워 두어
   // 다시 돌아왔을 때 「들어가는 중…」에 멈춰 있거나 앞 친구 코드가 남아 있지 않게 한다.
   useLayoutEffect(() => () => {
@@ -31,7 +30,7 @@ export default function Home() {
     try {
       const r = await api<{ no: number; qtoken: string }>("student", "login", { code });
       rememberToken(r.no, r.qtoken); // 와이파이가 끊겨도 이 학생 기록을 나중에 보낼 수 있게
-      router.replace("/me");
+      window.location.replace("/me");
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

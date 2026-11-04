@@ -1,13 +1,11 @@
 "use client";
 // QR 카드가 가리키는 주소: /join?c=코드 → 바로 로그인
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { rememberToken } from "@/lib/queue";
 
 export default function Join() {
-  const router = useRouter();
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -15,11 +13,11 @@ export default function Join() {
     api<{ no: number; qtoken: string }>("student", "login", { code }).then(
       (r) => {
         rememberToken(r.no, r.qtoken);
-        router.replace("/me");
+        window.location.replace("/me"); // 화면을 새로 불러 앞 친구 화면 상태가 남지 않게
       },
       (e) => setError((e as Error).message),
     );
-  }, [router]);
+  }, []);
 
   return (
     <main className="grid min-h-dvh place-items-center px-5 text-center">

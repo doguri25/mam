@@ -2,16 +2,16 @@
 // 마음 점검(학생 자기진단): 선생님이 연 회차에만 보인다. 한 화면에 한 문장씩 「그래요 · 가끔 그래요 · 아니에요」를
 // 내 마음 친구 얼굴로 고르고, 10문장을 다 고르면 보낸다. 회차가 열려 있는 동안은 다시 골라 고칠 수 있다. 점수는 보여 주지 않는다.
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Doodle from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useStudent } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
-import { t, type Lang } from "@/lib/i18n";
+import { errText, t, type Lang } from "@/lib/i18n";
 import { speak } from "@/lib/local";
 import { SELF_ANSWER, SELF_ITEMS, SELF_SCALE } from "@/lib/selfcheck";
-import { useBackSteps } from "@/lib/back";
+import { backToMe, useBackSteps } from "@/lib/back";
 
 type Open = { round: { id: string; title: string } | null; answers: number[] | null };
 
@@ -31,6 +31,7 @@ export default function CheckPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [cheer, setCheer] = useState(0);
+  const lock = useRef(false); // 두 번 눌러 다음 문장까지 같은 답으로 넘어가지 않게 잠깐 잠근다
 
   useEffect(() => {
     api<Open>("student", "selfCheck").then(setOpen, () => setOpen({ round: null, answers: null }));
@@ -50,12 +51,15 @@ export default function CheckPage() {
         <div className="card flex flex-col items-center gap-4 py-8 text-center">
           <BuddyLazy look={me.look} size={160} />
           <p className="text-lg">{tt("checkClosed")}</p>
-          <Link href="/me" className="btn-main px-8">{tt("buddyBack")}</Link>
+          <Link href="/me" onClick={backToMe} className="btn-main px-8">{tt("buddyBack")}</Link>
         </div>
       </StudentFrame>
     );
 
   async function choose(v: number) {
+    if (lock.current) return;
+    lock.current = true;
+    setTimeout(() => { lock.current = false; }, 350);
     const next = [...answers];
     next[step] = v;
     setAnswers(next);
@@ -69,7 +73,7 @@ export default function CheckPage() {
       setCheer((n) => n + 1);
       speak(tt("checkThanks"), false, lang);
     } catch (e) {
-      setErr((e as Error).message);
+      setErr(errText(lang, (e as Error).message));
     }
     setBusy(false);
   }
@@ -88,7 +92,7 @@ export default function CheckPage() {
             {done ? (
               <>
                 <button onClick={() => { setAnswers(open.answers ?? []); setStep(0); }} className="btn-sub">{tt("checkRedo")}</button>
-                <Link href="/me" className="btn-main px-8">{tt("buddyBack")}</Link>
+                <Link href="/me" onClick={backToMe} className="btn-main px-8">{tt("buddyBack")}</Link>
               </>
             ) : (
               <button onClick={() => { setAnswers([]); setStep(0); }} className="btn-main px-10 text-xl">{tt("checkStart")}</button>
