@@ -53,18 +53,27 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
   const color = value.emotion ? cardColor(value.word ?? value.emotion) : "#f2b705";
   const say = (ko: string) => speak(w(lang, ko), false, lang);
   // 고른 뒤 잠깐 보여 주고 넘어간다. 넘어가는 동안 또 누르면(두 번 누름) 한 번만 넘어가고, 까닭은 한 번만 보낸다.
+  // 그 사이 「←」·브라우저 뒤로 가기로 단계가 바뀌었거나 화면을 떠났으면 넘어가지 않는다.
   const moving = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cancel = () => {
+    clearTimeout(timer.current);
+    moving.current = false;
+  };
+  useEffect(() => cancel, []);
   const later = (fn: () => void, delay = 260) => {
     if (moving.current) return;
     moving.current = true;
-    setTimeout(() => {
+    const from = latest.current.stage;
+    timer.current = setTimeout(() => {
       moving.current = false;
-      fn();
+      if (latest.current.stage === from) fn();
     }, delay);
   };
   const go = (n: number, delay = 260) => later(() => setStage(n), delay);
   const dots = [0, 1, 2, 3];
   const back = () => {
+    cancel();
     const prev = stepBack(cur, value.emotion);
     if (prev) setNav(prev);
     else onBack?.();

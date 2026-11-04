@@ -110,15 +110,26 @@ export function useBackGuard(onBlocked: () => void, root?: string) {
 let fromMe = false;
 export const leftMe = () => { fromMe = true; };
 export const atMe = () => { fromMe = false; };
+// 이 작은 화면이 스스로 쌓은 단계 수(마음 점검의 문장들처럼): 맨 위에서부터 이 주소로 쌓인 항목
+function stepsHere() {
+  const here = window.location.pathname;
+  const at = depthHere();
+  let top = typeof at === "number" ? Math.min(at, stack.length) : stack.length;
+  let n = 0;
+  while (top > 0 && stack[top - 1].path === here) { top--; n++; }
+  return n;
+}
+// 이 화면의 단계들까지 한 번에 건너 /me로(하나만 뒤로 가면 마음 점검 중에는 앞 문장으로만 돌아간다)
+const leave = () => window.history.go(-(1 + stepsHere()));
 export function backToMe(e: { preventDefault: () => void }) {
   if (!fromMe) return; // 주소로 바로 들어왔거나 새로 불러왔으면 보통 링크처럼 /me로
   fromMe = false;
   e.preventDefault();
-  window.history.back();
+  leave();
 }
 // 링크가 아닌 곳에서 /me로 돌아갈 때(저장한 뒤 등)
 export function returnToMe(push: () => void) {
   if (!fromMe) return push();
   fromMe = false;
-  window.history.back();
+  leave();
 }

@@ -12,11 +12,13 @@ const read = <T,>(key: string, d: T): T => {
     return d;
   }
 };
+// 적었으면 true. 저장 공간이 없거나 막혀 있으면 담아 둘 수 없다(화면에서 다시 해 달라고 안내)
 const write = (key: string, v: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(v));
+    return true;
   } catch {
-    // 저장 공간이 없으면 담아 둘 수 없다(화면에서 다시 해 달라고 안내)
+    return false;
   }
 };
 
@@ -30,12 +32,11 @@ export const forgetToken = () => {
 };
 export const pendingCount = () => read<Item[]>(PENDING, []).length;
 
-// 담아 두었으면 true(그 학생의 표가 없으면 담지 못함)
+// 정말 담아 두었으면 true(그 학생의 표가 없거나 기기에 적지 못하면 false → 화면이 「저장됐어요」라고 하지 않게)
 export function queueRecord(no: number, record: Record<string, unknown>) {
   const t = read<{ no: number; token: string } | null>(TOKEN, null);
   if (!t || t.no !== no) return false;
-  write(PENDING, [...read<Item[]>(PENDING, []), { token: t.token, record, at: Date.now() }]);
-  return true;
+  return write(PENDING, [...read<Item[]>(PENDING, []), { token: t.token, record, at: Date.now() }]);
 }
 
 // 보낸 개수와 받지 못한 개수를 돌려준다. 서버가 받지 않는 기록(사흘이 지남·코드가 바뀜)은 버리고, 아직 끊겨 있으면 남겨 둔다.
