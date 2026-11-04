@@ -42,7 +42,7 @@ export function smooth(pts: [number, number][]) {
   return `${d}Z`;
 }
 
-// 마음 친구 몸 모양 9가지. 가운데가 (0,0)이고, 아래는 바닥에 앉은 듯 살짝 납작하다.
+// 마음 친구 몸 모양 15가지. 가운데가 (0,0)이고, 아래는 바닥에 앉은 듯 살짝 납작하다.
 type Pts = [number, number][];
 const ring = (n: number, f: (a: number, c: number, s: number) => [number, number]): Pts =>
   Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return f(a, Math.cos(a), Math.sin(a)); });
@@ -71,6 +71,18 @@ const SHAPES: Record<BuddyShape, { rx: number; ry: number; eye: number; pts: (rx
   },
   // 알콩이: 위가 좁고 아래가 넉넉한 알
   egg: { rx: 53, ry: 63, eye: 0.36, pts: (rx, ry) => ring(36, (_, c, s) => [c * rx * (s < 0 ? 1 + 0.17 * s : 1 + 0.04 * s), sit(s * ry, ry)]) },
+  // 주먹밥이: 모서리가 둥근 세모
+  onigiri: { rx: 66, ry: 62, eye: 0.3, pts: (rx, ry) => ring(72, (a, c, s) => { const r = 1 + 0.2 * Math.cos(3 * (a + Math.PI / 2)); return [c * rx * r * 0.88, sit(s * ry * r * 0.86 + ry * 0.08, ry, 0.3)]; }) },
+  // 배돌이: 위가 좁고 허리가 살짝 들어간 서양배
+  pear: { rx: 58, ry: 64, eye: 0.42, pts: (rx, ry) => ring(48, (_, c, s) => [c * rx * (0.74 + 0.26 * s - 0.1 * Math.exp(-(((s + 0.15) / 0.3) ** 2))), sit(s * ry, ry)]) },
+  // 땅콩이: 가운데가 잘록한 위아래 두 덩이
+  peanut: { rx: 52, ry: 66, eye: 0.38, pts: (rx, ry) => ring(56, (_, c, s) => [c * rx * (1 - 0.2 * Math.exp(-(((s + 0.05) / 0.28) ** 2))), sit(s * ry, ry)]) },
+  // 길쭉이: 옆이 곧고 위아래가 둥근 알약
+  capsule: { rx: 46, ry: 66, eye: 0.42, pts: (rx, ry) => ring(48, (_, c, s) => [Math.sign(c) * Math.abs(c) ** 0.55 * rx, sit(s * ry, ry, 0.08)]) },
+  // 만두: 넓적하고 위에 주름이 잡힌
+  dumpling: { rx: 68, ry: 47, eye: 0.3, pts: (rx, ry) => ring(84, (a, c, s) => { const r = 1 + (s < -0.15 ? 0.035 * Math.abs(Math.sin(7 * a)) : 0); return [c * rx * r, sit(s * ry * r * (s < 0 ? 1 + 0.12 * (-s) ** 4 : 1), ry, 0.28)]; }) },
+  // 보석이: 모서리가 둥근 육각형(위아래가 평평)
+  gem: { rx: 64, ry: 58, eye: 0.33, pts: (rx, ry) => ring(72, (a, c, s) => { const k = Math.PI / 3; const m = (((a % k) + k) % k) - k / 2; const r = 0.25 + 0.75 * (Math.cos(k / 2) / Math.cos(m)); return [c * rx * r, sit(s * ry * r * 1.05, ry, 0.05)]; }) },
 };
 
 export interface Geo { rx: number; ry: number; eye: number; d: string; lit: string; top: number; bottom: number; half: (y: number) => number }

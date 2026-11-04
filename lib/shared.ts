@@ -58,6 +58,50 @@ export const NUANCE: Record<string, string[]> = {
 };
 export const NUANCE_WORDS = Object.values(NUANCE).flat();
 
+// 마음 남기기 카드에 더한 낱말 24개. 큰 감정 아래로 묶여 기록·선생님 화면·규칙은 큰 감정 12가지 그대로다.
+export const MORE_WORDS: Record<string, string[]> = {
+  기뻐요: ["흐뭇해요", "자신 있어요", "반가워요"],
+  신나요: ["신기해요", "기대돼요"],
+  편안해요: ["다행이에요", "포근해요", "개운해요"],
+  "그저 그래요": ["궁금해요", "헷갈려요", "어색해요", "지루해요", "차분해요", "생각이 많아요", "괜찮아요", "평범해요", "낯설어요", "집중돼요", "귀찮아요", "바빠요", "정신없어요", "조용히 있고 싶어요"],
+  피곤해요: ["나른해요", "쉬고 싶어요"],
+};
+// 큰 감정 밑의 낱말(더 꼭 맞는 말 + 더한 낱말): 기록의 word로 받을 수 있는 말
+export const SUB_WORDS: Record<string, string[]> = Object.fromEntries(Object.keys(NUANCE).map((e) => [e, [...NUANCE[e], ...(MORE_WORDS[e] ?? [])]]));
+export const ALL_SUB_WORDS = Object.values(SUB_WORDS).flat();
+const PARENT_OF: Record<string, string> = Object.fromEntries(Object.entries(SUB_WORDS).flatMap(([p, ws]) => ws.map((w) => [w, p])));
+// 낱말 → 큰 감정(큰 감정이면 그대로)
+export const parentEmotion = (word: string) => PARENT_OF[word] ?? word;
+export const isWordOf = (emotion: string, word: string) => !!SUB_WORDS[emotion]?.includes(word);
+
+// 카드 뽑기: 긍정·보통·부정을 같은 수만큼 무작위로(고를 때마다 다른 카드). 한 큰 감정에서는 두 장까지만 → 색이 고르게.
+export type Polarity = "pos" | "mid" | "neg";
+export const POLARITY: Record<string, Polarity> = {
+  기뻐요: "pos", 신나요: "pos", 고마워요: "pos", 편안해요: "pos", "그저 그래요": "mid", 피곤해요: "mid",
+  걱정돼요: "neg", 무서워요: "neg", 슬퍼요: "neg", 속상해요: "neg", 억울해요: "neg", 화나요: "neg",
+};
+export const CARD_WORDS: { word: string; parent: string; polarity: Polarity }[] = Object.entries(SUB_WORDS).flatMap(([p, ws]) =>
+  [p, ...ws].map((word) => ({ word, parent: p, polarity: POLARITY[p] })),
+);
+export function drawCards(per = 4, rand = Math.random): string[] {
+  const shuffle = <T,>(xs: T[]) => { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const out: string[] = [];
+  for (const pol of ["pos", "mid", "neg"] as Polarity[]) {
+    const taken = new Map<string, number>();
+    const picked: string[] = [];
+    for (const c of shuffle(CARD_WORDS.filter((x) => x.polarity === pol))) {
+      if (picked.length >= per) break;
+      const n = taken.get(c.parent) ?? 0;
+      // 큰 감정이 둘뿐인 「보통」은 낱말이 한쪽에 몰려 있어 한도를 넉넉히
+      if (n >= (pol === "mid" ? 3 : 2)) continue;
+      taken.set(c.parent, n + 1);
+      picked.push(c.word);
+    }
+    out.push(...picked);
+  }
+  return shuffle(out);
+}
+
 export const DEFAULT_VOCAB = ["뿌듯해요", "서운해요", "후련해요", "설레요"];
 export const DEFAULT_RISK_WORDS = [
   "죽고 싶", "죽을래", "죽어버", "사라지고 싶", "없어지고 싶", "자해",
@@ -150,14 +194,17 @@ export const PROVIDERS = {
 export type Provider = keyof typeof PROVIDERS;
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as Provider[];
 
-// 마음 친구 꾸미기: 몸 색(빈 값이면 감정 색을 따라감) · 모양(9가지) · 눈 · 볼 · 무늬 · 팔다리 · 꾸미개 · 이름(학생 화면에만 보임)
-export const BUDDY_COLORS = ["", "#f6c445", "#ff9eb0", "#ffa45c", "#7cc88f", "#5cc8c0", "#7fb5f0", "#b79cf0", "#c9b8a6"] as const;
-export const BUDDY_SHAPES = ["round", "squish", "bean", "drop", "cloud", "star", "mochi", "heart", "egg"] as const;
-export const BUDDY_EYES = ["dot", "sparkle", "big"] as const;
-export const BUDDY_CHEEKS = ["none", "blush", "freckle"] as const;
-export const BUDDY_PATTERNS = ["none", "spots", "belly"] as const;
-export const BUDDY_LIMBS = ["none", "arms", "both"] as const;
-export const BUDDY_ACCS = ["none", "sprout", "ribbon", "party", "crown", "glasses", "cat", "bunny", "flower", "headphones"] as const;
+// 마음 친구 꾸미기: 몸 색 15(빈 값이면 감정 색을 따라감) · 모양 15 · 눈 5 · 볼 5 · 무늬 7 · 팔다리 5 · 꾸미개 20 · 이름(학생 화면에만 보임)
+export const BUDDY_COLORS = ["", "#f6c445", "#ff9eb0", "#ffa45c", "#7cc88f", "#5cc8c0", "#7fb5f0", "#b79cf0", "#c9b8a6", "#ef7b6f", "#b5d96a", "#a7d8f5", "#6f86d6", "#ffc3a0", "#a9b4c2"] as const;
+export const BUDDY_SHAPES = ["round", "squish", "bean", "drop", "cloud", "star", "mochi", "heart", "egg", "onigiri", "pear", "peanut", "capsule", "dumpling", "gem"] as const;
+export const BUDDY_EYES = ["dot", "sparkle", "big", "tall", "lash"] as const;
+export const BUDDY_CHEEKS = ["none", "blush", "freckle", "heart", "swirl"] as const;
+export const BUDDY_PATTERNS = ["none", "spots", "belly", "stripes", "stars", "hearts", "patch"] as const;
+export const BUDDY_LIMBS = ["none", "arms", "both", "wings", "tail"] as const;
+export const BUDDY_ACCS = [
+  "none", "sprout", "ribbon", "party", "crown", "glasses", "cat", "bunny", "flower", "headphones",
+  "beret", "bear", "cap", "bowtie", "antenna", "scarf", "leaf", "chef", "wizard", "grad",
+] as const;
 export type BuddyShape = (typeof BUDDY_SHAPES)[number];
 export type BuddyEyes = (typeof BUDDY_EYES)[number];
 export type BuddyCheek = (typeof BUDDY_CHEEKS)[number];
@@ -216,6 +263,7 @@ export interface Reflect {
 // 마음 친구 성장: 서로 다른 감정 단어를 몇 개 써 봤는지에 따라 꾸미개가 열린다(기록 횟수가 아니라 새 단어로)
 export const ACC_UNLOCK: Record<BuddyAcc, number> = {
   none: 0, sprout: 0, ribbon: 0, glasses: 1, flower: 2, cat: 3, party: 4, bunny: 5, headphones: 6, crown: 8,
+  beret: 9, bear: 10, cap: 11, bowtie: 12, antenna: 14, scarf: 16, leaf: 18, chef: 21, wizard: 24, grad: 28,
 };
 
 // 활동지 피드백: 교육부 한국형 사회정서교육 4대 핵심역량(2026 교육부 안내)에 비추어 AI가 쓰고 선생님이 고친다

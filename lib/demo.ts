@@ -2,7 +2,7 @@
 import { addDays, monday } from "./date.ts";
 import { matchRisk } from "./rules.ts";
 import type { SelCheck } from "./selcheck.ts";
-import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, NUANCE, REASON_NAMES, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type SheetItem, type SheetRun, type Slot, type Student } from "./shared.ts";
+import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, REASON_NAMES, SUB_WORDS, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type SheetItem, type SheetRun, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
   "햇살", "구름", "단풍", "별빛", "산들", "보리", "달콩", "초롱", "모래", "노을",
@@ -34,7 +34,7 @@ export function demoRecords(today: string): MoodRecord[] {
     out.push({
       id: `${no}_${date}_${slot}`, no, date, slot, method: summary ? "voice" : "card",
       emotion, intensity, reason, summary, question: "", answer: "",
-      ...(wr() < 0.6 && NUANCE[emotion] ? { word: NUANCE[emotion][Math.floor(wr() * 3)] } : {}),
+      ...(wr() < 0.6 && SUB_WORDS[emotion] ? { word: SUB_WORDS[emotion][Math.floor(wr() * SUB_WORDS[emotion].length)] } : {}),
       risk: hits.length > 0, riskHits: hits, riskChecked: null, demo: true,
       createdAt: `${date}T${slot === "am" ? "08:40" : "14:20"}:00+09:00`,
     });

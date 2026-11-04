@@ -3,14 +3,23 @@
 import Doodle, { type DoodleName } from "./Doodle";
 import BuddyFace from "./BuddyFace";
 import { parentOf } from "./buddy/expr";
-import { INK, paints } from "./buddy/paint";
+import { INK, mix, paints } from "./buddy/paint";
 import { DEFAULT_LOOK, GROUPS, groupOf } from "@/lib/shared";
 
 export const EMOTION_COLOR: Record<string, string> = {
   기뻐요: "#ffc23c", 신나요: "#ff9a2e", 고마워요: "#ff8fb1", 편안해요: "#74c27a", "그저 그래요": "#a9b7a4", 피곤해요: "#9aa9d8",
   걱정돼요: "#b691de", 무서워요: "#7d6bc8", 슬퍼요: "#5aa7ea", 속상해요: "#4b7fc3", 억울해요: "#f57d5c", 화나요: "#e5404d",
 };
-const colorOf = (name: string) => EMOTION_COLOR[name] ?? EMOTION_COLOR[parentOf(name)] ?? GROUPS[groupOf(name)]?.color ?? EMOTION_COLOR["그저 그래요"];
+// 카드 색: 큰 감정은 그 색, 그 밑 낱말은 큰 감정 색에 낱말마다 다른 물감을 조금 섞어(같은 무리라도 카드가 알록달록)
+const TINTS = ["#ffd36b", "#ff9eb0", "#8cc8f0", "#9be0a8", "#c8a6f0", "#ffb07a", "#7fd6c8"];
+export function cardColor(name: string) {
+  if (EMOTION_COLOR[name]) return EMOTION_COLOR[name];
+  const base = EMOTION_COLOR[parentOf(name)] ?? GROUPS[groupOf(name)]?.color ?? EMOTION_COLOR["그저 그래요"];
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+  return mix(base.toLowerCase(), TINTS[h % TINTS.length], 0.35);
+}
+const colorOf = cardColor;
 
 // 감정 그림카드: 그 감정 색을 입은 마음 친구가 그 표정을 짓는다(이름은 큰 감정이든 더 꼭 맞는 말이든)
 export function EmotionArt({ name, size = 56, className }: { name: string; size?: number; className?: string }) {

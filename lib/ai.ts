@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { leaks } from "./rules.ts";
 import { SKIP, fallbackFor, langOf, type Lang } from "./i18n.ts";
-import { EMOTION_NAMES, NUANCE, NUANCE_WORDS, REASON_NAMES, SEL_AREAS, TONES, emotionOf, type MoodRecord, type Provider, type SheetItem, type SheetPoint } from "./shared.ts";
+import { ALL_SUB_WORDS, EMOTION_NAMES, REASON_NAMES, SUB_WORDS, isWordOf, SEL_AREAS, TONES, emotionOf, type MoodRecord, type Provider, type SheetItem, type SheetPoint } from "./shared.ts";
 
 const BASE_URL: Record<Exclude<Provider, "claude">, string | undefined> = {
   upstage: "https://api.upstage.ai/v1",
@@ -80,7 +80,7 @@ const ANALYZE_SCHEMA = obj({
   question: { type: "string", description: "공감 한 마디 + 질문 하나, 반말, 30자 안" },
   options: { type: "array", items: { type: "string" }, description: "question에 대한 짧은 답 보기 2개" },
   risk: { type: "boolean" },
-  word: { type: "string", enum: ["", ...NUANCE_WORDS], description: "emotion에 맞는 더 꼭 맞는 말(nuance 중 하나), 없으면 빈 글자" },
+  word: { type: "string", enum: ["", ...ALL_SUB_WORDS], description: "emotion에 맞는 더 꼭 맞는 말(nuance[emotion] 중 하나), 없으면 빈 글자" },
 });
 
 const ANALYZE_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구」야. 학생이 남긴 마음 기록을 정리하고, 까닭을 조금 더 알 수 있는 질문을 딱 하나 만들어.
@@ -96,11 +96,11 @@ const ANALYZE_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구�
 - vocab에 있는 감정 단어가 어울리면 question에 자연스럽게 써도 좋아.
 - voiceTone이 있으면 말할 때 목소리 기운이야(예: "가라앉음 · 평소보다 작게, 낮게"). 말 내용이 먼저지만, 감정과 세기를 고를 때 참고해.
   목소리 이야기를 question에 꺼내지는 마.
-- word: emotion을 정한 뒤, nuance[emotion] 세 말 중 학생 말에 더 꼭 맞는 하나. card만 있고 단서가 없으면 빈 글자.
+- word: emotion을 정한 뒤, nuance[emotion] 말 중 학생 말에 더 꼭 맞는 하나. card만 있고 단서가 없으면 빈 글자.
 - lang이 ko가 아니면 학생은 그 언어를 써(en English, zh 简体中文, vi Tiếng Việt, ja 日本語).
   question과 options는 그 언어로, 그 나라 3학년 아이에게 말하듯 쉽게. summary는 늘 한국어로(선생님이 읽어) — 학생 말을 한국어로 옮겨 한 줄로.`;
 
-const NUANCE_JSON = JSON.stringify(NUANCE);
+const NUANCE_JSON = JSON.stringify(SUB_WORDS);
 
 export interface Analysis {
   emotion: string;
@@ -175,7 +175,7 @@ function shape(input: AnalyzeInput, out: Record<string, unknown>): Analysis {
     question: String(out.question ?? "").slice(0, 80) || fb.question,
     options: [...(opts.length ? opts : fb.options.slice(0, 2)), SKIP[lang]],
     risk: out.risk === true,
-    word: NUANCE[emotion]?.includes(word) ? word : "", // 고른 감정의 말이 아니면 버림
+    word: isWordOf(emotion, word) ? word : "", // 고른 감정의 말이 아니면 버림
   };
 }
 

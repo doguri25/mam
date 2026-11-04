@@ -9,7 +9,7 @@ import BuddyLazy from "@/components/BuddyLazy";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import type { Weather } from "@/lib/rules";
-import { DEFAULT_LOOK, GROUPS, NUANCE, groupOf, type Group } from "@/lib/shared";
+import { DEFAULT_LOOK, GROUPS, groupOf, parentEmotion, type Group } from "@/lib/shared";
 
 type Data = {
   date: string; slot: "am" | "pm" | "day"; now: "am" | "pm"; className: string; students: number;
@@ -107,7 +107,7 @@ export default function ClassTV() {
             <p className="flex max-w-6xl flex-wrap items-baseline justify-center gap-x-[clamp(0.75rem,2.5vw,2rem)] gap-y-2">
               {data.monthWords.map(([word, k]) => {
                 const max = data.monthWords[0][1];
-                const parent = Object.keys(NUANCE).find((e) => NUANCE[e].includes(word));
+                const parent = parentEmotion(word) === word ? undefined : parentEmotion(word);
                 return (
                   <span key={word} className="font-display leading-tight" style={{ fontSize: `clamp(1.25rem, ${2.4 + (k / max) * 5}vh, ${1.5 + (k / max) * 3}rem)`, color: parent ? GROUPS[groupOf(parent)].color : undefined }}>
                     {word}
