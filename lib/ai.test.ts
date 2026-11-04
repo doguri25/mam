@@ -1,7 +1,7 @@
 // AI 답 읽기: 울타리·잘린 JSON·null 항목·영어 오류를 견디고, 되묻기 질문과 보기는 같은 곳에서
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { BAD_JSON, aiError, callJSON, cleanLesson, cleanSheet, cleanWeekly, extractJSON, parseJSON, reflectReply, shape, type AI } from "./ai.ts";
+import { BAD_JSON, aiError, callJSON, cleanLesson, cleanSheet, cleanWeekly, docError, extractJSON, inTime, parseJSON, reflectReply, shape, type AI } from "./ai.ts";
 import { SKIP, fallbackFor } from "./i18n.ts";
 
 test("JSON 꺼내기: 울타리·앞뒤 설명 글을 걷어 내고 가장 바깥 객체를", () => {
@@ -32,6 +32,22 @@ test("SDK·네트워크 오류는 짧은 한국어로, 이미 한국어인 오�
   assert.match(aiError(new Error("Unexpected token < in JSON")).message, /[가-힣]/);
   const ko = new Error("AI가 이 요청에 답하지 않았어요.");
   assert.equal(aiError(ko), ko);
+});
+
+test("라우트 남은 시간: 다 되면 기다리지 않고 멈추고, 선생님께 한국어로 알린다", async () => {
+  const slow = new Promise((ok) => setTimeout(ok, 1000, "늦은 답"));
+  const deadline = AbortSignal.timeout(20);
+  const started = Date.now();
+  await assert.rejects(inTime(slow, deadline));
+  assert.ok(Date.now() - started < 500);
+  assert.equal(await inTime(Promise.resolve("빠른 답"), AbortSignal.timeout(1000)), "빠른 답");
+  await assert.rejects(inTime(Promise.reject(new Error("x")), AbortSignal.timeout(1000)), /x/);
+  const LATE = "시간이 너무 오래 걸렸어요.";
+  assert.equal(docError(new Error("whatever"), true, LATE), LATE);
+  assert.equal(docError(new DOMException("timed out", "TimeoutError"), false, LATE), LATE);
+  assert.match(docError(new Error("Document Parse 401: Unauthorized"), false, LATE), /업스테이지 키/);
+  assert.match(docError(new Error("Document Parse 500: oops"), false, LATE), /\(500\)/);
+  assert.match(docError(Object.assign(new Error("429 Too many"), { status: 429 }), false, LATE), /^읽지 못했어요: AI 사용량/);
 });
 
 const card = { emotion: "슬퍼요", intensity: 3, reason: "친구" };

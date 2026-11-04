@@ -91,6 +91,33 @@ export function aiError(e: unknown): Error {
   return new Error("AI를 부르지 못했어요. 다시 눌러 주세요.");
 }
 
+// 문서 읽기(업스테이지)와 AI를 잇달아 부르는 라우트(교과서·활동지)용: 정한 시간이 지나면 기다리지 않고 멈춘다.
+// Vercel이 maxDuration에서 함수를 끊으면 화면에는 알아보기 어려운 오류만 가므로, 그 전에 한국어로 답하려고.
+export function inTime<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
+  });
+}
+
+// 그 라우트가 선생님께 보일 오류 한 줄. late: 라우트의 남은 시간이 다 됨, tooLong: 그때 보일 말
+export function docError(e: unknown, late: boolean, tooLong: string): string {
+  const err = (e ?? {}) as { name?: unknown; message?: unknown };
+  // 업스테이지 쪽 시간 초과는 SDK를 거치지 않아 DOMException(TimeoutError)으로 온다
+  if (late || /abort|timeout/i.test(String(err.name ?? ""))) return tooLong;
+  const m = /Document Parse (\d+)/.exec(String(err.message ?? ""));
+  if (m) {
+    const status = Number(m[1]);
+    if (status === 401 || status === 403) return "업스테이지 키가 맞지 않아요. 「설정」에서 키를 확인해 주세요.";
+    if (status === 413) return "파일이 너무 커서 읽지 못했어요. 필요한 쪽만 잘라서 올려 주세요.";
+    if (status === 429) return "업스테이지 사용량이 잠시 넘쳤어요. 조금 뒤 다시 해 주세요.";
+    return `업스테이지 문서 읽기가 실패했어요(${status}). 잠시 뒤 다시 해 주세요.`;
+  }
+  return `읽지 못했어요: ${aiError(e).message}`.slice(0, 300);
+}
+
 // images: JPEG base64(data: 머리 없이). 그림을 볼 수 있는 Claude·ChatGPT·Gemini에서만 쓴다(Solar는 글만).
 // signal: 부르는 쪽(라우트)의 남은 시간. 끊기면 다시 시도하지 않고 바로 오류.
 export async function callJSON(
