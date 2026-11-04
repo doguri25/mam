@@ -5,6 +5,7 @@ import { DEMO_COOKIE, STUDENT_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, teacherToke
 import { PRACTICE_VERSION, getRoster, seedPractice } from "@/lib/data";
 import { today } from "@/lib/date";
 import { db, inSpace } from "@/lib/db";
+import { clientIp, resetWait, waitText } from "@/lib/limit";
 
 const secure = process.env.NODE_ENV === "production";
 
@@ -18,6 +19,11 @@ export async function POST(req: NextRequest) {
     return res;
   }
   try {
+    // 「처음 판으로」는 로그인 없이 누구나 누르고, 되돌리면 체험 중인 모든 사람이 나가진다 → 모두 합쳐 10분에 한 번, IP마다 1분에 한 번
+    if (body.action === "reset") {
+      const wait = await resetWait(clientIp(req.headers));
+      if (wait) return NextResponse.json({ error: `체험 반은 조금 전에 처음 판으로 되돌렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.` }, { status: 429 });
+    }
     return await inSpace("demo", async () => {
       // 날짜가 지나면 처음 판으로(가짜 기록이 늘 「최근 7일」이 되게). 여러 사람이 함께 쓰는 공간이다.
       // 새 버전을 올려 연습 데이터의 판이 바뀌었으면 그날 안에도 다시 만든다(예전 판에는 역량 진단 회차가 없음).
