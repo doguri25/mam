@@ -296,6 +296,7 @@ export interface SheetItem {
   no: number; pages: number[]; // 스캔한 PDF의 몇째 쪽(1부터)
   read: string; topic: string; criteria: string; strengths: SheetPoint[]; grow: SheetPoint[];
   toStudent: string; why: string; check: string; blank: boolean;
+  style?: string[]; // AI 글에 남은 번역투·기계식 표현(선생님이 다듬게)
 }
 export interface SheetRun {
   id: string; file: string; topic: string; content: string; criteria: string; pagesPer: number; skip: number[];

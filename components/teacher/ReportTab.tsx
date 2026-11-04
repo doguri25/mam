@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Doodle from "../Doodle";
 import { kindsText } from "./RiskActions";
+import StyleNote from "./StyleNote";
 import { Bars, Legend } from "./Weather";
 import type { NameOf, Overview, Reload, Weekly } from "./types";
 import { api } from "@/lib/api";
@@ -75,7 +76,10 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
           {err && <p className="mt-1 text-sm text-alert">{err}</p>}
           {weekly ? (
             <div className="mt-2 grid gap-3 md:grid-cols-[1.1fr_1fr] print:grid-cols-[1.1fr_1fr]">
-              <ul className="list-disc space-y-1 pl-5 text-sm">{weekly.lines.map((l) => <li key={l}>{l}</li>)}</ul>
+              <div>
+                <ul className="list-disc space-y-1 pl-5 text-sm">{weekly.lines.map((l) => <li key={l}>{l}</li>)}</ul>
+                <StyleNote hits={weekly.style} className="mt-2" />
+              </div>
               <div className="space-y-2">
                 {weekly.activities.map((a) => (
                   <div key={a.title} className="rounded-xl bg-card p-2.5 text-sm">

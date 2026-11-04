@@ -7,6 +7,7 @@ export interface Weekly {
   createdAt: string;
   lines: string[];
   activities: { title: string; why: string; how: string; minutes: number }[];
+  style?: string[]; // AI 글에 남은 번역투·기계식 표현
 }
 
 export interface Stamp {

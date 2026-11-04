@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { leaks } from "./rules.ts";
+import { STYLE_RULES, polish, polishAll, styleHits } from "./style.ts";
 import { SKIP, fallbackFor, langOf, type Lang } from "./i18n.ts";
 import { ALL_SUB_WORDS, EMOTION_NAMES, REASON_NAMES, SUB_WORDS, isWordOf, SEL_AREAS, TONES, emotionOf, type MoodRecord, type Provider, type SheetItem, type SheetPoint } from "./shared.ts";
 
@@ -98,7 +99,8 @@ const ANALYZE_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구�
   목소리 이야기를 question에 꺼내지는 마.
 - word: emotion을 정한 뒤, nuance[emotion] 말 중 학생 말에 더 꼭 맞는 하나. card만 있고 단서가 없으면 빈 글자.
 - lang이 ko가 아니면 학생은 그 언어를 써(en English, zh 简体中文, vi Tiếng Việt, ja 日本語).
-  question과 options는 그 언어로, 그 나라 3학년 아이에게 말하듯 쉽게. summary는 늘 한국어로(선생님이 읽어) — 학생 말을 한국어로 옮겨 한 줄로.`;
+  question과 options는 그 언어로, 그 나라 3학년 아이에게 말하듯 쉽게. summary는 늘 한국어로(선생님이 읽어) — 학생 말을 한국어로 옮겨 한 줄로.
+- question과 options를 한국어로 쓸 때는 아래 글투를 지켜.${STYLE_RULES}`;
 
 const NUANCE_JSON = JSON.stringify(SUB_WORDS);
 
@@ -172,8 +174,8 @@ function shape(input: AnalyzeInput, out: Record<string, unknown>): Analysis {
     reason,
     intensity: card?.intensity ?? Math.min(5, Math.max(1, Math.round(Number(out.intensity) || 3))),
     summary: String(out.summary ?? input.text ?? "").slice(0, 80),
-    question: String(out.question ?? "").slice(0, 80) || fb.question,
-    options: [...(opts.length ? opts : fb.options.slice(0, 2)), SKIP[lang]],
+    question: (lang === "ko" ? polish(String(out.question ?? "")) : String(out.question ?? "")).slice(0, 80) || fb.question,
+    options: [...(opts.length ? (lang === "ko" ? opts.map(polish) : opts) : fb.options.slice(0, 2)), SKIP[lang]],
     risk: out.risk === true,
     word: isWordOf(emotion, word) ? word : "", // 고른 감정의 말이 아니면 버림
   };
@@ -187,7 +189,7 @@ const CHEER_SYSTEM = `너는 초등학교 3학년 담임 선생님이 학생에�
 - 까닭이 「집」인 일은 꺼내지 말고, 필요하면 "힘든 일"처럼 돌려 말해.
 - 선생님이 아이에게 말하는 따뜻한 말투(~구나, ~해 줘서 고마워), 2~3문장, 한 문장은 40자 안.
 - vocab의 감정 단어를 하나 이상 자연스럽게 넣어. 진단·평가·다른 친구와의 비교는 하지 마.
-- acknowledge: 마음을 알아주는 데 중심을 둔 초안. encourage: 작은 응원이나 함께 해 볼 일을 건네는 초안. 두 초안은 문장이 겹치지 않게.`;
+- acknowledge: 마음을 알아주는 데 중심을 둔 초안. encourage: 작은 응원이나 함께 해 볼 일을 건네는 초안. 두 초안은 문장이 겹치지 않게.${STYLE_RULES}`;
 
 export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab: string[], signals: string[], today: string) {
   const row = (r: MoodRecord) => ({
@@ -204,7 +206,7 @@ export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab:
   const schema = obj({ acknowledge: { type: "string" }, encourage: { type: "string" } });
   const ask = async (extra = "") => {
     const out = await callJSON(ai, CHEER_SYSTEM + extra, JSON.stringify(input), "cheer", schema);
-    return [out.acknowledge, out.encourage].filter((d): d is string => typeof d === "string" && !!d.trim()).map((d) => d.trim());
+    return [out.acknowledge, out.encourage].filter((d): d is string => typeof d === "string" && !!d.trim()).map((d) => polish(d.trim()));
   };
   let drafts = await ask();
   // 선생님용 숫자·말이 섞이면 한 번만 다시 쓰게 하고, 그래도 남으면 화면에 표시
@@ -213,7 +215,8 @@ export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab:
     const again = await ask(`\n- 지난 초안에 「${found.join("」, 「")}」 같은 말이 들어갔어. 이런 말은 빼고 다시 써.`).catch(() => drafts);
     if (again.flatMap(leaks).length < drafts.flatMap(leaks).length) drafts = again;
   }
-  return { drafts, warns: drafts.map((d) => leaks(d).join(", ")) };
+  // styles: 바로 고치지 못한 번역투·기계식 표현(선생님이 보고 다듬게)
+  return { drafts, warns: drafts.map((d) => leaks(d).join(", ")), styles: drafts.map((d) => styleHits(d)) };
 }
 
 export async function ping(ai: AI) {
@@ -232,7 +235,7 @@ const LESSON_SYSTEM = `너는 초등 3학년 도덕·창체 수업 자료를 정
 - unit: 차시나 단원 이름(없으면 자료 주제를 짧게).
 - words: 자료에 나오거나 자료가 다루는 감정 단어(「~해요」 꼴, 3학년이 쓰는 말) 최대 8개. emotion은 12개 큰 감정 중 가장 가까운 것, meaning은 3학년 눈높이 뜻풀이 20자 안.
 - activities: 자료에 나오는 활동을 교실에서 바로 할 수 있게 최대 4개. title 15자 안, how 한 문장, minutes 분.
-자료에 없는 내용은 지어내지 마.`;
+자료에 없는 내용은 지어내지 마.${STYLE_RULES}`;
 
 export async function extractLesson(ai: AI, markdown: string): Promise<Lesson> {
   const schema = obj({
@@ -247,7 +250,7 @@ export async function extractLesson(ai: AI, markdown: string): Promise<Lesson> {
       word: String(x.word ?? "").slice(0, 12), emotion: EMOTION_NAMES.includes(x.emotion) ? x.emotion : "그저 그래요", meaning: String(x.meaning ?? "").slice(0, 40),
     })).filter((x: { word: string }) => x.word),
     activities: (Array.isArray(out.activities) ? out.activities : []).slice(0, 4).map((x: Lesson["activities"][number]) => ({
-      title: String(x.title ?? "").slice(0, 30), how: String(x.how ?? "").slice(0, 120), minutes: Math.min(45, Math.max(1, Number(x.minutes) || 10)),
+      title: polish(String(x.title ?? "")).slice(0, 30), how: polish(String(x.how ?? "")).slice(0, 120), minutes: Math.min(45, Math.max(1, Number(x.minutes) || 10)),
     })).filter((x: { title: string }) => x.title),
   };
 }
@@ -256,13 +259,14 @@ export async function extractLesson(ai: AI, markdown: string): Promise<Lesson> {
 export interface Weekly {
   lines: string[];
   activities: { title: string; why: string; how: string; minutes: number }[];
+  style?: string[]; // 바로 고치지 못한 번역투·기계식 표현
 }
 
 const WEEKLY_SYSTEM = `너는 초등 3학년 담임 선생님의 학급 운영을 돕는 도우미야. 이번 주 우리 반 마음 기록을 모은 숫자(학생 이름 없음)를 보고
 - lines: 이번 주 마음 흐름을 3줄로. 숫자 근거를 넣되 진단·평가 말은 쓰지 마. 각 줄 50자 안.
 - activities: 다음 주 아침 활동이나 도덕·창체 시간에 할 활동 2개. why는 이번 주 흐름과 이어지는 까닭 한 문장, how는 하는 방법 한 문장, minutes 분.
   lessonActivities(선생님이 올린 교과서 활동)가 있으면 그중에서 먼저 고르고, 없으면 회복적 서클·감정 카드 놀이·칭찬 릴레이처럼 교실에서 흔히 하는 활동으로.
-특정 학생을 떠올리게 하는 말은 쓰지 마.`;
+특정 학생을 떠올리게 하는 말은 쓰지 마.${STYLE_RULES}`;
 
 export async function weeklySummary(ai: AI, stats: unknown, lessonActivities: unknown[]): Promise<Weekly> {
   const schema = obj({
@@ -270,12 +274,12 @@ export async function weeklySummary(ai: AI, stats: unknown, lessonActivities: un
     activities: { type: "array", items: obj({ title: { type: "string" }, why: { type: "string" }, how: { type: "string" }, minutes: { type: "integer" } }) },
   });
   const out = await callJSON(ai, WEEKLY_SYSTEM, JSON.stringify({ stats, lessonActivities }), "weekly", schema);
-  return {
-    lines: (Array.isArray(out.lines) ? out.lines : []).slice(0, 3).map((l: unknown) => String(l).slice(0, 90)),
-    activities: (Array.isArray(out.activities) ? out.activities : []).slice(0, 2).map((a: Weekly["activities"][number]) => ({
-      title: String(a.title ?? "").slice(0, 30), why: String(a.why ?? "").slice(0, 120), how: String(a.how ?? "").slice(0, 160), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
-    })),
-  };
+  const lines = (Array.isArray(out.lines) ? out.lines : []).slice(0, 3).map((l: unknown) => polish(String(l)).slice(0, 90));
+  const activities = (Array.isArray(out.activities) ? out.activities : []).slice(0, 2).map((a: Weekly["activities"][number]) => ({
+    title: polish(String(a.title ?? "")).slice(0, 30), why: polish(String(a.why ?? "")).slice(0, 120), how: polish(String(a.how ?? "")).slice(0, 160), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
+  }));
+  const style = [...new Set([...lines, ...activities.flatMap((a: Weekly["activities"][number]) => [a.title, a.why, a.how])].flatMap(styleHits))];
+  return { lines, activities, style };
 }
 
 // ── 한 주 돌아보기: 학생이 쓴 한 줄에 마음 친구가 짧게 답한다(학생이 고른 언어로) ──
@@ -284,27 +288,29 @@ const REFLECT_SYSTEM = `너는 초등학교 3학년 학생의 「마음 친구�
 - 학생이 쓴 내용을 구체적으로 알아주고 칭찬해. 평가·충고·훈계·약속은 하지 마.
 - 힘들었다고 하면 그 마음을 알아주고, 필요하면 선생님께 이야기해도 된다고 덧붙여.
 - 이름·번호·횟수·「기록」이라는 말은 쓰지 마. 3학년이 읽을 쉬운 말로, 반말로 따뜻하게.
-- reply는 반드시 지정한 언어(lang)로 써.`;
+- reply는 반드시 지정한 언어(lang)로 써. 한국어로 쓸 때는 아래 글투를 지켜.${STYLE_RULES}`;
 export async function reflectReply(ai: AI, input: { lang: Lang; text: string; week: { emotion: string; word?: string }[] }) {
   const out = await callJSON(ai, REFLECT_SYSTEM, JSON.stringify({ ...input, lang: langOf(input.lang).ai }), "reflect", obj({ reply: { type: "string" } }));
-  const reply = String(out.reply ?? "").trim().slice(0, 160);
+  const raw = String(out.reply ?? "").trim();
+  const reply = (input.lang === "ko" ? polish(raw) : raw).slice(0, 160);
   if (!reply || leaks(reply)) throw new Error("답이 알맞지 않아요");
   return reply;
 }
 
 // ── 상담 연계 의견서 초안: 최근 2주 기록만 보고 관찰한 사실을 정리한다(진단하지 않음) ──
-export interface Referral { flow: string; reasons: string; helps: string }
+export interface Referral { flow: string; reasons: string; helps: string; style?: string[] }
 const REFERRAL_SYSTEM = `너는 초등학교 담임 선생님이 Wee클래스·상담교사에게 보낼 「학생 관찰 의견」 초안을 돕는 도우미야.
 학생 가명과 최근 2주 마음 기록(학생이 스스로 고른 감정·크기·까닭·한 문장, 마음 다스리기 도구 사용)과 살펴보기 신호를 받아 세 칸을 써.
 - flow: 2주 동안 관찰된 정서 흐름 3~5문장(날짜·아침/하교 전 변화를 근거로, 사실 위주)
 - reasons: 학생이 스스로 말한 까닭·상황 요약 2~3문장(학생이 쓴 말은 따옴표로)
 - helps: 도움이 된 것으로 보이는 것(마음 다스리기 도구·좋았던 날의 까닭 등) 1~2문장
 규칙: 진단명·병명·성격 단정(예: 우울증, ADHD, 불안장애, 공격적인 아이) 절대 쓰지 마. 추측은 「~로 보임」처럼 조심스럽게.
-학생은 가명으로만 부르고, 가족에 관한 추측은 쓰지 마. 높임말(~함, ~보임 같은 개조식 말투)로 간결하게. 한국어로.`;
+학생은 가명으로만 부르고, 가족에 관한 추측은 쓰지 마. 높임말(~함, ~보임 같은 개조식 말투)로 간결하게. 한국어로.${STYLE_RULES}`;
 export async function referralDraft(ai: AI, input: { alias: string; records: unknown[]; signals: string[] }): Promise<Referral> {
   const schema = obj({ flow: { type: "string" }, reasons: { type: "string" }, helps: { type: "string" } });
   const out = await callJSON(ai, REFERRAL_SYSTEM, JSON.stringify(input), "referral", schema);
-  return { flow: String(out.flow ?? "").slice(0, 700), reasons: String(out.reasons ?? "").slice(0, 500), helps: String(out.helps ?? "").slice(0, 300) };
+  const { value, hits } = polishAll({ flow: String(out.flow ?? ""), reasons: String(out.reasons ?? ""), helps: String(out.helps ?? "") }, ["flow", "reasons", "helps"]);
+  return { flow: value.flow.slice(0, 700), reasons: value.reasons.slice(0, 500), helps: value.helps.slice(0, 300), style: hits };
 }
 
 // ── 가정 소식지 번역: 이주배경학생 가정에 보낼 같은 내용을 다른 언어로 ──
@@ -336,7 +342,8 @@ const SHEET_SYSTEM = `너는 초등학교 3학년 담임 선생님이 학생 활
 - why: 이 피드백을 쓴 이유(선생님용) 2~3문장. 어떤 기준과 역량에 비추어, 활동지의 어떤 부분을 보고 그렇게 썼는지.
 - check: 자해·사라지고 싶다·괴롭힘·폭력·학대가 걱정되는 글이나 그림이 있으면 무엇이 보였는지 한 문장(선생님이 직접 살펴보게). 없으면 빈 글자.
 - blank: 활동지가 비었거나 거의 읽을 수 없으면 true(그때 strengths·grow는 비우고 toStudent는 빈 글자).
-선생님이 읽는 칸(read·criteria·point·evidence·why)도 「~했어요」「~보여요」처럼 부드러운 높임말로 맞춰. 한국어로.`;
+선생님이 읽는 칸(read·criteria·point·evidence·why)도 「~했어요」「~보여요」처럼 부드러운 높임말로 맞춰. 한국어로.
+evidence와 read 속 학생 말은 학생이 쓴 그대로 따옴표 안에 옮기고, 나머지 글은 아래 글투를 지켜.${STYLE_RULES}`;
 
 const POINT = obj({ area: { type: "string", enum: [...SEL_AREAS] }, point: { type: "string" }, evidence: { type: "string" } });
 const SHEET_SCHEMA = obj({
@@ -354,14 +361,19 @@ export async function sheetFeedback(
   const { parsed, ...teacher } = input;
   const user = JSON.stringify({ ...teacher, ...(parsed ? { parsed: parsed.slice(0, 8000) } : {}) });
   const out = await callJSON(ai, SHEET_SYSTEM, user, "sheet", SHEET_SCHEMA, parsed ? [] : images);
+  // 학생 말을 옮긴 evidence는 고치지 않는다(read는 따옴표 밖만 고침)
   const points = (v: unknown, n: number): SheetPoint[] => (Array.isArray(v) ? v : []).slice(0, n).map((p) => ({
     area: (SEL_AREAS as readonly string[]).includes(p?.area) ? p.area : SEL_AREAS[0],
-    point: String(p?.point ?? "").slice(0, 160), evidence: String(p?.evidence ?? "").slice(0, 160),
+    point: polish(String(p?.point ?? "")).slice(0, 160), evidence: String(p?.evidence ?? "").slice(0, 160),
   })).filter((p) => p.point);
+  const { value: t, hits } = polishAll({ read: String(out.read ?? ""), criteria: String(out.criteria ?? ""), toStudent: String(out.toStudent ?? ""), why: String(out.why ?? "") }, ["read", "criteria", "toStudent", "why"]);
+  const strengths = points(out.strengths, 2), grow = points(out.grow, 1);
+  const style = [...new Set([...hits, ...[...strengths, ...grow].flatMap((p) => styleHits(p.point))])];
   return {
-    read: String(out.read ?? "").slice(0, 400), topic: String(out.topic ?? "").slice(0, 40), criteria: String(out.criteria ?? "").slice(0, 200),
-    strengths: points(out.strengths, 2), grow: points(out.grow, 1),
-    toStudent: String(out.toStudent ?? "").slice(0, 300), why: String(out.why ?? "").slice(0, 400),
+    read: t.read.slice(0, 400), topic: String(out.topic ?? "").slice(0, 40), criteria: t.criteria.slice(0, 200),
+    strengths, grow,
+    toStudent: t.toStudent.slice(0, 300), why: t.why.slice(0, 400),
     check: String(out.check ?? "").slice(0, 200), blank: out.blank === true,
+    ...(style.length ? { style } : {}),
   };
 }

@@ -4,6 +4,7 @@
 // 결과는 번호로만 저장되고(이름·그림은 저장하지 않음) 선생님이 고친 뒤 학생에게 전한다.
 import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
+import StyleNote from "./StyleNote";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { parseNums, sheetGroups } from "@/lib/rules";
@@ -277,6 +278,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
                     </div>
                   ),
                 )}
+                <StyleNote hits={x.style} />
                 <label className="block">
                   <span className="text-sm font-bold"><Doodle name="speech" /> 학생에게 줄 피드백 <span className="font-normal text-soft">· 고치면 저장돼요</span></span>
                   <textarea
