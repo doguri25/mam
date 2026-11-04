@@ -1009,7 +1009,7 @@ function star5(cx: number, cy: number, r: number) {
 // ── 배경 장면(선 없이 칠한 수채·과슈풍). 감정 무리마다 하늘·빛·날씨가 다르다. ──
 type Kit = (typeof SCENE)[Group];
 
-function Cloud({ x, y, w, h, kit, seed }: { x: number; y: number; w: number; h: number; kit: Kit; seed: number }) {
+export function Cloud({ x, y, w, h, kit, seed }: { x: number; y: number; w: number; h: number; kit: Kit; seed: number }) {
   const bumps = cloudBumps(w, h, seed);
   return (
     <g transform={`translate(${n2(x)} ${n2(y)})`}>
@@ -1021,7 +1021,7 @@ function Cloud({ x, y, w, h, kit, seed }: { x: number; y: number; w: number; h: 
 }
 
 // 물감이 번진 가장자리
-function Wash({ id }: { id: string }) {
+export function Wash({ id }: { id: string }) {
   return (
     <filter id={id} x="-10%" y="-20%" width="120%" height="140%">
       <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="3" seed="3" result="n" />
