@@ -49,7 +49,7 @@ async function handle(req: NextRequest) {
   try {
     let parsed: string | undefined;
     if (ai.provider === "upstage") {
-      const docs = await inTime(Promise.all(files.map((f, i) => parseDocument(ai.key, f, `page${i + 1}.jpg`, { ocr: "force", mode: "enhanced" }))), deadline);
+      const docs = await inTime(Promise.all(files.map((f, i) => parseDocument(ai.key, f, `page${i + 1}.jpg`, { ocr: "force", mode: "enhanced", signal: deadline }))), deadline);
       parsed = docs.map((d, i) => (docs.length > 1 ? `[${i + 1}쪽]\n` : "") + d.markdown).join("\n\n") || "(읽은 글이 없음)";
     }
     const images = parsed ? [] : await Promise.all(files.map(async (f) => Buffer.from(await f.arrayBuffer()).toString("base64")));

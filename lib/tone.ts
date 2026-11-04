@@ -6,7 +6,7 @@ export interface VoiceFeatures {
   loud: number; // 말할 때 평균 크기(RMS, 0~1)
   pitch: number; // 목소리 높이 가운데값(Hz), 못 재면 0
   pitchVar: number; // 높낮이 변화(반음 표준편차)
-  rate: number; // 1초에 말한 글자 수
+  rate: number; // 1초에 말한 소리 마디(음절) 수
 }
 
 export type DeviceTone = "들떠 있음" | "차분함" | "가라앉음";

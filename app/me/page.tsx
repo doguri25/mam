@@ -15,7 +15,7 @@ import MoodPicker, { STEP_START, stepBack, stepDepth, type Pick, type StepNav } 
 import { atMe, leftMe, useBackGuard, useBackSteps } from "@/lib/back";
 import { useSpeech } from "@/components/useSpeech";
 import { api } from "@/lib/api";
-import { CHEER, LANGS, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
+import { CHEER, CHEER_TIRED, LANGS, errText, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
 import { ACC_UNLOCK, groupOf, type BuddyLook, type CalmTool, type Felt, type MoodRecord, type Slot, type VoiceMode } from "@/lib/shared";
 import type { VoiceFeatures } from "@/lib/tone";
@@ -304,7 +304,7 @@ export default function MePage() {
   const shown = pick.word ? w(lang, pick.word) : pick.emotion ? w(lang, pick.emotion) : "";
   const buddyLine =
     step === "done" && qa.skip ? qa.question // 위험한 마음: 감정별 문장 대신 고맙다는 말만
-    : step === "done" && group ? CHEER[lang][group]
+    : step === "done" && group ? (pick.emotion === "피곤해요" ? CHEER_TIRED[lang] : CHEER[lang][group])
     : step === "ask" ? tt("slow")
     : pick.emotion ? tt("picked", { emotion: shown })
     : tt("hello", { alias: me.alias });

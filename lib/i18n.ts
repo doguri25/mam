@@ -43,7 +43,7 @@ const WORDS: Record<string, Tr> = {
   후련해요: tr("Relieved", "轻松", "Nhẹ nhõm", "すっきり"),
   느긋해요: tr("Relaxed", "悠闲", "Thong thả", "のんびり"),
   홀가분해요: tr("Light-hearted", "释然", "Thanh thản", "ほっとした"),
-  심심해요: tr("Bored", "无聊", "Chán", "たいくつ"),
+  심심해요: tr("Nothing to do", "没事做", "Chán", "たいくつ"),
   멍해요: tr("Spaced out", "发呆", "Ngẩn ngơ", "ぼーっと"),
   무덤덤해요: tr("Not much", "无所谓", "Thờ ơ", "なんともない"),
   지쳤어요: tr("Worn out", "疲惫", "Kiệt sức", "へとへと"),
@@ -70,16 +70,16 @@ const WORDS: Record<string, Tr> = {
   // 마음 남기기 카드에 더한 낱말 24
   흐뭇해요: tr("Pleased", "欣慰", "Mãn nguyện", "にこにこ"),
   "자신 있어요": tr("Confident", "有信心", "Tự tin", "じしんがある"),
-  반가워요: tr("Glad to see", "见到很高兴", "Vui khi gặp", "うれしい再会"),
+  반가워요: tr("Glad to see", "见到很高兴", "Vui khi gặp", "あえてうれしい"),
   신기해요: tr("Amazed", "好神奇", "Thú vị quá", "ふしぎ"),
   기대돼요: tr("Looking forward", "很期待", "Mong chờ", "たのしみ"),
-  다행이에요: tr("Relieved", "松了口气", "May quá", "よかった"),
-  포근해요: tr("Cozy", "温暖舒服", "Ấm áp", "ぽかぽか"),
-  개운해요: tr("Refreshed", "神清气爽", "Sảng khoái", "すっきり"),
+  다행이에요: tr("Glad it's OK", "松了口气", "May quá", "よかった"),
+  포근해요: tr("Cozy", "温暖舒服", "Ấm cúng", "ぽかぽか"),
+  개운해요: tr("Refreshed", "神清气爽", "Sảng khoái", "さっぱり"),
   궁금해요: tr("Curious", "好奇", "Tò mò", "しりたい"),
   헷갈려요: tr("Confused", "搞不清", "Bối rối", "こんがらがる"),
   어색해요: tr("Awkward", "尴尬", "Ngượng ngùng", "ぎこちない"),
-  지루해요: tr("Bored", "无聊", "Chán", "たいくつ"),
+  지루해요: tr("Bored", "无聊", "Nhàm chán", "つまらない"),
   차분해요: tr("Settled", "沉静", "Điềm tĩnh", "おちついている"),
   "생각이 많아요": tr("Thoughtful", "想得很多", "Nhiều suy nghĩ", "かんがえごと"),
   괜찮아요: tr("Okay", "还好", "Ổn", "だいじょうぶ"),
@@ -90,7 +90,7 @@ const WORDS: Record<string, Tr> = {
   바빠요: tr("Busy", "很忙", "Bận", "いそがしい"),
   정신없어요: tr("Hectic", "手忙脚乱", "Rối rít", "バタバタ"),
   "조용히 있고 싶어요": tr("Want quiet", "想安静一下", "Muốn yên tĩnh", "しずかにしたい"),
-  나른해요: tr("Drowsy", "懒洋洋", "Uể oải nhẹ", "だるい"),
+  나른해요: tr("Drowsy", "懒洋洋", "Lờ đờ", "だるい"),
   "쉬고 싶어요": tr("Want to rest", "想休息", "Muốn nghỉ", "やすみたい"),
   // 까닭·크기·무리
   친구: tr("Friends", "朋友", "Bạn bè", "ともだち"),
@@ -419,6 +419,15 @@ export const CHEER: Record<Lang, Record<string, string>> = {
   zh: { joy: "你分享开心的事，我也很开心！", calm: "好好珍惜这份平静吧。", sad: "谢谢你说出难过的心情，老师也会知道。", angry: "难怪你会生气。说出来真棒。", fear: "谢谢你说出担心，你不是一个人。" },
   vi: { joy: "Em chia sẻ điều vui, mình cũng vui lắm!", calm: "Hãy giữ cảm giác bình yên này nhé.", sad: "Cảm ơn em đã nói. Thầy cô cũng sẽ biết.", angry: "Thảo nào em giận. Nói ra là rất giỏi.", fear: "Cảm ơn em đã chia sẻ nỗi lo. Em không một mình đâu." },
   ja: { joy: "うれしいきもちをおしえてくれて、ぼくもうれしい！", calm: "おだやかなきもち、たいせつにしようね。", sad: "おしえてくれてありがとう。せんせいもしっているよ。", angry: "おこるのもとうぜんだね。いってくれてえらいよ。", fear: "しんぱいをはなしてくれてありがとう。ひとりじゃないよ。" },
+};
+
+// 피곤한 마음: 슬픔 무리지만 「속상한 마음」 인사 대신 쉬어 가도 된다는 말로
+export const CHEER_TIRED: Record<Lang, string> = {
+  ko: "피곤한 마음을 말해 줘서 고마워. 잠깐 쉬어 가도 괜찮아.",
+  en: "Thanks for telling me you're tired. It's okay to rest a bit.",
+  zh: "谢谢你告诉我你累了。休息一下也没关系。",
+  vi: "Cảm ơn em đã nói em mệt. Nghỉ một chút cũng được nhé.",
+  ja: "つかれてるって おしえてくれて ありがとう。すこし やすんでも いいよ。",
 };
 
 // 요일 이름(일요일부터)

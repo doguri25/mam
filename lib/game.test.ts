@@ -27,8 +27,7 @@ test("한 언어 안에서 서로 다른 낱말의 뜻풀이가 겹치지 않는
 });
 
 // 사전·카드에서 두 낱말이 같은 이름으로 보이면 아이가 구별하지 못한다.
-// 번역 이름은 lib/i18n.ts(WORDS)에 있어 여기서는 찾기만 한다 — 고치면 todo를 뗀다.
-test("카드 낱말의 번역 이름이 한 언어 안에서 겹치지 않는다", { todo: "lib/i18n.ts WORDS에서 고칠 것" }, () => {
+test("카드 낱말의 번역 이름이 한 언어 안에서 겹치지 않는다", () => {
   const dups: string[] = [];
   for (const l of LANGS) {
     const seen = new Map<string, string>();
