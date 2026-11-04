@@ -2,32 +2,126 @@
 import { addDays } from "./date.ts";
 import { CALM_KO, CALM_TOOLS, DEFAULT_RULES, RISK_CORE, groupOf, isHard, type Group, type MoodRecord, type Rules } from "./shared.ts";
 
-// 위험 표현 찾기. 아이들은 띄어쓰기를 자주 빼거나 더 넣으므로(「죽고싶어」「죽고 싶 어」) 한글·한자·가나 말은 빈칸을 무시하고 견준다.
-// 다만 두 글자 말(「자해」)은 낱말 사이 빈칸을 건너 붙이지 않는다(「남자 해적」이 걸리지 않게).
-// 영어·베트남어처럼 빈칸으로 낱말을 나누는 말은 낱말 앞머리부터 견준다(「hit me」가 「white meat」에 걸리지 않게).
-// 선생님 목록(words)에 RISK_CORE를 늘 더한다. 돌려주는 것은 걸린 말(선생님이 쓴 모양 그대로, 겹치지 않게).
-const CJK = /[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-鿿가-힯豈-﫿]/;
-const norm = (s: string) => s.normalize("NFC").toLowerCase().replace(/[​-‍﻿]/g, "");
-const squash = (s: string) => norm(s).replace(/\s+/g, "");
-const spaced = (s: string) => ` ${norm(s).replace(/[^\p{L}\p{N}']+/gu, " ").trim()} `;
+// 위험 표현 찾기. 놓치는 것보다 잘못 거는 편이 낫다(선생님이 고른 「넓게 찾기」). 다만 터무니없이 걸리지는 않게.
+// 견주기 전에 글과 말을 똑같이 고른다(norm): NFKC(반각 「ｼﾆﾀｲ」·전각 「ｋｉｌｌ」), 작은 글자, 둥근 따옴표 → ', 가타카나 → 히라가나.
+// · 한글·한자·가나 말
+//   - 세 글자 이상(「죽고 싶」): 글자 사이에 빈칸·문장부호·기호·이모지·ㅠㅜ가 끼어도 찾는다(「죽고ㅠㅠ싶어」「죽💀고 싶어」).
+//     끝 글자가 받침 없는 한글이면 받침이 붙은 꼴도 찾는다(「괴롭혀」→「괴롭혔어요」, 「다치게 하」→「다치게 함」).
+//   - 두 글자 말(「자해」「왕따」)은 말에 빈칸이 있던 자리만 빈칸을 건너고, 받침도 늘리지 않는다(「남자 해적」「왕딸기」가 걸리지 않게).
+// · 영어·베트남어처럼 빈칸으로 낱말을 나누는 말은 낱말 앞머리부터 견준다(「hit me」가 「white meat」에 걸리지 않게).
+//   '는 빼고 견준다(「don't」=「dont」=「don’t」). 성조가 붙은 말은 성조 없이 친 낱말과도 견준다(「bi danh」=「bị đánh」).
+// · 글자·숫자가 없는 말(「💀」「!!」)은 글에 그대로 들어 있을 때만 찾는다.
+// 선생님 목록(words)에 RISK_CORE를 늘 더한다. 돌려주는 것은 걸린 말(선생님이 쓴 모양이 먼저, 같은 말·같은 자리에 걸린 말은 한 번만).
+const CJK = /[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-鿿가-힯豈-﫿]/;
+const CJK_RUN = new RegExp(`${CJK.source}+`, "g");
+// 한글 낱자(ㅈㄱㅅㅇ·ㅠㅠ)는 NFKC에 넣지 않는다: NFKC는 「ㅇㅠ」를 「유」로 붙여 버린다
+const norm = (s: string) =>
+  s.replace(/[’‘ʼ＇`´′]/g, "'")
+    .replace(/[\u00ad\u200b-\u200d\u2060\ufe0e\ufe0f\ufeff]/g, "")
+    .replace(/[^\u3130-\u318f]+/g, (m) => m.normalize("NFKC"))
+    .toLowerCase()
+    .replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+// 고른 글을 낱말 사이 빈칸 하나로(한글·한자·가나 덩어리도 낱말 하나로 떼어 「나bully당했어」의 bully도 찾게)
+const spaced = (s: string) => ` ${s.replace(CJK_RUN, " $& ").replace(/'/g, "").replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim()} `;
+// 성조·모음 표시를 뗀 꼴(베트남어): muốn chết → muon chet
+const bare = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").normalize("NFC");
+// 같은 말 거르기: 한글·한자·가나 말은 빈칸·문장부호를 빼고, 다른 말은 낱말만 남겨 견준다(「hit-me」=「hit me」, 「kill my self」≠「kill myself」).
+// 기호만 있는 말은 기호 그대로.
+const keyOf = (w: string) => {
+  const n = norm(w).trim();
+  if (!/[\p{L}\p{N}]/u.test(n)) return n.replace(/\s+/g, "");
+  return CJK.test(n) ? n.replace(/[\s\p{P}]+/gu, "") : spaced(n).trim();
+};
 const esc = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function cjkPattern(word: string) {
-  const w = norm(word).trim();
-  const chars = [...w.replace(/\s+/g, "")];
-  if (chars.length >= 3) return new RegExp(chars.map(esc).join("\\s*"));
-  return new RegExp(w.split(/\s+/).map((p) => [...p].map(esc).join("")).join("\\s*"));
+const GAP = "[\\s\\p{P}\\p{S}\\p{M}ㅠㅜ]*";
+const openSyllable = (c: string) => c >= "가" && c <= "힣" && (c.charCodeAt(0) - 0xac00) % 28 === 0;
+// 성조 없이는 견주지 않는 말: 「tu tu」는 「từ từ(천천히)」로 흔히 쓴다
+const NO_BARE = new Set(["tu tu"]);
+// 위험 표현과 글자가 겹치는 평범한 말: 「わたしにたいして(나에게)」「わたしにたいせつ(나에게 소중한)」에 「しにたい」가,
+// 「いちじさつまいもほり(한 시 고구마 캐기)」에 「じさつ」가 걸리지 않게
+const INNOCENT = /にたい(?:して|する|へん|せつ)|さつまいも/g;
+
+interface Texts { plain: string; loose: string; plainOnly: string; flat: string }
+// 걸리면 글의 어디에 걸렸는지(같은 자리에 걸린 다른 말을 거르려고), 아니면 null
+type Find = (t: Texts) => string | null;
+
+function cjkPattern(w: string) {
+  const core = [...w.replace(/[\s\p{P}]+/gu, "")];
+  if (core.length >= 3) {
+    const last = core.pop()!;
+    const tail = openSyllable(last) ? `[${last}-${String.fromCharCode(last.charCodeAt(0) + 27)}]` : esc(last);
+    return new RegExp([...core.map(esc), tail].join(GAP), "u");
+  }
+  return new RegExp(w.split(/[\s\p{P}]+/u).filter(Boolean).map((p) => [...p].map(esc).join("")).join("\\s*"), "u");
 }
-export function matchRisk(text: string, words: string[]) {
-  const plain = norm(text);
-  const loose = spaced(text);
+
+function compile(raw: string): Find | null {
+  const w = norm(raw).trim();
+  if (!w) return null;
+  if (!/[\p{L}\p{N}]/u.test(w)) {
+    const lit = w.replace(/\s+/g, "");
+    return (t) => {
+      const i = t.flat.indexOf(lit);
+      return i < 0 ? null : `s${i}:${lit.length}`;
+    };
+  }
+  if (CJK.test(w)) {
+    const re = cjkPattern(w);
+    return (t) => {
+      const m = re.exec(t.plain);
+      return m ? `c${m.index}:${m[0].length}` : null;
+    };
+  }
+  const p = spaced(w).trimEnd();
+  const b = spaced(bare(w)).trimEnd();
+  const useBare = b !== p && !NO_BARE.has(b.trim());
+  return (t) => {
+    let i = t.loose.indexOf(p);
+    if (i >= 0) return `l${i}:${p.length}`;
+    if (useBare && (i = t.plainOnly.indexOf(b)) >= 0) return `l${i}:${b.length}`;
+    return null;
+  };
+}
+
+// 목록마다 한 번만 만들어 둔다(기록을 저장할 때마다 부르므로)
+const compiled = new Map<string, { word: string; find: Find }[]>();
+function matchersFor(words: string[]) {
+  const id = words.join("\u0000");
+  let list = compiled.get(id);
+  if (list) return list;
+  list = [];
   const seen = new Set<string>();
-  const out: string[] = [];
   for (const raw of [...words, ...RISK_CORE]) {
-    const w = raw.trim();
-    const key = squash(w);
+    const word = String(raw).trim();
+    const key = keyOf(word);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    if (CJK.test(w) ? cjkPattern(w).test(plain) : loose.includes(spaced(w).trimEnd())) out.push(w);
+    const find = compile(word);
+    if (find) list.push({ word, find });
+  }
+  if (compiled.size >= 32) compiled.delete(compiled.keys().next().value!);
+  compiled.set(id, list);
+  return list;
+}
+
+export function matchRisk(text: string, words: string[]) {
+  const n = norm(text);
+  const loose = spaced(n);
+  const t: Texts = {
+    plain: n.replace(INNOCENT, (m) => "\u0001".repeat(m.length)),
+    loose,
+    // 성조 없는 꼴과 견줄 때는 성조를 제대로 친 낱말을 가린다(「bí danh(별명)」이 「bi danh」으로 걸리지 않게)
+    plainOnly: loose.replace(/\S+/g, (x) => (bare(x) === x ? x : "#".repeat(x.length))),
+    flat: n.replace(/\s+/g, ""),
+  };
+  const at = new Set<string>();
+  const out: string[] = [];
+  for (const { word, find } of matchersFor(words)) {
+    const where = find(t);
+    if (where && !at.has(where)) {
+      at.add(where);
+      out.push(word);
+    }
   }
   return out;
 }

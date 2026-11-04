@@ -7,7 +7,7 @@ import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_ADDED, RISK_WORDS_V, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -43,9 +43,10 @@ export async function getSettings(): Promise<Settings> {
   const s = await db().get<Partial<Settings>>("meta", "settings");
   const d = defaultSettings();
   const out: Settings = { ...d, ...s, models: { ...d.models, ...s?.models }, rules: { ...d.rules, ...s?.rules } };
-  // 예전에 저장한 목록에는 나중에 더한 기본 위험 표현을 한 번 넣어 준다(선생님이 그 뒤에 지우면 그대로 둠)
+  // 예전에 저장한 목록에는 그 판 뒤에 더한 기본 위험 표현만 한 번 넣어 준다(선생님이 그 뒤에 지우면 그대로 둠).
+  // 설정을 한 번도 저장하지 않은 반은 새 기본 목록을 그대로 쓴다.
   if (s && (s.riskWordsV ?? 1) < RISK_WORDS_V) {
-    out.riskWords = [...out.riskWords, ...RISK_WORDS_ADDED.filter((w) => !out.riskWords.includes(w))];
+    out.riskWords = [...out.riskWords, ...riskWordsAfter(s.riskWordsV ?? 1).filter((w) => !out.riskWords.includes(w))];
     out.riskWordsV = RISK_WORDS_V;
   }
   return out;
