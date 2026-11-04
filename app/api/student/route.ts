@@ -4,7 +4,8 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, saveLooks, touch, type Settings } from "@/lib/data";
+import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
+import { saveLook } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
@@ -144,13 +145,13 @@ async function handle(req: NextRequest, body: Body) {
     }
 
     // 내 마음 친구 꾸미기. 꾸미개는 써 본 감정 단어 수만큼 열린다(이미 쓰고 있던 것은 그대로 둠).
-    // ponytail: 문서 하나를 읽고 고쳐 쓰므로 두 학생이 같은 순간 저장하면 한쪽이 묻힐 수 있다. 반 하나·태블릿 돌려쓰기면 충분.
+    // 반 전체 모습이 문서 하나에 모여 있어 내 칸만 바꾼다(여럿이 같은 순간 저장해도 서로 묻히지 않음).
     if (body.action === "look") {
       const look = cleanLook(body.look);
       const looks = await getLooks();
       const n = wordsOf(await recordsOf(s.no)).length;
       if (ACC_UNLOCK[look.acc] > n && looks[s.no]?.acc !== look.acc) return bad("아직 열리지 않은 꾸미개예요.");
-      await saveLooks({ ...looks, [s.no]: look });
+      await saveLook(s.no, look);
       return NextResponse.json({ look });
     }
 

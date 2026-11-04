@@ -183,12 +183,10 @@ export async function demoAiUsed() {
   const u = await db().get<{ date: string; n: number }>("meta", "aiUsage");
   return u?.date === today() ? u.n : 0;
 }
+// 하루 몫 쓰기: 한도 밑일 때만 한 번에 1 올린다(동시에 여러 요청이 와도 한도를 넘지 않음). 날짜가 바뀌면 0부터.
 async function spendDemoAi() {
   if (!isDemo()) return true;
-  const n = await demoAiUsed();
-  if (n >= DEMO_AI_PER_DAY) return false;
-  await db().set("meta", "aiUsage", { date: today(), n: n + 1 });
-  return true;
+  return (await db().bump("meta", "aiUsage", today(), { max: DEMO_AI_PER_DAY })).ok;
 }
 
 // 공용 업스테이지 키(Vercel 환경 변수 UPSTAGE_API_KEY · 모델은 UPSTAGE_MODEL, 없으면 기본 Solar).
@@ -206,10 +204,7 @@ export async function sharedAiUsed() {
   return u?.date === today() ? u.n : 0;
 }
 async function spendSharedAi() {
-  const n = await sharedAiUsed();
-  if (n >= SHARED_AI_PER_DAY) return false;
-  await db().set("meta", "sharedAiUsage", { date: today(), n: n + 1 });
-  return true;
+  return (await db().bump("meta", "sharedAiUsage", today(), { max: SHARED_AI_PER_DAY })).ok;
 }
 // 실제 학급이 빌려 쓰는 공용 키(체험 공간은 trialKey로 따로)
 async function borrowShared(p: Provider) {
@@ -283,10 +278,11 @@ export interface Stamp {
   wipe?: number; // 기록을 지운 때. 교사 기기에 저장해 둔 기록을 버리고 다시 받게 한다.
 }
 export async function getStamp(): Promise<Stamp> {
-  return (await db().get<Stamp>("meta", "stamp")) ?? { records: 0, other: 0 };
+  return { records: 0, other: 0, ...(await db().get<Stamp>("meta", "stamp")) };
 }
+// 한 칸만 바꾼다(읽고 통째로 쓰면 같은 순간의 다른 표시 — 예: 정리의 wipe — 를 덮어 잃음)
 export async function touch(kind: keyof Stamp) {
-  await db().set("meta", "stamp", { ...(await getStamp()), [kind]: Date.now() });
+  await db().setField("meta", "stamp", kind, Date.now());
 }
 
 // 학생마다 꾸민 마음 친구(번호 → 모습). 문서 하나에 모아 두어 교사 화면도 한 번에 읽는다.
@@ -296,6 +292,10 @@ export async function getLooks(): Promise<Record<number, BuddyLook>> {
 }
 export async function saveLooks(items: Record<number, BuddyLook>) {
   await db().set("meta", "looks", { items });
+}
+// 학생 한 명의 모습만 바꾼다(여럿이 같은 순간 저장해도 서로 묻히지 않게)
+export async function saveLook(no: number, look: BuddyLook) {
+  await db().setField("meta", "looks", `items.${Math.trunc(no)}`, look);
 }
 
 // 선생님이 바꾼 비밀번호(해시). 화면 설정과 따로 두어 overview로 나가지 않게 한다.
@@ -324,22 +324,59 @@ export async function saveSelChecks(items: SelCheck[]) {
 }
 
 // 위험 표현 조치 기록(선생님만). 학급마다 한 해 수십 건이라 문서 하나에 모은다(모음을 늘리지 않음).
+// 아이 보호 기록이라 개수로 잘라 버리지 않는다 — 보관 기한 정리(purgeBefore)로만 지운다.
 export async function getRiskActions(): Promise<RiskAction[]> {
   const items = (await db().get<{ items: RiskAction[] }>("meta", "riskActions"))?.items ?? [];
   return items.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
 }
 export async function saveRiskActions(items: RiskAction[]) {
-  await db().set("meta", "riskActions", { items: items.slice(-500) });
+  await db().set("meta", "riskActions", { items });
   await touch("other");
 }
+// 읽고 고쳐 쓰기를 한 번에(두 기기에서 같은 순간 적어도 둘 다 남음). fn은 겹치면 다시 불릴 수 있다.
+export async function editRiskActions(fn: (items: RiskAction[]) => RiskAction[]) {
+  await db().update<{ items: RiskAction[] }>("meta", "riskActions", (cur) => ({ ...cur, items: fn(cur?.items ?? []) }));
+  await touch("other");
+}
+export const addRiskAction = (act: RiskAction) => editRiskActions((items) => [...items.filter((x) => x.id !== act.id), act]);
+export const deleteRiskAction = (id: string) => editRiskActions((items) => items.filter((x) => x.id !== id));
 
 // 학생 자기진단: 회차 목록은 문서 하나, 학생 답은 학생마다 문서 하나(meta 모음 안, kind로 찾음)
+// 회차는 한 해 몇 번이라 개수로 잘라 버리지 않는다(문서 크기 걱정 없음). 너무 많으면 여는 쪽(selfOpen)이 분명한 오류를 낸다.
+export const SELF_ROUNDS_MAX = 100;
 export async function getSelfRounds(): Promise<SelfRound[]> {
   return ((await db().get<{ items: SelfRound[] }>("meta", "selfRounds"))?.items ?? []).sort((a, b) => a.openedAt.localeCompare(b.openedAt));
 }
 export async function saveSelfRounds(items: SelfRound[]) {
-  await db().set("meta", "selfRounds", { items: items.slice(-40) });
+  await db().set("meta", "selfRounds", { items });
   await touch("other");
+}
+// 회차 목록을 읽고 고쳐 쓰기를 한 번에. fn이 undefined를 돌려주면 그대로 둔다(예: 이미 열린 회차가 있음). 고친 뒤 목록을 돌려준다.
+export async function editSelfRounds(fn: (items: SelfRound[]) => SelfRound[] | undefined): Promise<SelfRound[]> {
+  let changed = false;
+  const doc = await db().update<{ items: SelfRound[] }>("meta", "selfRounds", (cur) => {
+    const next = fn([...(cur?.items ?? [])].sort((a, b) => a.openedAt.localeCompare(b.openedAt)));
+    changed = !!next;
+    return next && { ...cur, items: next };
+  });
+  if (changed) await touch("other");
+  return doc?.items ?? [];
+}
+
+// 보호자 동의서 받음 표시: 명단 문서에서 그 번호들의 consent만 바꾼다(명단 문서를 읽고 고쳐 쓰기를 한 번에)
+export async function setConsent(nos: number[], on: boolean, date = today()): Promise<Student[]> {
+  const pick = new Set(nos);
+  const doc = await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur ? {
+    ...cur,
+    students: (cur.students ?? []).map((s) => {
+      if (!pick.has(s.no)) return s;
+      const { consent: _old, ...rest } = s;
+      void _old;
+      return on ? { ...rest, consent: date } : rest;
+    }),
+  } : undefined);
+  await touch("other");
+  return doc?.students ?? [];
 }
 export const getSelfAnswers = () => db().find<SelfAnswer>("meta", "kind", "==", "selfAnswer");
 export async function deleteSelfAnswers(keep: (a: SelfAnswer) => boolean) {
