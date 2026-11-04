@@ -53,11 +53,13 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
     setBusy(false);
   }
 
+  // 인쇄할 때는 입력 칸(줄 수가 정해져 글이 잘림) 대신 글 전체를 보인다. 빈 칸이면 손으로 쓸 자리만큼 비워 둔다.
   const box = (title: string, value: string, set: (v: string) => void, rows = 4, hint = "") => (
     <label className="block">
       <span className="text-sm font-bold">{title}</span>
       {hint && <span className="ml-2 text-xs text-soft print:hidden">{hint}</span>}
-      <textarea value={value} onChange={(e) => set(e.target.value)} rows={rows} className="field mt-1 print:border-0 print:p-0" />
+      <textarea value={value} onChange={(e) => set(e.target.value)} rows={rows} className="field mt-1 print:hidden" />
+      <span className="mt-1 hidden whitespace-pre-wrap leading-relaxed print:block" style={{ minHeight: `${rows * 1.6}em` }}>{value}</span>
     </label>
   );
 

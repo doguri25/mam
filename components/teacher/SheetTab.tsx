@@ -302,7 +302,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
             {run.items.filter((x) => x.toStudent).map((x) => (
               <div key={x.no} className="break-inside-avoid border-b border-dashed border-ink py-4 text-lg leading-relaxed">
                 <p className="font-bold">{x.no}번 {nameOf(x.no)} · {x.topic}</p>
-                <p>{x.toStudent}</p>
+                <p className="whitespace-pre-wrap">{x.toStudent}</p>
               </div>
             ))}
           </div>

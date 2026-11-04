@@ -77,6 +77,13 @@ a,
   body {
     background: white;
   }
+  /* 그래프 막대·범례 색은 배경색이라 브라우저가 인쇄에서 빼 버린다 → 화면 색 그대로 인쇄 */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .card {
     box-shadow: none;
     break-inside: avoid;
