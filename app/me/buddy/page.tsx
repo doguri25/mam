@@ -90,7 +90,7 @@ export default function BuddyPage() {
         <h1 className="flex items-center gap-2 font-display text-xl sm:text-3xl"><Doodle name="palette" size={34} className="hidden shrink-0 sm:block" />{tt("buddyEdit")}</h1>
         <button onClick={random} className="btn-sub min-h-12 shrink-0 px-4"><Doodle name="dice" size={24} />{tt("buddyRandom")}</button>
       </div>
-      <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
         <section className="card flex flex-col items-center gap-2 self-start lg:sticky lg:top-5">
           <BuddyLazy emotion={emotion} look={look} cheer={cheer} size={280} className="size-56 sm:size-[280px]" scene />
           <p className="font-display text-2xl text-leaf">{saved ? tt("buddySaved") : look.name || tt("buddy")}</p>

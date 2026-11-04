@@ -2,6 +2,7 @@
 // 주간 리포트: A4 한 장으로 인쇄(브라우저 인쇄 → PDF 저장도 됨). 기본은 학생을 번호로만 표시.
 import { useState } from "react";
 import Doodle from "../Doodle";
+import { kindsText } from "./RiskActions";
 import { Bars, Legend } from "./Weather";
 import type { NameOf, Overview, Reload, Weekly } from "./types";
 import { api } from "@/lib/api";
@@ -164,7 +165,10 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
           <div>
             <h3 className="mb-1 font-bold">위험 표현</h3>
             {risks.length ? (
-              <p>{risks.map((r) => `${who(r.no)}(${label(r.date)}${r.riskChecked ? ", 살펴봄" : ", 아직"})`).join(", ")}</p>
+              <p>{risks.map((r) => {
+                const did = data.riskActions.filter((x) => x.recordId === r.id).flatMap((x) => x.kinds);
+                return `${who(r.no)}(${label(r.date)}${did.length ? `, ${kindsText([...new Set(did)])}` : r.riskChecked ? ", 살펴봄" : ", 아직"})`;
+              }).join(", ")}</p>
             ) : (
               <p className="text-soft">없어요.</p>
             )}

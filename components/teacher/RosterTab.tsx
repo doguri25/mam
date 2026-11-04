@@ -3,6 +3,7 @@
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import Doodle from "../Doodle";
+import ConsentLetter from "./ConsentLetter";
 import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { useNames } from "@/lib/local";
@@ -12,6 +13,8 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
   const [msg, setMsg] = useState("");
   const names = useNames(data.space);
   const [qr, setQr] = useState<Record<string, string>>({});
+  const [letter, setLetter] = useState(false); // 보호자 안내문을 보고 인쇄할 때는 QR 카드를 인쇄에서 뺀다
+  const [busy, setBusy] = useState(false);
   const origin = window.location.origin; // 이 탭은 로그인 뒤 브라우저에서만 그려진다
 
   useEffect(() => {
@@ -34,6 +37,19 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
     await api("teacher", "newCode", { no });
     await reload();
   }
+
+  // 보호자 동의서 받음 표시(기록을 막지는 않음)
+  async function consent(nos: number[], on: boolean) {
+    setBusy(true);
+    try {
+      await api("teacher", "consent", { nos, on });
+      await reload();
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+    setBusy(false);
+  }
+  const notYet = data.students.filter((s) => !s.consent);
 
   const local = /localhost|127\.0\.0\.1/.test(origin);
 
@@ -65,7 +81,39 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
       </section>
 
       {data.students.length > 0 && (
-        <section>
+        <section className="no-print card space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-xl">보호자 동의서</h2>
+            <button onClick={() => setLetter(!letter)} aria-expanded={letter} className="btn-sub min-h-10 text-sm"><Doodle name="page" /> {letter ? "안내문 닫기" : "보호자 안내문·동의서 보기"}</button>
+          </div>
+          <p className="text-sm">
+            받음 <b>{data.students.length - notYet.length}/{data.students.length}</b>
+            {notYet.length > 0 && <span className="text-soft"> · 아직: {notYet.map((s) => s.no).join(", ")}번</span>}
+          </p>
+          <p className="text-xs text-soft">동의서를 받은 학생을 눌러 표시해요. 표시만 하고 기록을 막지는 않아요. 동의하지 않은 학생은 코드를 나눠 주지 말고 종이 활동으로 함께해 주세요.</p>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="보호자 동의서 받음">
+            {data.students.map((s) => (
+              <button key={s.no} onClick={() => consent([s.no], !s.consent)} disabled={busy} aria-pressed={!!s.consent} title={s.consent ? `${s.consent} 받음` : "아직"}
+                className={`chip min-h-10 px-3 text-sm ${s.consent ? "border-leaf bg-leaf-soft font-bold text-leaf" : ""}`}>
+                {s.consent ? "✓ " : ""}{s.no} {names.name(s.no, s.alias)}
+              </button>
+            ))}
+          </div>
+          {notYet.length > 0 && <button onClick={() => consent(notYet.map((s) => s.no), true)} disabled={busy} className="text-xs text-soft underline underline-offset-2">모두 받음으로 표시</button>}
+        </section>
+      )}
+
+      {letter && (
+        <section className="space-y-3">
+          <div className="no-print flex justify-end">
+            <button onClick={() => window.print()} className="btn-main"><Doodle name="printer" /> 안내문 인쇄</button>
+          </div>
+          <ConsentLetter className={data.settings.className} retention={data.settings.retention} origin={origin} />
+        </section>
+      )}
+
+      {data.students.length > 0 && (
+        <section className={letter ? "print:hidden" : undefined}>
           <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-display text-xl">코드·QR 카드</h2>

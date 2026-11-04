@@ -23,6 +23,15 @@ body {
   /* 태블릿: 두 번 눌러 확대 지연을 없애고, 아이폰 노치·홈 막대를 피한다 */
   touch-action: manipulation;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* 한국어 줄글이 낱말 가운데서 끊기지 않게(「합니/다」 → 띄어쓰기 자리에서만 줄을 바꿈).
+     칸보다 긴 낱말(주소·영어 긴 말)만 넘칠 때 끊는다. */
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+/* 띄어쓰기가 없는 중국어·일본어(학생 화면 언어)는 글자마다 줄을 바꿀 수 있어야 한다 */
+:lang(zh),
+:lang(ja) {
+  word-break: normal;
 }
 
 /* 단추·카드를 오래 눌러도 글자 선택·확대 메뉴가 뜨지 않게(입력 칸은 그대로) */

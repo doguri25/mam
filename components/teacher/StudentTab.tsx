@@ -6,14 +6,19 @@ import Doodle from "../Doodle";
 import BuddyFace from "../BuddyFace";
 import { StudentStrip } from "./StudentPick";
 import Timeline from "./Timeline";
+import { RiskHistory } from "./RiskActions";
+import { SEL_COMPS } from "@/lib/selcheck";
+import { selfComps } from "@/lib/selfcheck";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
-import { CALM_KO, GROUPS, SEL_AREAS, groupOf, type Cheer, type Group, type Letter, type MoodRecord, type Reflect, type SheetItem } from "@/lib/shared";
+import { CALM_KO, GROUPS, SEL_AREAS, groupOf, type Cheer, type Group, type Letter, type MoodRecord, type Reflect, type RiskAction, type SheetItem } from "@/lib/shared";
 
 interface All {
   records: MoodRecord[]; cheers: Cheer[]; notes: Cheer[]; sent: Letter[]; got: Letter[]; reflects: Reflect[];
   sheets: (SheetItem & { runId: string; date: string })[];
+  riskActions: RiskAction[];
+  self: { round: string; title: string; openedAt: string; answers: number[] }[]; // 학생 자기진단(마음 점검) 회차별 답
 }
 
 const GROUP_IDS = Object.keys(GROUPS) as Group[];
@@ -55,13 +60,13 @@ export default function StudentTab({ data, nameOf, no, setNo }: { data: Overview
       ) : !all ? (
         <div className="card text-soft">불러오는 중…</div>
       ) : (
-        <Report all={all} data={data} no={s.no} nameOf={nameOf} />
+        <Report all={all} data={data} no={s.no} nameOf={nameOf} onActions={(riskActions) => setAll({ ...all, riskActions })} />
       )}
     </div>
   );
 }
 
-function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: number; nameOf: NameOf }) {
+function Report({ all, data, no, nameOf, onActions }: { all: All; data: Overview; no: number; nameOf: NameOf; onActions: (x: RiskAction[]) => void }) {
   const rs = all.records;
   const first = rs[0]?.date, last = rs.at(-1)?.date;
   const days = new Set(rs.map((r) => r.date)).size;
@@ -191,6 +196,37 @@ function Report({ all, data, no, nameOf }: { all: All; data: Overview; no: numbe
           </>
         )}
       </section>
+
+      {all.self.length > 0 && (
+        <section className="card space-y-2">
+          <h3 className="font-display text-xl"><Doodle name="clipboard" /> 학생 자기진단 <span className="text-sm text-soft">(학생이 스스로 고른 답 · 3점 만점)</span></h3>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[30rem] text-sm tabular-nums">
+              <thead>
+                <tr className="border-b border-line text-left text-xs text-soft">
+                  <th className="py-1.5 pr-2 font-normal">회차</th>
+                  {SEL_COMPS.map((c) => <th key={c.key} className="px-1 font-normal" style={{ color: c.color }}>{c.name}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {all.self.map((x) => (
+                  <tr key={x.round} className="border-b border-line/60">
+                    <td className="whitespace-nowrap py-1.5 pr-2">{x.title} <span className="text-xs text-soft">{label(x.openedAt)}</span></td>
+                    {selfComps(x.answers).map((v, i) => <td key={i} className={`px-1 ${v === 1 ? "font-bold text-alert" : ""}`}>{v.toFixed(1)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {(rs.some((r) => r.risk) || all.riskActions.length > 0) && (
+        <section className="card space-y-3">
+          <h3 className="font-display text-xl"><Doodle name="warning" /> 위험 표현과 조치 <span className="text-sm text-soft">(선생님만 · AI에 보내지 않음)</span></h3>
+          <RiskHistory records={rs} actions={all.riskActions} today={data.today} onChange={(x) => onActions(x.filter((a) => a.no === no))} />
+        </section>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="card space-y-2">

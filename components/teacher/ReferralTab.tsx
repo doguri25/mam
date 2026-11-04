@@ -4,6 +4,7 @@
 // 위 학생 명단 → 왼쪽 최근 2주 기록(화면에 고정)을 보며 오른쪽 의견서를 쓴다.
 import { useState } from "react";
 import Doodle from "../Doodle";
+import { kindsText } from "./RiskActions";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
@@ -13,7 +14,11 @@ type Draft = { flow: string; reasons: string; helps: string };
 
 export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: NameOf }) {
   // 선생님이 남긴 면담 메모는 AI에 보내지 않고, 「담임이 해 본 지원」 칸에만 미리 채워 둔다
-  const memo = (n: number | null) => data.notes.filter((x) => x.no === n).slice(0, 3).map((x) => `· ${label(x.createdAt.slice(0, 10))}: ${x.text}`).join("\n");
+  // 위험 표현 조치 기록도 함께(한 날 순서대로)
+  const memo = (n: number | null) => [
+    ...data.riskActions.filter((x) => x.no === n).map((x) => `· ${label(x.date)}: ${kindsText(x.kinds)}${x.note ? ` — ${x.note}` : ""}`),
+    ...data.notes.filter((x) => x.no === n).slice(0, 3).map((x) => `· ${label(x.createdAt.slice(0, 10))}: ${x.text}`),
+  ].join("\n");
   const first = data.flags[0]?.no ?? null;
   const [no, setNo] = useState<number | null>(first);
   const [draft, setDraft] = useState<Draft>({ flow: "", reasons: "", helps: "" });
@@ -84,7 +89,7 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
                 {box("1. 관찰된 정서 흐름", draft.flow, (v) => setDraft({ ...draft, flow: v }), 5, "AI 초안 — 사실과 다르면 고쳐 주세요")}
                 {box("2. 학생이 스스로 말한 까닭·상황", draft.reasons, (v) => setDraft({ ...draft, reasons: v }), 3)}
                 {box("3. 도움이 된 것으로 보이는 것", draft.helps, (v) => setDraft({ ...draft, helps: v }), 2)}
-                {box("4. 담임이 해 본 지원", tried, setTried, 3, "면담 메모에서 미리 채움(AI에는 보내지 않음)")}
+                {box("4. 담임이 해 본 지원", tried, setTried, 3, "위험 표현 조치 기록·면담 메모에서 미리 채움(AI에는 보내지 않음)")}
                 {box("5. 요청 사항", ask, setAsk, 2, "예: 개별 상담, 보호자 상담 연계")}
                 <footer className="border-t border-line pt-2 text-xs text-soft">
                   학생이 스스로 남긴 마음 기록과 담임 관찰을 정리한 참고 자료이며 진단이 아닙니다. 학교 위기관리·상담 절차에 따라 다뤄 주세요.

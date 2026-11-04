@@ -2,6 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useState } from "react";
 import Doodle from "../Doodle";
+import { RiskActionForm, RiskHistory } from "./RiskActions";
 import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
@@ -15,16 +16,13 @@ import { isHard } from "@/lib/shared";
 
 export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
   const { students, records, today, flags, settings, absent } = data;
   const todays = records.filter((r) => r.date === today);
   const alerts = records.filter((r) => r.risk && !r.riskChecked).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const flagKey = (no: number) => `${no}_${data.weekStart}`;
   const openFlags = flags.filter((f) => !settings.checks[flagKey(f.no)]);
 
-  async function checkAlert(id: string) {
-    await api("teacher", "checkAlert", { id });
-    await reload();
-  }
   async function checkFlag(no: number) {
     await api("teacher", "checkFlag", { key: flagKey(no) });
     await reload();
@@ -59,7 +57,11 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
                     <span className="block text-xs text-soft">{r.riskHits.length ? `걸린 말: ${r.riskHits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
                   </span>
                 </span>
-                <button onClick={() => checkAlert(r.id)} className="btn-sub min-h-10 text-sm">살펴봤어요</button>
+                {acting === r.id ? (
+                  <RiskActionForm recordId={r.id} today={today} first onCancel={() => setActing(null)} onDone={async () => { setActing(null); await reload(); }} />
+                ) : (
+                  <button onClick={() => setActing(r.id)} className="btn-sub min-h-10 text-sm">살펴봤어요</button>
+                )}
               </li>
             ))}
           </ul>
@@ -92,12 +94,13 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
                   onClick={() => setOpen(s.no)}
                   className={`rounded-2xl border p-2.5 text-left text-sm hover:border-leaf ${alerted ? "border-alert bg-alert-soft" : flagged ? "border-sun bg-[#fff8e1]" : gone ? "border-dashed border-soft/50" : "border-line"}`}
                 >
-                  <span className="flex justify-between gap-1 text-soft">
-                    <span className="flex min-w-0 items-center gap-1">
-                      <BuddyFace look={data.looks[s.no]} emotion={(pm ?? am)?.word || (pm ?? am)?.emotion} size={22} className="shrink-0" />
-                      <span className="truncate">{s.no} <b className="text-ink">{nameOf(s.no)}</b></span>
+                  {/* 살펴보기 신호는 마음 친구 얼굴 귀퉁이에 붙여 이름 자리를 줄이지 않는다(좁은 칸에서 「11 …」로 잘리던 것) */}
+                  <span className="flex min-w-0 items-center gap-1 text-soft">
+                    <span className="relative shrink-0">
+                      <BuddyFace look={data.looks[s.no]} emotion={(pm ?? am)?.word || (pm ?? am)?.emotion} size={22} />
+                      {(flagged || alerted) && <span aria-label="살펴보기 신호" className="absolute -right-1.5 -top-1.5 leading-none"><Doodle name={alerted ? "dotRed" : "dotYellow"} size={13} className="block" /></span>}
                     </span>
-                    {(flagged || alerted) && <span aria-label="살펴보기 신호"><Doodle name={alerted ? "dotRed" : "dotYellow"} /></span>}
+                    <span className="truncate">{s.no} <b className="text-ink">{nameOf(s.no)}</b></span>
                   </span>
                   <span className="mt-1.5 flex items-center gap-1">
                     {am ? <EmotionArt name={am.emotion} size={28} /> : <Empty />}
@@ -166,6 +169,12 @@ export default function MapTab({ data, reload, nameOf, onCheer }: { data: Overvi
             {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
             <ReflectBox reflects={data.reflects} no={open} />
             <Timeline records={records.filter((r) => r.no === open)} today={today} />
+            {(records.some((r) => r.no === open && r.risk) || data.riskActions.some((a) => a.no === open)) && (
+              <div className="border-t border-line pt-3">
+                <h3 className="mb-2 font-bold"><Doodle name="warning" /> 위험 표현과 조치</h3>
+                <RiskHistory records={records.filter((r) => r.no === open)} actions={data.riskActions.filter((a) => a.no === open)} today={today} onChange={reload} />
+              </div>
+            )}
             <div className="border-t border-line pt-3">
               <h3 className="mb-2 font-bold"><Doodle name="memo" /> 면담 메모</h3>
               <Notes no={open} notes={data.notes} reload={reload} />
