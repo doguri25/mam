@@ -30,7 +30,7 @@ test("IP: x-forwarded-for 첫 칸, 없으면 x-real-ip. 포트는 떼고 IPv6는
   assert.equal(L.waitText(61), "2분");
 });
 
-test("코드 로그인: 틀린 것만 세고, IP마다 30번이면 그 10분 칸 끝까지 막고, 다른 IP는 그대로", async () => {
+test("코드 로그인: 틀린 것만 세고, IP마다 정한 수만큼 틀리면 그 10분 칸 끝까지 막고, 다른 IP는 그대로", async () => {
   const now = T0 + 3 * MIN;
   for (let i = 0; i < 10; i++) await (await L.codeAttempt("1.1.1.1", now)).done(true); // 맞힌 로그인은 몇 번이든 세지 않음
   for (let i = 0; i < L.CODE_PER_IP; i++) {
@@ -44,7 +44,7 @@ test("코드 로그인: 틀린 것만 세고, IP마다 30번이면 그 10분 칸
   assert.equal((await L.codeAttempt("1.1.1.1", T0 + 10 * MIN)).wait, 0); // 다음 칸에는 다시
 });
 
-test("코드 로그인: 같은 IP에서 한꺼번에 100번 보내도 30번까지만 맞춰 본다", async () => {
+test("코드 로그인: 같은 IP에서 한꺼번에 100번 보내도 정한 수까지만 맞춰 본다", async () => {
   const now = T0 + 20 * MIN;
   const gates = await Promise.all(Array.from({ length: 100 }, () => L.codeAttempt("3.3.3.3", now)));
   assert.equal(gates.filter((g) => g.wait === 0).length, L.CODE_PER_IP);
