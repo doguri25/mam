@@ -74,6 +74,13 @@ export default function TeacherPage() {
   const names = useNames(raw?.space ?? "");
   const stamp = useRef<Stamp | null>(null);
 
+  // 잠그기·비밀번호가 풀렸을 때: 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
+  const lockOut = useCallback(() => {
+    writeCache(null);
+    stamp.current = null;
+    setNeedLogin(true);
+  }, []);
+
   // 처음·설정이 바뀌었을 때: 전부(최근 34일 기록)
   const load = useCallback(async () => {
     try {
@@ -82,8 +89,7 @@ export default function TeacherPage() {
       // 체험 표로는 정식 선생님 화면을 열지 않는다. 체험은 /try의 「선생님으로 둘러보기」(/teacher?try)로만 들어온다.
       if (o.trial && !new URLSearchParams(location.search).has("try")) {
         await api("try", "end");
-        writeCache(null);
-        setNeedLogin(true);
+        lockOut();
         return;
       }
       if (o.partial && c) {
@@ -98,12 +104,9 @@ export default function TeacherPage() {
       setRaw(o);
       setNeedLogin(false);
     } catch (e) {
-      if ((e as { status?: number }).status === 401) {
-        writeCache(null);
-        setNeedLogin(true);
-      }
+      if ((e as { status?: number }).status === 401) lockOut();
     }
-  }, []);
+  }, [lockOut]);
 
   // 20초마다 변경 표시(문서 1개)만 읽고, 기록만 바뀌었으면 바뀐 기록만 받아 합친다 → Firestore 읽기를 크게 줄임
   const poll = useCallback(async () => {
@@ -125,9 +128,9 @@ export default function TeacherPage() {
         return { ...o, records: merged };
       });
     } catch (e) {
-      if ((e as { status?: number }).status === 401) setNeedLogin(true);
+      if ((e as { status?: number }).status === 401) lockOut();
     }
-  }, [load]);
+  }, [load, lockOut]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load는 fetch가 끝난 뒤에만 setState한다
@@ -153,8 +156,7 @@ export default function TeacherPage() {
 
   const lock = async () => {
     await api("teacher", "logout");
-    writeCache(null);
-    setNeedLogin(true);
+    lockOut();
   };
   const badge: Partial<Record<Tab, number>> = {
     map: data.records.filter((r) => r.risk && !r.riskChecked).length,
