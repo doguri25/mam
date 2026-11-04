@@ -2,7 +2,8 @@
 import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { addDays, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelChecks, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
-import { db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
+import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
+import { claimOnce, signupSlot } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
@@ -103,7 +104,8 @@ export async function locateCode(code: string): Promise<string | null> {
 // ── 선생님 계정: 이름(로그인 이름) → 학급 공간 ──
 // 홍북초(TEACHER_NAME)는 처음부터 있던 반(앞이름 없는 공간)이라 계정 문서가 없다. 새 학급은 누구나 가입해 만든다.
 export const ROOT_NAME = process.env.TEACHER_NAME || "홍북초";
-export interface Account { id: string; name: string; space: string; createdAt: string }
+// lastLogin: 선생님이 마지막으로 들어온 때(빈 학급 정리 기준). seen: 이 칸이 생기기 전 학급을 정리가 처음 본 때.
+export interface Account { id: string; name: string; space: string; createdAt: string; lastLogin?: string; seen?: string }
 // 한글 채움 문자·폭 없는 글자는 지운다(「홍북초ㅤ」처럼 보이지 않는 글자로 홍북초인 척하는 이름을 막음)
 const tidy = (name: string) => name.normalize("NFC").replace(/[\u115F\u1160\u3164\uFFA0\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim();
 export const nameKey = (name: string) => tidy(name).toLowerCase();
@@ -116,15 +118,26 @@ export async function findAccount(name: string): Promise<Account | null> {
   return outOfSpace(() => db().get<Account>("accounts", id));
 }
 
-export async function createAccount(name: string, className: string, password: string): Promise<{ space: string; v: number } | { error: string }> {
+// opts.ip가 있으면 IP마다·하루 전체 만들 수 있는 수를 센다(signupSlot). 한도에 걸린 오류는 status 429.
+const DUP_NAME = "이미 있는 이름이에요. 학교·학년·반을 붙여 다르게 써 주세요(예: 홍북초 3-2 김민지).";
+export async function createAccount(name: string, className: string, password: string, opts: { ip?: string } = {}): Promise<{ space: string; v: number } | { error: string; status?: number }> {
   const clean = tidy(name);
   if (!validName(clean)) return { error: "이름은 2~20자 글자·숫자로 써 주세요." };
   if (!validPin(password)) return { error: "비밀번호는 숫자 4~12자리로 해 주세요." };
-  if (await findAccount(clean)) return { error: "이미 있는 이름이에요. 학교·학년·반을 붙여 다르게 써 주세요(예: 홍북초 3-2 김민지)." };
-  // 학급마다 모음이 10개쯤 생겨 MongoDB 무료(모음 500개) 한도를 넘지 않게 학급 수를 막는다(MAX_CLASSES로 바꿈)
-  if ((await outOfSpace(() => db().all("accounts"))).length >= (Number(process.env.MAX_CLASSES) || 40))
-    return { error: "더 만들 수 있는 학급 수를 넘었어요. 관리하시는 선생님께 알려 주세요." };
-  // ponytail: 같은 이름 두 가입이 같은 순간에 오면 나중 것이 계정을 덮어 먼저 만든 학급이 주인 없이 남는다. 생기면 「없을 때만 만들기」로.
+  if (await findAccount(clean)) return { error: DUP_NAME };
+  // 학급마다 모음이 8개 생겨 MongoDB 무료(모음 500개) 한도를 넘지 않게 학급 수를 막는다(MAX_CLASSES로 바꿈).
+  // 한도 가까이 오면 먼저 빈 학급을 정리해 자리를 낸다(10분에 한 번까지).
+  const max = Number(process.env.MAX_CLASSES) || 40;
+  const classes = async () => (await outOfSpace(() => db().all("accounts"))).length;
+  let n = await classes();
+  if (n >= max - 3 && (await claimOnce("cleanup:signup", String(Math.floor(Date.now() / 600_000))))) {
+    if ((await cleanupEmptyClasses()).length) n = await classes();
+  }
+  if (n >= max) return { error: "더 만들 수 있는 학급 수를 넘었어요. 관리하시는 선생님께 알려 주세요." };
+  if (opts.ip !== undefined) {
+    const limited = await signupSlot(opts.ip);
+    if (limited) return { error: limited, status: 429 };
+  }
   const space = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
   const pin = makePin(password, 1);
   // 비밀번호를 먼저 저장하고 계정을 연다(계정만 있고 비밀번호가 없는 학급이 생기지 않게)
@@ -133,8 +146,73 @@ export async function createAccount(name: string, className: string, password: s
     await db().set("meta", "account", { name: clean });
     await saveSettings({ ...defaultSettings(), className: className.trim().slice(0, 20) || defaultSettings().className });
   });
-  await outOfSpace(() => db().set("accounts", nameKey(clean), { id: nameKey(clean), name: clean, space, createdAt: new Date().toISOString() }));
+  // 계정은 「없을 때만」 만든다: 같은 이름 두 가입이 같은 순간에 오면 나중 것은 방금 만든 공간을 지우고 돌려보낸다
+  const now = new Date().toISOString();
+  const acc: Account = { id: nameKey(clean), name: clean, space, createdAt: now, lastLogin: now };
+  const saved = await outOfSpace(() => db().update<Account>("accounts", acc.id, (cur) => (cur ? undefined : acc)));
+  if (saved?.space !== space) {
+    await inSpace(space, () => db().drop("meta"));
+    return { error: DUP_NAME };
+  }
   return { space, v: pin.v };
+}
+
+// ── 빈 학급 정리: 가입만 하고 쓰지 않는 학급이 학급 수 한도(MAX_CLASSES)를 차지하지 않게 ──
+// 지우는 학급: 새로 가입한 학급(공간 c…)이면서 명단에 학생이 없고, 기록·응원·메모·쪽지·돌아보기·활동지·진단·조치 기록·차시가 하나도 없고,
+// 만든 지 CLEANUP_DAYS(14)일이 지났고, 선생님이 그동안 들어오지 않은 학급. 홍북초("")·체험(demo)은 계정 문서가 없어 대상이 아니다.
+export const CLEANUP_DAYS = 14;
+const CLASS_SPACE = /^c[0-9a-f]{8}$/;
+export interface ClassUse extends Account { students: number; data: boolean }
+export function emptyClassesToRemove<T extends ClassUse>(xs: T[], now: Date, days = CLEANUP_DAYS): T[] {
+  const cut = now.getTime() - days * 86_400_000;
+  const old = (iso?: string) => !!iso && Date.parse(iso) <= cut; // 날짜가 없거나 이상하면 지우지 않음
+  return xs.filter((x) => CLASS_SPACE.test(x.space) && x.students === 0 && !x.data && old(x.createdAt) && old(x.lastLogin ?? x.seen));
+}
+
+// 학급 공간 안을 들여다본다(학생이 있으면 더 읽지 않음)
+async function classUse(a: Account): Promise<ClassUse> {
+  return inSpace(a.space, async () => {
+    const students = (await getRoster()).length;
+    if (students) return { ...a, students, data: true };
+    const counts = await Promise.all([...DATED.map(([col, f]) => db().count(col, f, ">=", "")), db().count("meta", "kind", "==", "selfAnswer")]);
+    const lists = await Promise.all(["selChecks", "riskActions", "selfRounds", "lessons"].map((id) => db().get<{ items?: unknown[] }>("meta", id)));
+    return { ...a, students, data: counts.some((c) => c > 0) || lists.some((d) => !!d?.items?.length) };
+  });
+}
+
+// 정리하고 지운 학급 이름을 돌려준다. 무엇을 지웠는지는 서버 기록과 sys/cleanupLog(최근 100건)에 남긴다.
+export async function cleanupEmptyClasses(now = new Date()): Promise<string[]> {
+  const accounts = await outOfSpace(() => db().all<Account>("accounts"));
+  // 이 칸이 생기기 전 학급(마지막 로그인을 모름)은 오늘 처음 본 것으로 적어 두고 14일 더 기다린다
+  for (const a of accounts.filter((x) => CLASS_SPACE.test(x.space) && !x.lastLogin && !x.seen)) {
+    await outOfSpace(() => db().update<Account>("accounts", a.id, (cur) => (cur && !cur.lastLogin && !cur.seen ? { ...cur, seen: now.toISOString() } : undefined)));
+  }
+  // 날짜로 먼저 거르고(읽기를 줄임) 남은 학급만 안을 본다
+  const maybe = emptyClassesToRemove(accounts.map((a) => ({ ...a, students: 0, data: false })), now);
+  const gone: string[] = [];
+  for (const u of emptyClassesToRemove(await Promise.all(maybe.map(classUse)), now)) {
+    // 지우기 직전에 다시 확인: 그사이 선생님이 들어왔으면 그대로 둔다
+    const fresh = await outOfSpace(() => db().get<Account>("accounts", u.id));
+    if (!fresh || fresh.space !== u.space || fresh.lastLogin !== u.lastLogin) continue;
+    await inSpace(u.space, async () => {
+      for (const col of SPACE_COLS) await db().drop(col);
+    });
+    await outOfSpace(async () => {
+      await db().delWhere("codes", "space", "==", u.space);
+      await db().del("accounts", u.id);
+      const entry = { at: now.toISOString(), name: u.name, space: u.space, createdAt: u.createdAt, lastLogin: u.lastLogin ?? u.seen ?? "" };
+      await db().update<{ items: (typeof entry)[] }>("sys", "cleanupLog", (cur) => ({ items: [...(cur?.items ?? []), entry].slice(-100) }));
+    });
+    console.info("[빈 학급 정리] 지움:", JSON.stringify({ name: u.name, space: u.space, createdAt: u.createdAt, lastLogin: u.lastLogin ?? u.seen }));
+    gone.push(u.name);
+  }
+  return gone;
+}
+
+// 선생님이 맞는 비밀번호로 들어왔을 때: 마지막 로그인을 적고(새 학급만 — 계정 문서가 있는 학급), 하루 한 번 빈 학급을 정리한다
+export async function noteTeacherLogin(acc: Account, now = new Date()) {
+  if (acc.space) await outOfSpace(() => db().update<Account>("accounts", acc.id, (cur) => (cur ? { ...cur, lastLogin: now.toISOString() } : undefined)));
+  if (await claimOnce("cleanup", today(now))) await cleanupEmptyClasses(now);
 }
 
 // 화면 위에 보일 계정 이름

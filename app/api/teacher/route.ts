@@ -1,7 +1,7 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
-import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, setConsent } from "@/lib/data";
+import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, noteTeacherLogin, setConsent } from "@/lib/data";
 import { clientIp, passwordAttempt, waitText } from "@/lib/limit";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
@@ -63,13 +63,14 @@ async function handle(req: NextRequest) {
         const r = checkPassword(String(body.password ?? ""), pin);
         await gate.done(r.ok);
         if (!r.ok) return bad("이름이나 비밀번호가 맞지 않아요.", 401);
+        after(() => noteTeacherLogin(acc).catch((e) => console.error("로그인 기록·빈 학급 정리 실패", e)));
         return withTeacherCookie(pin?.v ?? 0);
       });
     }
-    // 새 학급 만들기(누구나): 이름·학급 이름·비밀번호. AI 키는 들어간 뒤 「설정」에서 각자 넣는다.
+    // 새 학급 만들기(누구나): 이름·학급 이름·비밀번호. AI 키는 들어간 뒤 「설정」에서 각자 넣는다. IP마다·하루 전체 만들 수 있는 수가 있다.
     if (body.action === "signup") {
-      const r = await createAccount(String(body.name ?? ""), String(body.className ?? ""), String(body.password ?? ""));
-      if ("error" in r) return bad(r.error);
+      const r = await createAccount(String(body.name ?? ""), String(body.className ?? ""), String(body.password ?? ""), { ip: clientIp(req.headers) });
+      if ("error" in r) return bad(r.error, r.status ?? 400);
       return inSpace(r.space, () => withTeacherCookie(r.v));
     }
     const pin = await getPin();
