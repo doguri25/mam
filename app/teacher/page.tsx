@@ -20,7 +20,7 @@ import RosterTab from "@/components/teacher/RosterTab";
 import SettingsTab from "@/components/teacher/SettingsTab";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
 import { api } from "@/lib/api";
-import { addDays } from "@/lib/date";
+import { addDays, today as kToday } from "@/lib/date";
 import { useLocal, useNames } from "@/lib/local";
 import { absentStudents, watchFlags } from "@/lib/rules";
 import type { MoodRecord } from "@/lib/shared";
@@ -71,8 +71,12 @@ export default function TeacherPage() {
     window.scrollTo(0, 0);
   };
   const [cheerNo, setCheerNo] = useState<number | null>(null);
+  // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(자기진단·누적 기록)도 다시 불러온다
+  const [version, setVersion] = useState(0);
   const names = useNames(raw?.space ?? "");
   const stamp = useRef<Stamp | null>(null);
+  const day = useRef(""); // 불러온 「오늘」(한국 날짜)
+  const dayTried = useRef(""); // 날짜가 바뀌어 다시 불러온 날(기기 시계가 틀려도 한 번만)
 
   // 잠그기·비밀번호가 풀렸을 때: 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
   const lockOut = useCallback(() => {
@@ -101,16 +105,25 @@ export default function TeacherPage() {
       }
       keep(o.records, o.stamp, o.dataPrefix);
       stamp.current = o.stamp;
+      day.current = o.today;
       setRaw(o);
+      setVersion((v) => v + 1);
       setNeedLogin(false);
     } catch (e) {
       if ((e as { status?: number }).status === 401) lockOut();
+      else dayTried.current = ""; // 날짜가 바뀌어 불렀는데 실패했으면 다음 확인 때 다시
     }
   }, [lockOut]);
 
   // 20초마다 변경 표시(문서 1개)만 읽고, 기록만 바뀌었으면 바뀐 기록만 받아 합친다 → Firestore 읽기를 크게 줄임
   const poll = useCallback(async () => {
     if (document.visibilityState !== "visible" || !stamp.current) return;
+    // 자정이 지나 한국 날짜가 바뀌었으면 「오늘」·이번 주를 새로 받는다
+    const now = kToday();
+    if (now !== day.current && now !== dayTried.current) {
+      dayTried.current = now;
+      return load();
+    }
     try {
       const s = await api<Stamp>("teacher", "stamp");
       const prev = stamp.current;
@@ -127,6 +140,7 @@ export default function TeacherPage() {
         keep(merged, next, o.dataPrefix);
         return { ...o, records: merged };
       });
+      setVersion((v) => v + 1);
     } catch (e) {
       if ((e as { status?: number }).status === 401) lockOut();
     }
@@ -258,9 +272,9 @@ export default function TeacherPage() {
           {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
           {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}
-          {tab === "student" && <StudentTab data={data} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} />}
+          {tab === "student" && <StudentTab data={data} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} version={version} />}
           {tab === "sel" && <SelCheckTab data={data} />}
-          {tab === "self" && <SelfCheckTab data={data} nameOf={nameOf} />}
+          {tab === "self" && <SelfCheckTab data={data} nameOf={nameOf} version={version} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
           {tab === "home" && <NewsletterTab data={data} />}
           {tab === "lesson" && <LessonTab data={data} reload={load} />}

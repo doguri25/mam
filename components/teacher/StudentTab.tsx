@@ -38,22 +38,28 @@ function Tile({ big, label: name, sub }: { big: string | number; label: string; 
   );
 }
 
-export default function StudentTab({ data, nameOf, no, setNo }: { data: Overview; nameOf: NameOf; no: number | null; setNo: (n: number) => void }) {
-  const [all, setAll] = useState<All | null>(null);
-  const [err, setErr] = useState("");
+// version: 선생님 화면이 다시 불러오거나 새 기록을 합칠 때마다 바뀐다 → 보고 있는 학생 기록도 다시 불러온다
+export default function StudentTab({ data, nameOf, no, setNo, version }: { data: Overview; nameOf: NameOf; no: number | null; setNo: (n: number) => void; version: number }) {
+  // 받아 온 기록·오류는 어느 학생 것인지 함께 둔다(다른 학생을 고르면 그 학생 것이 올 때까지 「불러오는 중」)
+  const [got, setGot] = useState<{ no: number; all: All } | null>(null);
+  const [fail, setFail] = useState<{ no: number; msg: string } | null>(null);
   const s = data.students.find((x) => x.no === no);
 
   useEffect(() => {
     if (no == null) return;
     let live = true;
-    api<All>("teacher", "studentAll", { no }).then((r) => live && setAll(r), (e) => live && setErr((e as Error).message));
+    api<All>("teacher", "studentAll", { no }).then(
+      (r) => { if (live) { setGot({ no, all: r }); setFail(null); } },
+      (e) => { if (live) setFail({ no, msg: (e as Error).message }); },
+    );
     return () => { live = false; };
-  }, [no]);
+  }, [no, version]);
 
-  const pick = (n: number) => { setAll(null); setErr(""); setNo(n); };
+  const all = got?.no === no ? got.all : null;
+  const err = fail?.no === no && !all ? fail.msg : "";
   return (
     <div className="space-y-4">
-      <StudentStrip data={data} no={no} nameOf={nameOf} onPick={pick} />
+      <StudentStrip data={data} no={no} nameOf={nameOf} onPick={setNo} />
       {!s ? (
         <div className="card text-soft">위에서 학생을 골라 주세요. 처음부터 지금까지 남긴 기록과 활동지 피드백을 한곳에 모아 보여 줘요.</div>
       ) : err ? (
@@ -61,7 +67,7 @@ export default function StudentTab({ data, nameOf, no, setNo }: { data: Overview
       ) : !all ? (
         <div className="card text-soft">불러오는 중…</div>
       ) : (
-        <Report all={all} data={data} no={s.no} nameOf={nameOf} onActions={(riskActions) => setAll({ ...all, riskActions })} />
+        <Report all={all} data={data} no={s.no} nameOf={nameOf} onActions={(riskActions) => setGot({ no: s.no, all: { ...all, riskActions } })} />
       )}
     </div>
   );

@@ -2,7 +2,7 @@
 // 학생 자기진단(학생 화면 이름 「마음 점검」): 회차를 열면 학생 화면 맨 앞에 「마음 점검」이 생기고, 닫으면 사라진다.
 // 학생은 10문장(5개 역량 × 2)에 「그래요 · 가끔 그래요 · 아니에요」로 답한다. 결과는 반 평균·문항별 응답·학생별 점수를
 // 지난 회차(학기 초 ↔ 학기 말)와 견주고, 선생님 「학급 역량 진단」과 같은 눈금(0~100)으로 나란히 보여 준다. 선생님만 본다.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
@@ -19,7 +19,8 @@ const ANS = [
   { v: 1, name: "아니에요", color: "#C9C3B8" },
 ] as const;
 
-export default function SelfCheckTab({ data, nameOf }: { data: Overview; nameOf: NameOf }) {
+// version: 선생님 화면이 다시 불러오거나 새 기록을 합칠 때마다 바뀐다 → 학생이 새로 답한 것도 보이게 다시 불러온다
+export default function SelfCheckTab({ data, nameOf, version }: { data: Overview; nameOf: NameOf; version: number }) {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [view, setView] = useState<string | null>(null); // 보고 있는 회차
@@ -28,18 +29,30 @@ export default function SelfCheckTab({ data, nameOf }: { data: Overview; nameOf:
   const [busy, setBusy] = useState(false);
   const [sure, setSure] = useState<string | null>(null); // 지우기 한 번 더 묻기
   const [hide, setHide] = useState(false);
+  const first = useRef(true); // 처음 불러올 때만 볼 회차·견줄 회차를 골라 준다
 
   useEffect(() => {
+    let live = true;
     api<Data>("teacher", "selfChecks").then((r) => {
+      if (!live) return;
       setD(r);
-      const withAns = r.rounds.filter((x) => r.answers.some((a) => a.round === x.id));
-      const last = withAns.at(-1) ?? r.rounds.at(-1);
-      setView(last?.id ?? null);
-      setBase(withAns.filter((x) => x.id !== last?.id).at(-1)?.id ?? null);
-      // 열린 회차가 없으면 다음 회차 이름을 짐작(학기 초가 있으면 학기 말)
-      if (r.rounds.some((x) => x.title === TITLES[0])) setTitle(TITLES[1]);
-    }, (e) => setErr((e as Error).message));
-  }, []);
+      const has = (id: string | null) => !!id && r.rounds.some((x) => x.id === id);
+      if (first.current) {
+        first.current = false;
+        const withAns = r.rounds.filter((x) => r.answers.some((a) => a.round === x.id));
+        const last = withAns.at(-1) ?? r.rounds.at(-1);
+        setView(last?.id ?? null);
+        setBase(withAns.filter((x) => x.id !== last?.id).at(-1)?.id ?? null);
+        // 열린 회차가 없으면 다음 회차 이름을 짐작(학기 초가 있으면 학기 말)
+        if (r.rounds.some((x) => x.title === TITLES[0])) setTitle(TITLES[1]);
+      } else {
+        // 다시 불러올 때는 고른 회차를 그대로 두고, 다른 기기에서 지운 회차만 정리한다
+        setView((v) => (has(v) ? v : r.rounds.at(-1)?.id ?? null));
+        setBase((b) => (has(b) ? b : null));
+      }
+    }, (e) => { if (live) setErr((e as Error).message); });
+    return () => { live = false; };
+  }, [version]);
 
   async function act(action: string, body: Record<string, unknown>) {
     setBusy(true);
@@ -60,7 +73,8 @@ export default function SelfCheckTab({ data, nameOf }: { data: Overview; nameOf:
   const open = d.rounds.find((r) => !r.closedAt);
   const of = (id: string | null) => d.answers.filter((a) => a.round === id);
   const round = d.rounds.find((r) => r.id === view);
-  const now = of(view), before = of(base);
+  const baseId = base === view ? null : base; // 보는 회차를 자기 자신과 견주지 않게
+  const now = of(view), before = of(baseId);
   const who = (no: number) => (hide ? `${no}번` : `${no} ${nameOf(no)}`);
 
   return (
@@ -101,13 +115,13 @@ export default function SelfCheckTab({ data, nameOf }: { data: Overview; nameOf:
         <section className="no-print flex flex-wrap items-end gap-3">
           <label className="text-sm">
             <span className="block text-soft">볼 회차</span>
-            <select value={view ?? ""} onChange={(e) => setView(e.target.value)} className="field mt-1 min-h-11 py-2">
+            <select value={view ?? ""} onChange={(e) => { setView(e.target.value); if (e.target.value === base) setBase(null); }} className="field mt-1 min-h-11 py-2">
               {d.rounds.map((r) => <option key={r.id} value={r.id}>{r.title} · {label(r.openedAt)} ({of(r.id).length}명)</option>)}
             </select>
           </label>
           <label className="text-sm">
             <span className="block text-soft">견줄 회차</span>
-            <select value={base ?? ""} onChange={(e) => setBase(e.target.value || null)} className="field mt-1 min-h-11 py-2">
+            <select value={baseId ?? ""} onChange={(e) => setBase(e.target.value || null)} className="field mt-1 min-h-11 py-2">
               <option value="">견주지 않기</option>
               {d.rounds.filter((r) => r.id !== view).map((r) => <option key={r.id} value={r.id}>{r.title} · {label(r.openedAt)}</option>)}
             </select>
@@ -128,7 +142,7 @@ export default function SelfCheckTab({ data, nameOf }: { data: Overview; nameOf:
       ) : !now.length ? (
         <div className="card text-soft">「{round.title}」에 아직 답한 학생이 없어요.</div>
       ) : (
-        <Results data={data} d={d} round={round} base={d.rounds.find((r) => r.id === base) ?? null} now={now} before={before} who={who} />
+        <Results data={data} d={d} round={round} base={d.rounds.find((r) => r.id === baseId) ?? null} now={now} before={before} who={who} />
       )}
     </div>
   );
