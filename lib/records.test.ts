@@ -234,3 +234,21 @@ test("마치지 않은 글에 이어 적는 사이 그 글의 조치 기록이 �
     assert.equal((await D.getRiskActions()).find((a) => a.id === "plain")!.recordId, DRAFT);
   });
 });
+
+test("느린 기기 시계로 그날 0시로 당겨진 담아 둔 기록 둘은 판이 겹치지 않는다(앞 글만 본 「살펴봤어요」가 뒤 글까지 닫지 않게)", () => {
+  const zero = at(0);
+  const a = D.mergeRecord(null, save({ ...rec("죽고 싶어", zero), saveId: "a1" }, true))!;
+  const b = D.mergeRecord(a, save({ ...rec("친구가 때려서 죽고 싶어", zero), saveId: "b2" }, true))!;
+  assert.notEqual(b.createdAt, a.createdAt);
+  assert.ok(Date.parse(b.createdAt) > Date.parse(a.createdAt));
+  assert.notEqual(b.riskAt, a.riskAt); // 선생님이 a를 본 판(riskAt)으로는 닫히지 않는다(409)
+  assert.equal(b.summary, "친구가 때려서 죽고 싶어");
+  assert.deepEqual(b.prev?.map((p) => p.summary), ["죽고 싶어"]);
+  assert.equal(riskySource(b).text.includes("죽고 싶어"), true);
+  // 셋째도 같은 0시로 오면 앞 기록 자리와도 겹치지 않게
+  const c = D.mergeRecord(b, save({ ...rec("오늘 학교 싫어 죽고 싶어", zero), saveId: "c3" }, true))!;
+  const times = [c.createdAt, ...(c.prev ?? []).map((p) => p.createdAt)];
+  assert.equal(new Set(times).size, times.length);
+  // 같은 이름으로 다시 오면(답을 잃은 다시 보냄) 그대로
+  assert.equal(D.mergeRecord(c, save({ ...rec("오늘 학교 싫어 죽고 싶어", zero), saveId: "c3" }, true)), null);
+});

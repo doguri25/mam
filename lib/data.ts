@@ -437,7 +437,18 @@ export interface RecordSave {
 // · 끊겼을 때 담아 둔 기록이 이미 저장된 기록보다 먼저 만든 것이면 덮어쓰지 않고 앞 기록으로만 끼워 넣는다.
 // 읽고 고쳐 쓰기를 한 번에 하므로(saveMoodRecord) 겹치면 다시 불린다 → cur만 보고 정한다(나중에 끝난 저장이 앞 저장을 몰래 덮어 위험한 글을 잃지 않게).
 export function mergeRecord(cur: MoodRecord | null, s: RecordSave, now = new Date()): MoodRecord | null {
-  const { rec, own, alertNew } = s;
+  const { own, alertNew } = s;
+  // 담아 둔 기록의 만든 때가 이미 있는 판과 꼭 같으면(느린 기기 시계라 둘 다 그날 0시로 당겨짐) 1ms씩 뒤로 민다:
+  // 판(createdAt·riskAt)이 같으면 선생님이 앞 글만 보고 누른 「살펴봤어요」가 409 없이 뒤 글까지 닫고, 알림이 가리키는 판(riskSrc)도 헷갈린다.
+  let rec = s.rec;
+  if (cur && s.queued) {
+    const taken = new Set([cur.createdAt, ...(cur.prev ?? []).map((p) => p.createdAt)].map(timeOf));
+    let t = timeOf(rec.createdAt);
+    if (taken.has(t)) {
+      while (taken.has(t)) t++;
+      rec = { ...rec, createdAt: new Date(t).toISOString() };
+    }
+  }
   const createdAt = rec.createdAt;
   const named = !!rec.saveId;
   const sameName = (x: { saveId?: string }) => x.saveId === rec.saveId;
