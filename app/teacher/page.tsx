@@ -116,7 +116,10 @@ export default function TeacherPage() {
     }
   }, [lockOut]);
 
-  // 20초마다 변경 표시(문서 1개)만 읽고, 기록만 바뀌었으면 바뀐 기록만 받아 합친다 → Firestore 읽기를 크게 줄임
+  // 20초마다 변경 표시(문서 1개)만 읽고, 기록만 바뀌었으면 바뀐 기록만 받아 합친다 → Firestore 읽기를 크게 줄임.
+  // other(쪽지·돌아보기·명단 등)나 wipe(지움·연습 데이터)가 바뀌었으면 통째로 다시 읽는다. 바뀐 기록을 받는 사이에
+  // other·wipe가 바뀌었어도(받은 stamp에 담겨 옴) 통째로 다시 읽는다 — 그 값을 그대로 적어 두면 다음 확인이 바뀐 것을 못 본다.
+  // 기록만 합칠 때는 records 칸만 앞으로 옮기고 other·wipe는 이 기기가 실제로 읽은 판 그대로 둔다(저장해 둔 기록도 그 판으로).
   const poll = useCallback(async () => {
     if (document.visibilityState !== "visible" || !stamp.current) return;
     // 자정이 지나 한국 날짜가 바뀌었으면 「오늘」·이번 주를 새로 받는다
@@ -128,17 +131,22 @@ export default function TeacherPage() {
     try {
       const s = await api<Stamp>("teacher", "stamp");
       const prev = stamp.current;
-      if (s.other !== prev.other) return load();
+      if (!prev) return;
+      const moved = (x: Stamp) => x.other !== prev.other || (x.wipe ?? 0) !== (prev.wipe ?? 0);
+      if (moved(s)) return load();
       if (s.records === prev.records) return;
       const { records, stamp: next } = await api<{ records: MoodRecord[]; stamp: Stamp }>("teacher", "changes", { since: prev.records - 5000 });
-      stamp.current = next;
+      if (stamp.current !== prev) return; // 그사이 통째로 다시 읽었으면(잠금·다른 다시 읽기) 이 결과는 버린다
+      if (moved(next)) return load();
+      const safe: Stamp = { ...prev, records: next.records };
+      stamp.current = safe;
       setRaw((o) => {
         if (!o) return o;
         const byId = new Map(o.records.map((r) => [r.id, r]));
         for (const r of records) byId.set(r.id, r);
         const from = addDays(o.today, -34);
         const merged = [...byId.values()].filter((r) => r.date >= from);
-        keep(merged, next, o.dataPrefix);
+        keep(merged, safe, o.dataPrefix);
         return { ...o, records: merged };
       });
       setVersion((v) => v + 1);
@@ -161,7 +169,8 @@ export default function TeacherPage() {
     flags: watchFlags(raw.records, raw.today, raw.settings.rules),
     absent: absentStudents(raw.records, raw.students.map((s) => s.no), raw.today, raw.settings.rules.absentDays),
   };
-  const nameOf = (no: number) => names.name(no, data.students.find((s) => s.no === no)?.alias ?? `${no}번`);
+  // 명단에서 빠진 번호(지운 학생·연습 학생에게 간 쪽지 등)는 「14번 14번」이 되지 않게 따로 알린다
+  const nameOf = (no: number) => names.name(no, data.students.find((s) => s.no === no)?.alias ?? "(명단에 없음)");
 
   async function clearDemo() {
     if (!confirm("연습용(시연) 기록을 지울까요? 연습용 명단이면 명단·응원·메모도 함께 지워져요. 실제로 남긴 기록은 그대로예요.")) return;
@@ -290,7 +299,7 @@ export default function TeacherPage() {
           {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
           {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}
-          {tab === "student" && <StudentTab data={data} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} version={version} />}
+          {tab === "student" && <StudentTab data={data} reload={load} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} version={version} />}
           {tab === "sel" && <SelCheckTab data={data} />}
           {tab === "self" && <SelfCheckTab data={data} nameOf={nameOf} version={version} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
