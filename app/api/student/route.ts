@@ -145,8 +145,10 @@ async function handle(req: NextRequest, body: Body) {
         const mineAns = await db().get<SelfAnswer>("meta", id);
         return NextResponse.json({ round: { id: round.id, title: round.title }, answers: mineAns?.answers ?? null });
       }
+      // 답하는 사이 선생님이 새 회차를 열었으면 앞 회차 답을 새 회차에 넣지 않고 알린다(화면이 새 회차를 다시 읽는다)
+      if (body.round !== round.id) return bad("마음 점검이 새로 열렸어요. 처음부터 다시 해 주세요.", 409);
       const answers = cleanSelfAnswers(body.answers);
-      if (!answers || body.round !== round.id) return bad("답이 다 채워지지 않았어요.");
+      if (!answers) return bad("답이 다 채워지지 않았어요.");
       const a: SelfAnswer = { kind: "selfAnswer", round: round.id, no: s.no, answers, at: new Date().toISOString(), ...(isDemo() || s.demo ? { demo: true } : {}) };
       await db().set("meta", id, { ...a });
       await touch("other");
@@ -215,9 +217,10 @@ async function handle(req: NextRequest, body: Body) {
         sent: sent.sort(newest).slice(0, 20).map((l) => ({ id: l.id, text: l.text, to: name(l.to), status: l.status, at: l.createdAt })),
       });
     }
+    // 읽음 표시만 한 번에 고친다(읽고 통째로 다시 쓰면 그 사이 선생님이 살펴본 표시·고친 글을 덮는다). 없는 쪽지는 만들지 않는다.
     if (body.action === "readLetter") {
-      const l = await db().get<Letter>("letters", String(body.id));
-      if (l && l.to === s.no && !l.readAt) await db().set("letters", l.id, { ...l, readAt: new Date().toISOString() });
+      const at = new Date().toISOString();
+      await db().update<Letter>("letters", String(body.id), (l) => (l && l.to === s.no && !l.readAt ? { ...l, readAt: at } : undefined));
       return NextResponse.json({ ok: true });
     }
 
@@ -393,7 +396,7 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   const date = opt.date ?? today();
   const summary = String(r.summary ?? "").slice(0, 180);
   const answer = String(r.answer ?? "").slice(0, 120);
-  const lang = isLang(r.lang) ? r.lang : "ko";
+  const lang: Lang = isLang(r.lang) ? r.lang : "ko";
   const summaryKo = lang !== "ko" ? String(r.summaryKo ?? "").slice(0, 120) : "";
   const hits = matchRisk([summary, answer, summaryKo].filter(Boolean).join(" "), settings.riskWords);
   const own = hits.length > 0 || r.aiRisk === true;
@@ -417,9 +420,10 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   };
   const old = await db().get<MoodRecord>("records", id);
   let saved: MoodRecord = own ? { ...rec, riskAt: createdAt } : rec;
-  if (old && opt.madeAt && old.createdAt > createdAt) {
+  // 시각은 글자가 아니라 때로 견준다(체험 반 기록처럼 「+09:00」로 적힌 시각과 「Z」 시각이 섞여도)
+  if (old && opt.madeAt && timeOf(old.createdAt) > timeOf(createdAt)) {
     // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로)
-    const prev = trimPrev([...(old.prev ?? []), toPrev(rec)].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+    const prev = trimPrev([...(old.prev ?? []), toPrev(rec)].sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt)));
     saved = own
       ? { ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])], riskAt: new Date().toISOString() }
       : { ...old, prev };
@@ -444,8 +448,12 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     console.error("마치지 않은 위험 표현 정리 실패", e);
   }
   if (own) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
-  return NextResponse.json({ record: publicRecord(saved) });
+  // 학생이 쓴 글(되묻기 답·말한 문장)에 위험한 말이 있었으면 화면이 응원·축하 대신 고맙다는 말을 보이게 그 말만 보낸다(위험 표시·걸린 말은 보내지 않음)
+  return NextResponse.json({ record: publicRecord(saved), ...(hits.length ? { reply: RISK_REPLY[lang] } : {}) });
 }
+
+// 적힌 시각을 밀리초로(읽지 못하면 0 = 가장 앞)
+const timeOf = (x: string | undefined) => Date.parse(x ?? "") || 0;
 
 // 앞 기록은 PREV_MAX개까지. 넘치면 위험하지 않은 오래된 것부터 뺀다(위험한 글이 다시 남기기로 밀려나 사라지지 않게, 위험한 글은 두 배까지)
 function trimPrev(list: PrevVersion[]): PrevVersion[] {
