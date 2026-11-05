@@ -60,6 +60,10 @@ const basePrefix = (o: { dataPrefix: string; space: string }) => (o.space ? o.da
 const keep = (records: MoodRecord[], stamp: Stamp, prefix: string) =>
   writeCache({ prefix, wipe: stamp.wipe ?? 0, at: stamp.records, records });
 const LOAD_STUCK_MS = 60_000; // 다시 읽기 답을 이만큼 기다렸으면 멈춘 것으로 보고 변경 확인을 다시 한다
+// 아직 아무것도 불러오지 못했을 때(처음 열 때·비밀번호로 들어온 뒤) 실패하면 2·4·8·16·30초…마다 다시 해 본다.
+// 20초 변경 확인은 불러온 판(stamp)이 있어야 돌아서, 이것이 없으면 첫 실패 한 번에 「불러오는 중…」에서 멈춘다.
+const RETRY_FIRST_MS = 2_000;
+const RETRY_MAX_MS = 30_000;
 
 export default function TeacherPage() {
   const [raw, setRaw] = useState<OverviewRaw | null>(null);
@@ -93,6 +97,35 @@ export default function TeacherPage() {
   // 답이 오지 않고 멈춘 요청이 변경 확인을 영영 막지 않게 LOAD_STUCK_MS가 지나면 기다리지 않는다.
   const loading = useRef<{ my: number; at: number } | null>(null);
   const loadBusy = useCallback(() => !!loading.current && Date.now() - loading.current.at < LOAD_STUCK_MS, []);
+  // 처음 불러오기를 다시 해 보기: n = 몇 번째, timer = 기다리는 중, hidden = 화면이 가려져 미뤄 둠(다시 보이면 바로).
+  // 늘 같은 객체를 고쳐 쓴다(정리 함수가 처음 잡은 것을 그대로 쓰게)
+  const retry = useRef<{ n: number; timer?: ReturnType<typeof setTimeout>; hidden: boolean }>({ n: 0, hidden: false });
+  const [retrying, setRetrying] = useState(false);
+  const failed = useRef<Error | null>(null); // 마지막 다시 읽기가 실패했으면 그 오류(비밀번호로 들어온 뒤 알리려고)
+  const loadNow = useRef<() => Promise<void>>(async () => {}); // 기다렸다 부를 다시 읽기(load가 아래에 있어 이름으로 잇는다)
+  const stopRetry = useCallback(() => {
+    clearTimeout(retry.current.timer);
+    retry.current.timer = undefined;
+    retry.current.n = 0;
+    retry.current.hidden = false;
+    setRetrying(false);
+  }, []);
+  const retryLater = useCallback(() => {
+    const a = retry.current;
+    clearTimeout(a.timer);
+    const wait = Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** a.n);
+    a.n++;
+    a.timer = setTimeout(() => {
+      a.timer = undefined;
+      if (locked.current || stamp.current) return; // 그사이 잠갔거나 다른 다시 읽기가 불러왔다
+      if (document.visibilityState !== "visible") {
+        a.hidden = true; // 가려진 동안은 부르지 않고, 다시 보이면 바로
+        return;
+      }
+      void loadNow.current();
+    }, wait);
+    setRetrying(true);
+  }, []);
 
   // 잠그기·「학생 화면」을 누른 그때: 늦게 오는 응답을 모두 버리고, 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
   const freeze = useCallback(() => {
@@ -101,7 +134,8 @@ export default function TeacherPage() {
     stamp.current = null;
     loading.current = null;
     writeCache(null);
-  }, []);
+    stopRetry();
+  }, [stopRetry]);
   // 잠그기·비밀번호가 풀렸을 때: 위 + 위험 표현 글이 든 화면 데이터도 버리고 비밀번호 화면으로
   const lockOut = useCallback(() => {
     freeze();
@@ -146,20 +180,33 @@ export default function TeacherPage() {
       keep(o.records, o.stamp, o.dataPrefix);
       stamp.current = o.stamp;
       day.current = o.today;
+      failed.current = null;
+      stopRetry();
       show(o);
       setNeedLogin(false);
     } catch (e) {
       if (locked.current || my <= epoch.current) return; // 잠근 뒤에 온 실패는 볼 것 없음
+      failed.current = e as Error;
       if ((e as { status?: number }).status === 401) lockOut();
-      else dayTried.current = ""; // 날짜가 바뀌어 불렀는데 실패했으면 다음 확인 때 다시
+      else {
+        dayTried.current = ""; // 날짜가 바뀌어 불렀는데 실패했으면 다음 확인 때 다시
+        // 아직 불러온 것이 없으면(변경 확인이 돌지 않음) 조금 뒤 다시. 불러온 것이 있으면 20초 변경 확인이 이어 간다.
+        if (!stamp.current) retryLater();
+      }
     } finally {
       if (loading.current?.my === my) loading.current = null;
     }
-  }, [fresh, show, freeze, lockOut]);
-  // 비밀번호로 다시 들어왔을 때만 잠금을 푼다(잠금 전에 떠난 응답은 epoch로 계속 버림)
-  const unlock = useCallback(() => {
+  }, [fresh, show, freeze, lockOut, stopRetry, retryLater]);
+  useEffect(() => {
+    loadNow.current = load;
+  }, [load]);
+  // 비밀번호로 다시 들어왔을 때만 잠금을 푼다(잠금 전에 떠난 응답은 epoch로 계속 버림).
+  // 들어온 뒤 불러오기가 실패했으면 로그인 화면이 알리도록 그 오류를 던진다(다시 해 보기는 뒤에서 이어 간다).
+  const unlock = useCallback(async () => {
     locked.current = false;
-    return load();
+    failed.current = null;
+    await load();
+    if (failed.current && !stamp.current) throw failed.current;
   }, [load]);
 
   // 20초마다 변경 표시(문서 1개)만 읽고, 기록만 바뀌었으면 바뀐 기록만 받아 합친다 → Firestore 읽기를 크게 줄임.
@@ -209,11 +256,38 @@ export default function TeacherPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load는 fetch가 끝난 뒤에만 setState한다
     load();
     const t = setInterval(poll, 20_000); // 학생 기록이 들어오면 20초 안에 보임
-    return () => clearInterval(t);
+    // 처음 불러오기를 다시 해 보려다 화면이 가려져 미뤘으면, 다시 보일 때 바로
+    const a = retry.current;
+    const onShow = () => {
+      if (document.visibilityState !== "visible" || !a.hidden) return;
+      a.hidden = false;
+      if (!locked.current && !stamp.current) void load();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearInterval(t);
+      clearTimeout(a.timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
   }, [load, poll]);
 
   if (needLogin) return <Login onDone={unlock} />;
-  if (!raw) return <main className="grid min-h-dvh place-items-center text-soft">불러오는 중…</main>;
+  if (!raw) {
+    return (
+      <main className="grid min-h-dvh place-items-center px-5 text-center text-soft">
+        <div>
+          <p>불러오는 중…</p>
+          {/* 처음 불러오기가 실패해 조금 뒤 다시 해 보는 중(와이파이 끊김·서버 오류) */}
+          {retrying && (
+            <p role="status" className="mt-2 text-sm">
+              연결을 다시 시도하고 있어요.{" "}
+              <button type="button" onClick={() => void load()} className="font-bold text-leaf underline underline-offset-4">지금 다시</button>
+            </p>
+          )}
+        </div>
+      </main>
+    );
+  }
   const data: Overview = {
     ...raw,
     flags: watchFlags(raw.records, raw.today, raw.settings.rules),
@@ -388,11 +462,28 @@ function Login({ onDone }: { onDone: () => Promise<void> }) {
     setError("");
     try {
       await api("teacher", signup ? "signup" : "login", { name, password: pw, className });
-      setSavedName(name.trim());
-      await onDone();
     } catch (err) {
       setError((err as Error).message);
       setPw("");
+      setPw2("");
+      setBusy(false);
+      return;
+    }
+    setSavedName(name.trim());
+    try {
+      await onDone();
+    } catch (err) {
+      // 들어오기는 됐는데 기록을 불러오지 못함(와이파이·서버 오류): 아무 말 없이 로그인 화면에 머물지 않게 알린다.
+      // 화면은 뒤에서 다시 불러 보고(되면 저절로 넘어감), 다시 눌러도 되게 비밀번호는 그대로 둔다. 가입은 이미 됐으니 들어가기로 바꾼다.
+      const st = (err as { status?: number }).status;
+      setMode("login");
+      if (st === 401) {
+        setError((err as Error).message || "다시 들어와 주세요.");
+        setPw("");
+      } else {
+        const why = (err as Error).message.trim();
+        setError(`들어왔지만 기록을 불러오지 못했어요.${why ? ` ${/[.!?]$/.test(why) ? why : `${why}.`}` : ""} 연결을 다시 시도하고 있어요.`);
+      }
       setPw2("");
     }
     setBusy(false);
