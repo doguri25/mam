@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { matchRisk } from "./rules.ts";
-import { DEFAULT_RISK_WORDS, RISK_CORE, RISK_WORDS_BY_V, RISK_WORDS_V, riskWordsAfter } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, RISK_CORE, RISK_WORDS_BY_V, RISK_WORDS_MAX, RISK_WORD_LEN, RISK_WORDS_V, riskWordsAfter } from "./shared.ts";
 
 // 설정 판 올리기 시험은 임시 폴더의 로컬 저장소(.data/db.json)만 쓴다
 process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), "mam-risk-")));
@@ -738,4 +738,12 @@ test("다른 반이 낱말 안에 보이지 않는 글자를 넣어 기본 목�
   for (let i = 0; i < DEFAULT_RISK_WORDS.length; i += 2) forged.push(DEFAULT_RISK_WORDS.slice(i, i + 2).join("\u0000"));
   matchRisk("아무 말", forged);
   assert.deepEqual(matchRisk("어제 아빠가 나를 때렸어", DEFAULT_RISK_WORDS), ["때렸"]);
+});
+
+// 기본 목록의 말이 선생님 화면·서버의 한도에 걸리면, 목록을 고치려 할 때마다 저장이 막히거나(화면) 말이 잘린다(서버)
+test("기본 목록과 판마다 더한 말은 모두 한 낱말 한도(RISK_WORD_LEN)·개수 한도(RISK_WORDS_MAX) 안", () => {
+  const added = Object.values(RISK_WORDS_BY_V).flatMap((gs) => gs.flatMap((g) => g.add));
+  for (const w of [...DEFAULT_RISK_WORDS, ...added]) assert.ok(w.length <= RISK_WORD_LEN, `${w} (${w.length}자)`);
+  assert.ok(DEFAULT_RISK_WORDS.length <= RISK_WORDS_MAX);
+  assert.ok(new Set([...DEFAULT_RISK_WORDS, ...added]).size <= RISK_WORDS_MAX);
 });

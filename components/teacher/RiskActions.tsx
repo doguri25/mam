@@ -22,10 +22,13 @@ export interface FormState { kinds: RiskActionKind[]; date: string; note: string
 const newOp = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
 // 마치지 않은 글(draft:칸)을 살펴보는 사이 학생이 그 글로 기록을 마치면 그 알림은 없어지고 같은 칸(번호·날·때)의 마음 기록 알림이 생긴다.
+// 정리하는 사이 정오를 넘겼으면 기록은 같은 날 다른 때(아침 ↔ 하교 전)에 저장되므로 그 칸도 찾는다.
 // 열어 둔 폼을 그 마음 기록으로 옮길 id(옮길 것이 없으면 그대로)
 export function movedTo(open: string | null, ids: string[]): string | null {
   if (!open?.startsWith("draft:") || ids.includes(open)) return open;
-  return ids.includes(open.slice(6)) ? open.slice(6) : open;
+  const same = open.slice(6);
+  const other = same.replace(/_(am|pm)$/, (_, s: string) => (s === "am" ? "_pm" : "_am"));
+  return ids.includes(same) ? same : ids.includes(other) ? other : open;
 }
 
 // 한 일 고르기 + 한 날 + 메모. action: 처음 살펴볼 때 checkAlert(알림이 닫힘), 그 뒤에 더 적을 때 riskAction
