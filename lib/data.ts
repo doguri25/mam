@@ -542,6 +542,10 @@ export async function putRiskDraft(d: RiskDraft): Promise<boolean> {
   });
   return fresh;
 }
+// AI보다 먼저 남긴 글에 한국어 정리만 덧붙인다: 그 자리에 아직 같은 글이 있고 정리가 없을 때만(한 번에).
+// putRiskDraft를 다시 부르면 그사이 학생이 새로 쓴 글을 앞 글로 덮을 수 있어 따로 둔다.
+export const addRiskDraftSummary = (id: string, text: string, summaryKo: string) =>
+  editRiskDrafts((items) => items.map((x) => (x.id === id && x.text === text && !x.summaryKo ? { ...x, summaryKo } : x)));
 // 그 칸 기록을 저장했으면 지운다(기록에 같은 글과 위험 표시가 담김). when: 지워도 되는지 — 지우는 그 순간의 글로 견준다
 // (먼저 읽고 견준 뒤 지우면, 그사이 학생이 새로 쓴 위험한 글까지 함께 지워진다)
 export const dropRiskDraft = (id: string, when: (d: RiskDraft) => boolean = () => true) =>
