@@ -23,7 +23,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
 // 낱말 목록: 낱말마다 길이를, 목록은 개수를 막는다(아주 긴 위험 표현 하나로 찾기가 느려지지 않게)
 const strList = (v: unknown, max = 60, len = 20) =>
-  Array.isArray(v) ? [...new Set(v.map((x) => String(x).trim().slice(0, len)).filter(Boolean))].slice(0, max) : null;
+  Array.isArray(v) ? [...new Set(v.map((x) => String(x).replace(/[\p{Cc}\p{Cf}]/gu, "").trim().slice(0, len)).filter(Boolean))].slice(0, max) : null;
 const lean = (r: MoodRecord) => ({ ...r, voice: undefined }); // 목소리 숫자는 화면에 필요 없음
 const DAYS = 34; // 교사 화면이 들고 있는 기록 범위(월간 그래프 30일 + 여유)
 

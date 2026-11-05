@@ -179,7 +179,7 @@ function compile(raw: string, key: string): Find | null {
 // 목록마다 한 번만 만들어 둔다(기록을 저장할 때마다 부르므로)
 const compiled = new Map<string, { word: string; find: Find }[]>();
 function matchersFor(words: string[]) {
-  const id = words.join("\u0000");
+  const id = JSON.stringify(words); // 낱말 안의 글자로 열쇠를 꾸며 다른 반 목록과 같은 열쇠를 만들 수 없게
   let list = compiled.get(id);
   if (list) return list;
   list = [];
