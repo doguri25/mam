@@ -386,7 +386,8 @@ export function toPrev(r: MoodRecord): PrevVersion {
 
 // 같은 기록이 두 번 왔나: 저장은 됐는데 답만 잃은 화면이 같은 기록을 담아 두었다가 다시 보내거나(새 madeAt),
 // 담아 둔 것을 보내다 답을 잃어 또 보낼 때(같은 madeAt). 학생이 고르고 쓴 것이 모두 같고 그 무렵(DUP_MS 안 — 기기 시계가 조금 달라도) 만든 것이면 같은 기록.
-// (같은 글을 그 무렵 다시 남긴 것이어도 잃는 것이 없다 — 글은 이미 저장돼 있고, 다시 정리하며 새로 남긴 마치지 않은 글 알림은 그대로 남는다)
+// 담아 둔 기록(끊김·답을 잃은 저장 — saveQueued)에만 쓴다. 바로 보낸 저장은 학생이 정말 다시 남긴 것이다
+// (선생님이 닫은 뒤 같은 카드·같은 「죽고 싶어」를 다시 쓴 것도 새로 털어놓은 것이니 다시 알린다).
 export const DUP_MS = 10 * 60_000;
 type Content = Pick<MoodRecord, "method" | "emotion" | "intensity" | "reason" | "summary" | "answer" | "word" | "lang" | "createdAt">;
 export const sameSave = (a: Content, b: Content) =>
@@ -409,7 +410,7 @@ export interface RecordSave {
 export function mergeRecord(cur: MoodRecord | null, s: RecordSave, now = new Date()): MoodRecord | null {
   const { rec, own, alertNew } = s;
   const createdAt = rec.createdAt;
-  if (cur && sameSave(cur, rec)) return null;
+  if (cur && s.queued && sameSave(cur, rec)) return null;
   const base: MoodRecord = own ? { ...rec, riskAt: createdAt, ...(s.seenChecked ? { riskChecked: s.seenChecked } : {}) } : rec;
   if (!cur) return base;
   if (s.queued && timeOf(cur.createdAt) > timeOf(createdAt)) {

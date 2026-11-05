@@ -583,7 +583,6 @@ test("넓게 찾기로 받아들인 것: 위험하지 않을 수도 있지만 �
     // 7판: 남에게 죽으라는 말은 늘 살핀다(선생님이 고른 것: 모기·놀이에 외친 말에 걸려도)
     ["모기야 죽어라", ["죽어라"]],
     ["게임에서 죽어라! 하고 외쳤어", ["죽어라"]],
-    ["Con cá chết đi rồi", ["chết đi"]],
     ["I was beaten by my brother at chess", ["beaten by my"]],
     ["죽고 십 이 년 뒤", ["죽고 십"]], // 수를 띄어 쓰면(「십 이 년」) 세는 말로 보지 않는다
     ["em bi di ung da", ["bị đá"]], // 성조를 하나도 치지 않은 글의 「da」
@@ -1080,4 +1079,11 @@ test("중국어 두 글자 말: 사이의 빈칸·이모지는 건너고 마디�
 test("중국어: 「想死你了」「想死我了」(보고 싶어 죽겠다)는 거르고, 죽고 싶은 말은 그대로 찾는다", () => {
   core([["奶奶，我想死你了！", []], ["妈妈我好想死你啊", []], ["想死我了", []], ["我想死你们了", []], ["我想死他了", []], ["我想死您了", []]]);
   core([["我想死", ["想死"]], ["我想死了", ["想死"]], ["我好想死啊", ["想死"]], ["我想死，你别管我", ["想死"]]]);
+});
+
+test("남에게 죽으라는 말의 평범한 쓰임: 「chết đi rồi」(이미 죽었다)·「Go Diego go!」는 거르고 「mày chết đi」「go die」는 찾는다", () => {
+  for (const s of ["Con mèo chết đi rồi", "ông em chết đi rồi", "Con cá chết đi rồi", "Go Diego go!"]) assert.deepEqual(matchRisk(s, []), [], s);
+  assert.deepEqual(matchRisk("mày chết đi", []), ["chết đi"]);
+  assert.deepEqual(matchRisk("just go die already", []), ["go die"]);
+  assert.deepEqual(matchRisk("Con buồn muốn chết đi rồi", []), ["muốn chết"]);
 });

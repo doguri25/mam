@@ -52,8 +52,11 @@ test("같은 기록이 두 번 오면 그대로 둔다(앞 기록·살펴볼 판
   // C: 담아 둔 것을 같은 시각으로 다시 보냄 / 기기 시계가 조금 늦어 늦게 온 앞 기록처럼 보여도
   assert.equal(D.mergeRecord(checked, save(rec(X, at(0)), true)), null);
   assert.equal(D.mergeRecord(checked, save(rec(X, at(-3)), true)), null);
-  // 바로 보낸 기록이 두 번(태블릿 두 대·두 번 보냄)
-  assert.equal(D.mergeRecord(checked, save(rec(X, at(0.5)))), null);
+  // 바로 보낸 저장은 학생이 정말 다시 남긴 것: 선생님이 닫은 뒤 같은 글을 곧 다시 써도 다시 알린다(앞 기록에 남기고)
+  const redo = D.mergeRecord(checked, save(rec(X, at(0.5))))!;
+  assert.ok(redo);
+  assert.ok(open(redo));
+  assert.equal(redo.prev?.length, 1);
   // 그사이 다른 글을 남긴 뒤 늦게 온 같은 기록: 앞 기록에 이미 있으면 그대로
   const after = D.mergeRecord(checked, save(rec("이제 괜찮아", at(3))))!;
   assert.equal(D.mergeRecord(after, save(rec(X, at(0.2)), true)), null);
