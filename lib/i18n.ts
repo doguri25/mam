@@ -349,6 +349,8 @@ const UI = {
   waitNet: { ko: "인터넷이 연결되기를 기다리고 있어요…", en: "Waiting for the internet to connect…", zh: "正在等待网络连接…", vi: "Đang chờ kết nối mạng…", ja: "インターネットに つながるのを まっているよ…" },
   prevMonth: { ko: "지난달", en: "Previous month", zh: "上个月", vi: "Tháng trước", ja: "まえの つき" },
   nextMonth: { ko: "다음 달", en: "Next month", zh: "下个月", vi: "Tháng sau", ja: "つぎの つき" },
+  slowThink: { ko: "마음 친구가 생각이 길어졌어. 카드로 골라 줄래?", en: "I'm taking too long to think. Can you pick with cards?", zh: "心情朋友想得太久了，用卡片选好吗？", vi: "Bạn cảm xúc nghĩ lâu quá. Em chọn bằng thẻ nhé?", ja: "かんがえるのに じかんが かかっちゃった。カードで えらんでくれる？" },
+  checkChanged: { ko: "선생님이 마음 점검을 새로 열었어요. 처음부터 다시 골라 줄래요?", en: "Your teacher opened a new heart check. Can you start again from the beginning?", zh: "老师开启了新的心灵小检查。从头再选一次好吗？", vi: "Thầy cô đã mở lần kiểm tra mới. Em làm lại từ đầu nhé?", ja: "せんせいが あたらしい こころ チェックを ひらいたよ。さいしょから えらんでくれる？" },
 } satisfies Record<string, Record<Lang, string>>;
 export type UIKey = keyof typeof UI;
 
@@ -410,8 +412,17 @@ export const RISK_REPLY: Record<Lang, string> = {
   ja: "おしえてくれてほんとうにありがとう。せんせいがちゃんとしっているよ。",
 };
 
+// 기쁜 마음일 때 바꿔 묻는 까닭: 「좋았겠다!」 뒤에 「아직 힘들어」·「머리/배」 같은 보기가 오지 않게(집 일은 여전히 캐묻지 않는다)
+const FALLBACK_JOY: Record<Lang, Record<string, [string, [string, string]]>> = {
+  ko: { 집: ["지금 마음은 어때?", ["아주 좋아", "조금 좋아"]], 몸: ["몸이 어떤 느낌이야?", ["개운해", "힘이 나"]] },
+  en: { 집: ["How do you feel right now?", ["Really great", "Pretty good"]], 몸: ["How does your body feel?", ["Refreshed", "Full of energy"]] },
+  zh: { 집: ["现在心情怎么样？", ["特别好", "还不错"]], 몸: ["身体感觉怎么样？", ["很舒服", "有力气"]] },
+  vi: { 집: ["Bây giờ em thấy thế nào?", ["Rất vui", "Khá vui"]], 몸: ["Cơ thể em thấy thế nào?", ["Sảng khoái", "Tràn đầy năng lượng"]] },
+  ja: { 집: ["いまのきもちはどう？", ["とってもいい", "けっこういい"]], 몸: ["からだはどんなかんじ？", ["すっきり", "げんきいっぱい"]] },
+};
+
 export function fallbackFor(lang: Lang, reason: string, joy: boolean) {
-  const [q, opts] = FALLBACK[lang][reason] ?? FALLBACK[lang]["그냥"];
+  const [q, opts] = (joy ? FALLBACK_JOY[lang][reason] : undefined) ?? FALLBACK[lang][reason] ?? FALLBACK[lang]["그냥"];
   return { question: LEAD[lang][joy ? 0 : 1] + q, options: [...opts, SKIP[lang]] };
 }
 
@@ -451,6 +462,7 @@ const ERR: Record<string, Tr> = {
   "한 줄을 적어 주세요.": { en: "Please write one line.", zh: "请写一句话。", vi: "Em hãy viết một dòng nhé.", ja: "ひとこと かいてね。" },
   "지금은 마음 점검을 하는 때가 아니에요.": { en: "The heart check isn't open right now.", zh: "现在不是做心灵小检查的时候。", vi: "Bây giờ chưa có kiểm tra tâm hồn.", ja: "いまは こころ チェックの じかんじゃ ないよ。" },
   "답이 다 채워지지 않았어요.": { en: "Some answers are missing.", zh: "还有没回答的题目。", vi: "Em chưa trả lời hết.", ja: "まだ こたえていない ところが あるよ。" },
+  "마음 점검이 새로 열렸어요. 처음부터 다시 해 주세요.": { en: "A new heart check has opened. Please start again from the beginning.", zh: "开启了新的心灵小检查，请从头再做一次。", vi: "Đã mở lần kiểm tra mới. Em làm lại từ đầu nhé.", ja: "あたらしい こころ チェックが ひらいたよ。さいしょから やりなおしてね。" },
   "카드나 문장이 필요해요.": { en: "Please pick a card or write a sentence.", zh: "请选卡片或写一句话。", vi: "Em hãy chọn thẻ hoặc viết một câu.", ja: "カードを えらぶか ぶんを かいてね。" },
   "인터넷 연결을 확인해 주세요.": { en: "Please check the internet connection.", zh: "请检查网络连接。", vi: "Em hãy kiểm tra kết nối mạng.", ja: "インターネットの つながりを たしかめてね。" },
   "문제가 생겼어요.": { en: "Something went wrong. Please try again.", zh: "出了点问题，请再试一次。", vi: "Có lỗi xảy ra. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },

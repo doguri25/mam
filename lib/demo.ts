@@ -12,6 +12,9 @@ const ALIASES = [
 ];
 const CALM = ["기뻐요", "신나요", "고마워요", "편안해요", "그저 그래요"];
 
+// 한국 시각(날짜·「08:40」)을 실제 기록처럼 ISO(Z) 글로. 「+09:00」 글 그대로 두면 글자로 견주는 곳(늦게 온 기록 끼워 넣기 등)에서 어긋난다
+const kst = (date: string, hm: string) => new Date(`${date}T${hm}:00+09:00`).toISOString();
+
 function rng(seed: number) {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -37,7 +40,7 @@ export function demoRecords(today: string): MoodRecord[] {
       emotion, intensity, reason, summary, question: "", answer: "",
       ...(wr() < 0.6 && SUB_WORDS[emotion] ? { word: SUB_WORDS[emotion][Math.floor(wr() * SUB_WORDS[emotion].length)] } : {}),
       risk: hits.length > 0, riskHits: hits, riskChecked: null, demo: true,
-      createdAt: `${date}T${slot === "am" ? "08:40" : "14:20"}:00+09:00`,
+      createdAt: kst(date, slot === "am" ? "08:40" : "14:20"),
     });
   };
 
@@ -88,7 +91,7 @@ export function demoRecords(today: string): MoodRecord[] {
   // 17번: 「친구」 때문에 힘든 마음 세 번
   set(17, addDays(today, -5), "am", "억울해요", 3, "친구");
   set(17, addDays(today, -3), "am", "화나요", 3, "친구", "쉬는 시간에 친구가 자꾸 괴롭혀서 화났어요");
-  out[out.length - 1].riskChecked = `${addDays(today, -3)}T10:20:00+09:00`; // 그날 바로 살펴봄(조치 기록은 demoRiskActions)
+  out[out.length - 1].riskChecked = kst(addDays(today, -3), "10:20"); // 그날 바로 살펴봄(조치 기록은 demoRiskActions)
   set(17, addDays(today, -1), "am", "속상해요", 2, "친구", "쉬는 시간에 혼자 있었어요");
   // 9번: 베트남어로 남긴 기록(선생님 화면엔 한국어 요약)
   set(9, today, "am", "슬퍼요", 3, "친구", "Em nhớ bạn bè ở Việt Nam");
@@ -96,7 +99,7 @@ export function demoRecords(today: string): MoodRecord[] {
   // 힘든 마음을 남긴 뒤 마음 다스리기 도구를 써 본 기록(선생님 화면에서 어떤 도구가 도움이 되는지 보이게)
   const calm = (no: number, date: string, slot: Slot, ...uses: [CalmTool, Felt][]) => {
     const r = out.find((x) => x.id === `${no}_${date}_${slot}`);
-    if (r) r.calm = uses.map(([tool, felt], i) => ({ tool, felt, at: `${date}T${slot === "am" ? "08:4" : "14:2"}${i + 2}:00+09:00` }));
+    if (r) r.calm = uses.map(([tool, felt], i) => ({ tool, felt, at: kst(date, `${slot === "am" ? "08:4" : "14:2"}${i + 2}`) }));
   };
   calm(3, addDays(today, -1), "pm", ["breathe", "better"]);
   calm(3, today, "am", ["breathe", "better"], ["draw", "same"]);
@@ -125,7 +128,7 @@ export function demoLooks(): Record<number, BuddyLook> {
 
 // 연습 반의 공감 쪽지(선생님 허락을 기다리는 것 포함)와 이번 주 돌아보기
 export function demoExtras(today: string): { letters: Letter[]; reflects: Reflect[] } {
-  const at = (d: number, hm: string) => `${addDays(today, d)}T${hm}:00+09:00`;
+  const at = (d: number, hm: string) => kst(addDays(today, d), hm);
   const L = (id: number, from: number, to: number, text: string, showName: boolean, status: Letter["status"], d: number): Letter => ({
     id: `L${id}`, from, to, text, showName, status, createdAt: at(d, "12:10"), ...(status !== "wait" ? { checkedAt: at(d, "15:00") } : {}), demo: true,
   });
@@ -159,7 +162,7 @@ export function demoSheetRun(today: string): SheetRun {
   return {
     id: PRACTICE_SHEET, file: "sample-sheets.pdf", topic: "내 마음 날씨 그리기",
     content: "오늘 내 마음을 날씨와 내 모습으로 그리고, 그렇게 그린 까닭을 써요.", criteria: C, pagesPer: 1, skip: [4],
-    createdAt: `${addDays(today, -1)}T14:20:00+09:00`,
+    createdAt: kst(addDays(today, -1), "14:20"),
     items: [
       I(1, 1, "노란 해 아래에서 웃는 두 아이(빨강·파랑)를 그렸어요. 글에는 「오늘 친구랑 줄넘기를 했다. 50개나 넘어서 신났다. 내 마음은 맑음!」이라고 썼어요.",
         [P("자기감정 인식·관리", "신난 마음을 알아차리고 「맑음」이라는 날씨와 밝은 해 그림으로 잘 나타냈어요.", "「50개나 넘어서 신났다. 내 마음은 맑음!」, 크게 그린 노란 해"),
@@ -199,7 +202,7 @@ export function demoSheetRun(today: string): SheetRun {
 export function demoSelChecks(today: string): SelCheck[] {
   const C = (id: string, d: number, rater: string, answers: number[], memo: string): SelCheck => ({
     id, date: addDays(today, d), school: "홍북초", group: "3학년 2반", rater, answers, memo,
-    createdAt: `${addDays(today, d)}T15:30:00+09:00`, demo: true,
+    createdAt: kst(addDays(today, d), "15:30"), demo: true,
   });
   return [
     C("selp1", -63, "담임", [3, 2, 2, 3, 3, 3, 4, 2, 3, 3, 2, 3, 3, 4, 3, 2, 2, 3, 3, 3],
@@ -216,7 +219,7 @@ export function demoRiskActions(today: string): RiskAction[] {
   const day = addDays(today, -3);
   const A = (id: string, d: number, kinds: RiskAction["kinds"], note: string): RiskAction => ({
     id, no: 17, recordId: `17_${day}_am`, recordDate: day, date: addDays(today, d), kinds, note,
-    createdAt: `${addDays(today, d)}T15:00:00+09:00`, demo: true,
+    createdAt: kst(addDays(today, d), "15:00"), demo: true,
   });
   return [
     A("riskp1", -3, ["talk", "admin"], "쉬는 시간 놀이에서 자꾸 빠지게 된 일. 두 학생과 따로 이야기 나누고 학교폭력 담당 선생님께 알림"),
@@ -242,7 +245,7 @@ export function demoSelfChecks(today: string): { rounds: SelfRound[]; answers: S
       if (no === 3) a.splice(0, 10, ...(r.id === "selfp1" ? [3, 3, 3, 2, 3, 3, 3, 3, 3, 2] : [2, 1, 2, 2, 2, 2, 2, 2, 2, 2]));
       if (no === 17 && r.id === "selfp2") a.splice(6, 2, 1, 1);
       const day = r.id === "selfp1" ? addDays(today, -62) : addDays(today, -1);
-      answers.push({ kind: "selfAnswer", round: r.id, no, answers: a, at: `${day}T09:${String(10 + no).padStart(2, "0")}:00+09:00`, demo: true });
+      answers.push({ kind: "selfAnswer", round: r.id, no, answers: a, at: kst(day, `09:${String(10 + no).padStart(2, "0")}`), demo: true });
     }
   }
   return { rounds, answers };
