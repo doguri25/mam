@@ -4,7 +4,7 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { addCalm, aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
+import { addCalm, aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
 import { addRiskDraftSummary, draftKept, dropRiskDraft, getRiskDrafts, moveRiskActions, putRiskDraft, recentDraft, saveLook, seenDraft } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -13,7 +13,7 @@ import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
 import {
-  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, isWordOf,
+  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, cleanSaveId, isWordOf,
   type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type RiskDraft, type Student,
 } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
@@ -92,18 +92,17 @@ async function handle(req: NextRequest, body: Body) {
     }
 
     // 끊겼을 때 담아 둔 기록 보내기: 로그인 쿠키 대신 그날의 qtoken으로
-    // 기록은 담아 둔 날짜로 저장한다(다음 날 연결돼도 버리지 않음). 표가 만들어진 날보다 앞이거나 사흘이 지난 기록은 받지 않는다.
+    // 기록은 담아 둔 날짜로 저장한다(다음 날 연결돼도 버리지 않음). 표는 만든 날부터 사흘까지만 쓴다(공용 태블릿에 남은 표로 다른 날 기록을 써 넣지 못하게).
+    // 기기 시계가 틀려 만든 때(madeAt)가 표를 받은 날보다 앞이거나 지금보다 뒤면 버리지 않고 그 사이로 당긴다(lib/data.ts queuedWhen) —
+    // 버리면 끊긴 채 쓴 위험한 글이 선생님께 닿지 않는다(마치지 않은 글도 남지 않았으므로).
     if (body.action === "saveQueued") {
       const q = readQueueToken(body.qtoken);
       if (!q) return bad("보낼 수 없는 기록이에요.", 410);
       const s = (await getRoster()).find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
       if (!s) return bad("학생 코드가 바뀌었어요.", 410);
-      const made = Date.parse(String(body.madeAt ?? ""));
-      const now = today();
-      const date = Number.isFinite(made) && made <= Date.now() + 60_000 ? today(new Date(made)) : q.date;
-      // 표는 만든 날부터 사흘까지만 쓴다(공용 태블릿에 남은 표로 다른 날 기록을 써 넣지 못하게)
-      if (date < q.date || date > addDays(q.date, 3) || date > now || date < addDays(now, -3)) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
-      return saveRecord(s, body.record ?? {}, await getSettings(), { date, madeAt: Number.isFinite(made) ? made : undefined });
+      const when = queuedWhen(body.madeAt, q.date);
+      if (!when) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
+      return saveRecord(s, body.record ?? {}, await getSettings(), { date: when.date, madeAt: when.madeAt, saveId: body.saveId });
     }
 
     const s = await me(req);
@@ -379,7 +378,7 @@ async function handle(req: NextRequest, body: Body) {
       return finish({ ...card, summary: "", ...fallbackQuestion(card.reason, card.emotion, lang), risk: false, word: "" }, false);
     }
 
-    if (body.action === "save") return saveRecord(s, body.record ?? {}, settings);
+    if (body.action === "save") return saveRecord(s, body.record ?? {}, settings, { saveId: body.saveId });
 
     return bad("알 수 없는 요청이에요.");
   } catch (e) {
@@ -393,9 +392,12 @@ async function handle(req: NextRequest, body: Body) {
 // 끊겼을 때 담아 둔 기록(madeAt)이 이미 저장된 기록보다 먼저 만든 것이면 덮어쓰지 않고 앞 기록으로만 끼워 넣는다.
 // 같은 칸 저장 둘이 겹쳐도(담아 둔 기록과 바로 보낸 기록·태블릿 두 대) 읽고 고쳐 쓰기를 한 번에 해서 서로 잇는다(위험한 글을 잃지 않게).
 // 같은 기록이 두 번 오면(답만 잃은 화면이 다시 보냄) 그대로 둔다: 앞 기록·살펴볼 판·휴대폰 알림을 다시 만들지 않는다.
+// saveId: 화면이 저장마다 새로 다는 이름(기록 안 record.saveId, 없으면 요청의 saveId). 답을 잃어 담아 두었다가 다시 보낸 같은 저장은
+// 이 이름으로 알아본다(lib/data.ts mergeRecord). 모양이 다르면 없는 것으로.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 화면에서 온 그대로의 기록, 아래에서 하나씩 검사한다
-async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: string; madeAt?: number } = {}) {
+async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: string; madeAt?: number; saveId?: unknown } = {}) {
   if (!validCard(r) || !["am", "pm"].includes(r.slot) || !["card", "voice"].includes(r.method)) return bad("기록 모양이 맞지 않아요.");
+  const saveId = cleanSaveId(r.saveId ?? opt.saveId);
   const date = opt.date ?? today();
   const summary = String(r.summary ?? "").slice(0, 180);
   const answer = String(r.answer ?? "").slice(0, 120);
@@ -438,6 +440,7 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     word: isWordOf(r.emotion, r.word) ? r.word : "", // 더 꼭 맞는 말·카드에 더한 낱말
     lang,
     summaryKo,
+    ...(saveId ? { saveId } : {}), // Firestore는 undefined를 받지 않으므로 없으면 칸을 넣지 않는다
     ...(isDemo() || s.demo ? { demo: true } : {}),
   };
   const { record: saved, same } = await saveMoodRecord({ rec, own, alertNew, seenChecked: seen?.checked ?? undefined, queued: opt.madeAt !== undefined });
@@ -481,7 +484,13 @@ function validCard(c: { emotion?: unknown; intensity?: unknown; reason?: unknown
     && Number.isInteger(c.intensity) && Number(c.intensity) >= 1 && Number(c.intensity) <= 5;
 }
 
-// 학생 화면에는 위험 표시와 말투 판단을 보내지 않는다
+// 학생 화면에는 위험 표시와 말투 판단을 보내지 않는다. 바뀐 시각(updatedAt)도 빼고(선생님이 「살펴봤어요」를 누르면 바뀌어 알림이 닫힌 것을 알려 준다),
+// 저장소 판 표(_v)·저장 이름(saveId)도 학생 화면에 쓸 데가 없으니 뺀다.
 function publicRecord(r: MoodRecord) {
-  return { ...r, prev: undefined, riskSelf: undefined, riskAt: undefined, riskSrc: undefined, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
+  const {
+    prev: _p, riskSelf: _rs, riskAt: _ra, riskSrc: _rc, risk: _r, riskHits: _rh, riskChecked: _rk, tone: _t, toneWhy: _tw, toneBy: _tb, voice: _vo,
+    updatedAt: _u, saveId: _id, _v, ...out
+  } = r as MoodRecord & { _v?: unknown };
+  void [_p, _rs, _ra, _rc, _r, _rh, _rk, _t, _tw, _tb, _vo, _u, _id, _v];
+  return out;
 }

@@ -1,7 +1,7 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
 import { kday, kstamp, ktime } from "./when";
-import { kindOfId, reflectEverRisk, reflectSource } from "./alerts";
+import { PART_SEP, kindOfId, reflectEverRisk, reflectSource } from "./alerts";
 import { useState } from "react";
 import Doodle from "../Doodle";
 import RetentionCard from "./RetentionCard";
@@ -105,10 +105,12 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     const rows: Row[] = records.map((r) => ({
       date: r.date, no: r.no, k: r.slot,
       cells: [
-        r.date, slotKo(r.slot), r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", kstamp(r.riskChecked), did(r.id),
+        // 위험 표현: 이 글(지금 글)의 걸린 말만. 지금 글은 순하고 고치기 전 글에만 있었으면 그렇다고(그 글과 걸린 말은 맨 끝 칸에)
+        r.date, slotKo(r.slot), r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "",
+        (r.riskSelf ?? r.risk) ? r.riskHits.join(" ") || "AI 판단" : r.risk ? "고치기 전 글에 있음" : "", kstamp(r.riskChecked), did(r.id),
         r.word ?? "", r.summaryKo ?? "", lang(r.lang), calm(r),
-        // 같은 칸에 다시 남겨 지금 글에는 없지만, 고치기 전 글에 있던 위험 표현(때·글·걸린 말)
-        (r.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.summaryKo || p.summary}${p.answer ? ` / ${p.answer}` : ""}” ${p.riskHits.join(" ") || "AI 판단"}`).join(" / "),
+        // 같은 칸에 다시 남겨 지금 글에는 없지만, 고치기 전 글에 있던 위험 표현(때·글·그 글의 걸린 말). 글 사이는 「 ‖ 」(한 줄과 답 사이 「 / 」와 헷갈리지 않게)
+        (r.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.summaryKo || p.summary}${p.answer ? ` / ${p.answer}` : ""}” ${p.riskHits.join(" ") || "AI 판단"}`).join(PART_SEP),
       ],
     }));
     // 마음 기록 밖의 위험 표현(마치지 않은 기록 · 한 주 돌아보기 · 공감 쪽지): 감정·까닭 칸은 비우고 글은 「한 줄」에
@@ -124,7 +126,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       done.add(`draft:${d.id}`);
       extra.push(other({
         id: `draft:${d.id}`, date: d.date, slot: d.slot, no: d.no, method: "마치지 않은 기록", line: d.text, risk: d.hits.join(" ") || "AI 판단", checked: d.checked,
-        summaryKo: d.summaryKo, lang: d.lang, earlier: (d.earlier ?? []).map((e) => `${ktime(e.at)} “${e.text}” ${e.hits.join(" ") || "AI 판단"}`).join(" / "),
+        summaryKo: d.summaryKo, lang: d.lang, earlier: (d.earlier ?? []).map((e) => `${ktime(e.at)} “${e.text}” ${e.hits.join(" ") || "AI 판단"}`).join(PART_SEP),
       }));
     }
     for (const x of (got.reflects ?? data.reflects).filter(reflectEverRisk)) {
@@ -132,7 +134,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       const src = reflectSource(x, s.riskWords);
       extra.push(other({
         id: `reflect:${x.id}`, date: kday(x.createdAt), no: x.no, method: "돌아보기", line: x.text, risk: src.prev ? "" : hitsOf(x.text), checked: x.riskChecked, lang: x.lang,
-        earlier: (x.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.text}” ${hitsOf(p.text)}`).join(" / "),
+        earlier: (x.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.text}” ${hitsOf(p.text)}`).join(PART_SEP),
       }));
     }
     for (const l of (got.letters ?? data.letters).filter((l) => l.risk)) {

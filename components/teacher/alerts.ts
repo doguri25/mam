@@ -5,7 +5,7 @@
 import { matchRisk } from "../../lib/rules.ts";
 import type { Letter, MoodRecord, PrevVersion, Reflect, RiskAction, RiskDraft } from "../../lib/shared.ts";
 import type { OverviewRaw } from "./types.ts";
-import { kday } from "./when.ts";
+import { kday, ktime } from "./when.ts";
 
 export type RiskAlert =
   | { kind: "record"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; seen: string; rec: MoodRecord }
@@ -41,23 +41,46 @@ export const riskAlertCount = (data: Parameters<typeof riskAlerts>[0]) => riskAl
 export const everRisk = (r: MoodRecord) => r.risk || !!r.prev?.some((p) => p.risk);
 
 type Ver = Pick<PrevVersion, "summary" | "summaryKo" | "answer" | "riskHits" | "createdAt">;
+// 한 판의 글: 한 줄과 되묻기 답은 「 / 」로
 const verText = (v: Ver) => [v.summaryKo ? `${v.summaryKo} (원문: ${v.summary})` : v.summary, v.answer].filter(Boolean).join(" / ");
 
+// 위험 표현이 있던 글 한 판: 글·그 글의 걸린 말·쓴 때·지금 글인지(아니면 고치기 전 글)
+export interface RiskPart { text: string; hits: string[]; at: string; now: boolean }
+// 판이 둘 이상이면 「먼저 쓴 글」「다시 쓴 글」로 나눠 보인다(한 판 안의 「 / 」와 헷갈리지 않게). 한 판이면 고치기 전 글일 때만 이름표.
+export const partLabel = (i: number, n: number, now: boolean) => (n > 1 ? (i === 0 ? "먼저 쓴 글" : "다시 쓴 글") : now ? "" : "고치기 전 글");
+// 여러 판을 한 줄 글로(조치 기록에 남기는 글·CSV): 판 사이는 「 ‖ 」, 판마다 이름표와 때. 한 판이면 그 글 그대로(예전 조치 기록 글과 같게)
+export const PART_SEP = " ‖ ";
+export function partsText(parts: RiskPart[]): string {
+  if (parts.length < 2) return parts[0]?.text ?? "";
+  return parts.map((p, i) => `[${partLabel(i, parts.length, p.now)}${ktime(p.at) ? ` ${ktime(p.at)}` : ""}] ${p.text}`).join(PART_SEP);
+}
+// 조치 기록에 남은 한 줄 글을 다시 판마다 나눈다(누적 기록에 한 줄씩 보이려고)
+export const splitParts = (text: string) => text.split(PART_SEP);
+const partOf = (r: MoodRecord, v: MoodRecord | PrevVersion): RiskPart => ({ text: verText(v), hits: v.riskHits ?? [], at: v.createdAt, now: v === r });
+
 // 위험 표현이 있던 글: 지금 글이 아니면 고치기 전 글 중 위험했던 것(가장 최근).
-// 알림을 연 판을 따로 적어 둔 기록(riskSrc — 끊겼다가 늦게 온 앞 기록이 살펴본 알림을 다시 열 때 등)은 그 판들의 글.
+// 알림을 연 판을 따로 적어 둔 기록(riskSrc — 끊겼다가 늦게 온 앞 기록이 살펴본 알림을 다시 열 때 등)은 그 판들의 글(만든 차례대로).
 // 화면 알림·누적 기록과 서버가 조치 기록에 남기는 글이 이 함수 하나를 쓴다(선생님이 본 글 = 남는 글).
-export function riskySource(r: MoodRecord): { text: string; hits: string[]; prev: PrevVersion | null } {
+// parts: 판마다 글·걸린 말(판마다 따로 — 저장은 그 글의 걸린 말만 둔다) · hits: 그 판들의 걸린 말을 모은 것
+export function riskySource(r: MoodRecord): { text: string; hits: string[]; prev: PrevVersion | null; parts: RiskPart[] } {
   if (r.riskSrc?.length) {
     const vs: (MoodRecord | PrevVersion)[] = [...(r.prev ?? []), r].filter((v) => r.riskSrc!.includes(v.createdAt) && (v === r ? !!(r.riskSelf ?? r.risk) : v.risk));
     if (vs.length) {
       const last = vs.at(-1)!;
-      return { text: vs.map(verText).join(" / "), hits: [...new Set(vs.flatMap((v) => v.riskHits ?? []))], prev: last === r ? null : (last as PrevVersion) };
+      const parts = vs.map((v) => partOf(r, v));
+      return { text: partsText(parts), hits: [...new Set(vs.flatMap((v) => v.riskHits ?? []))], prev: last === r ? null : (last as PrevVersion), parts };
     }
   }
   const now = (r.riskSelf ?? r.risk) ? r : null;
   const p = now ? null : [...(r.prev ?? [])].reverse().find((x) => x.risk) ?? null;
   const src = now ?? p;
-  return { text: src ? verText(src) : "", hits: src?.riskHits ?? r.riskHits, prev: p };
+  const hits = src?.riskHits ?? r.riskHits;
+  return { text: src ? verText(src) : "", hits, prev: p, parts: src ? [{ ...partOf(r, src), hits }] : [] };
+}
+// 그 칸(같은 날 같은 때)에 위험 표현이 있던 글 모두(만든 차례대로): 누적 기록에서 — 살펴본 뒤 순한 글로 다시 남겨
+// 알림이 가리키던 판(riskSrc)이 지워져도 그날 위험했던 글을 하나만 보이지 않게
+export function riskyParts(r: MoodRecord): RiskPart[] {
+  return [...(r.prev ?? []).filter((p) => p.risk), ...((r.riskSelf ?? r.risk) ? [r] : [])].map((v) => partOf(r, v));
 }
 // 알림이 가리키는 글의 판(createdAt): riskySource가 고르는 것과 같게 — 저장할 때 열린 알림의 글을 이어 가리키려고
 export function riskSrcOf(r: MoodRecord): string[] {
