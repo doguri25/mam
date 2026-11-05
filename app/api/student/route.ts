@@ -211,7 +211,8 @@ async function handle(req: NextRequest, body: Body) {
       const name = (no: number) => `${no}번 ${roster.find((x) => x.no === no)?.alias ?? ""}`.trim();
       const newest = (a: Letter, b: Letter) => b.createdAt.localeCompare(a.createdAt);
       return NextResponse.json({
-        inbox: inbox.filter((l) => l.status === "ok").sort(newest).map((l) => ({
+        // 연습 학생에게 가던 쪽지(toPractice)는 같은 번호를 새로 받은 실제 학생에게 보이지 않게
+        inbox: inbox.filter((l) => l.status === "ok" && !l.toPractice).sort(newest).map((l) => ({
           id: l.id, text: l.text, from: l.showName ? name(l.from) : null, at: l.checkedAt ?? l.createdAt, read: !!l.readAt,
         })),
         sent: sent.sort(newest).slice(0, 20).map((l) => ({ id: l.id, text: l.text, to: name(l.to), status: l.status, at: l.createdAt })),
@@ -398,7 +399,11 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   const answer = String(r.answer ?? "").slice(0, 120);
   const lang: Lang = isLang(r.lang) ? r.lang : "ko";
   const summaryKo = lang !== "ko" ? String(r.summaryKo ?? "").slice(0, 120) : "";
-  const hits = matchRisk([summary, answer, summaryKo].filter(Boolean).join(" "), settings.riskWords);
+  // 학생이 쓴 글(말한 문장·되묻기 답)은 선생님 목록 전체로, AI가 옮긴 한국어 정리는 늘 살피는 말(RISK_CORE)로만 본다
+  // (정리하기와 같은 까닭: 「I hit a home run」→「홈런을 때렸어요」처럼 번역이 평범한 말을 목록의 말로 바꿔 놓는다).
+  // 카드만 고른 기록(학생 글 없음)은 AI 정리만으로 위험이라 하지 않는다.
+  const koHits = summaryKo && summary ? matchRisk(summaryKo, []) : [];
+  const hits = [...new Set([...matchRisk([summary, answer].filter(Boolean).join(" "), settings.riskWords), ...koHits])];
   const own = hits.length > 0 || r.aiRisk === true;
   const voice = r.method === "voice" ? cleanFeatures(r.voice) : null;
   const id = `${s.no}_${date}_${r.slot}`;
@@ -443,7 +448,9 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   // 견주기는 지우는 그 순간의 글로 한다(그사이 새로 쓴 위험한 글이 함께 지워지지 않게).
   try {
     const kept = (t: string) => !!t && (summary.includes(t) || answer.includes(t));
-    if (own) await dropRiskDraft(saved.id, (d) => !d.checked && [d.text, ...(d.earlier ?? []).map((e) => e.text)].every(kept));
+    const done = (d: RiskDraft) => !d.checked && [d.text, ...(d.earlier ?? []).map((e) => e.text)].every(kept);
+    // 정리하는 사이 정오를 넘기면 글은 아침 칸으로 먼저 남고 기록은 하교 전 칸에 저장된다 → 같은 날 다른 칸의 같은 글도 함께 본다
+    if (own) for (const sl of [saved.slot, saved.slot === "am" ? "pm" : "am"]) await dropRiskDraft(`${s.no}_${date}_${sl}`, done);
   } catch (e) {
     console.error("마치지 않은 위험 표현 정리 실패", e);
   }
