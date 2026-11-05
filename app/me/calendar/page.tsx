@@ -65,16 +65,20 @@ export default function Calendar() {
   const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`)];
-  const picked = (records ?? []).filter((r) => r.date === pick).sort((a, b) => a.slot.localeCompare(b.slot));
+  // 고른 날은 보이는 달의 날일 때만 아래에 펼친다(달을 넘기면 접히고, 그 달로 돌아오면 다시 펼친다)
+  const day = pick.startsWith(`${month}-`) ? pick : "";
+  const picked = (records ?? []).filter((r) => r.date === day).sort((a, b) => a.slot.localeCompare(b.slot));
 
+  // 360px 휴대폰에서도 날짜 칸이 48px이 되게 화면 너비를 거의 다 쓴다(카드 바깥 4px, 칸 사이 가로 틈 없음)
   return (
-    <main className="mx-auto max-w-3xl px-4 py-5" lang={lang}>
-      <div className="mb-4 flex items-center justify-between">
-        <Link href="/me" onClick={backToMe} className="btn-sub min-h-10 px-3 text-sm">← {t(lang, "todayRec")}</Link>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setMonth(shift(month, -1))} className="btn-sub min-h-10 px-3" aria-label={t(lang, "prevMonth")}>‹</button>
+    <main className="mx-auto max-w-3xl px-1 py-5 sm:px-4" lang={lang}>
+      {/* 단추는 손가락 크기(48px 이상). 휴대폰처럼 좁은 화면에서는 달 넘기기를 아래 줄에 가득(‹ 달 ›) */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 px-2 sm:px-0">
+        <Link href="/me" onClick={backToMe} className="btn-sub px-3 text-sm">← {t(lang, "todayRec")}</Link>
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto">
+          <button onClick={() => setMonth(shift(month, -1))} className="btn-sub min-w-12 px-3 text-xl" aria-label={t(lang, "prevMonth")}>‹</button>
           <h1 className="font-display text-2xl">{monthTitle(y, m, lang)}</h1>
-          <button onClick={() => setMonth(shift(month, 1))} className="btn-sub min-h-10 px-3" aria-label={t(lang, "nextMonth")}>›</button>
+          <button onClick={() => setMonth(shift(month, 1))} className="btn-sub min-w-12 px-3 text-xl" aria-label={t(lang, "nextMonth")}>›</button>
         </div>
       </div>
       {buddy && (
@@ -86,13 +90,13 @@ export default function Calendar() {
           </div>
         </div>
       )}
-      <div className="card relative p-3 sm:p-5" aria-busy={!records}>
+      <div className="card relative px-1 py-3 sm:p-5" aria-busy={!records}>
         {!records && (
           <p className="absolute inset-0 z-10 grid place-items-center rounded-[inherit] bg-card/85 px-4 text-center text-lg text-soft" aria-live="polite">
             {slow ? t(lang, "waitNet") : "…"}
           </p>
         )}
-        <div className="grid grid-cols-7 gap-1 text-center text-sm text-soft">
+        <div className="grid grid-cols-7 gap-y-1 text-center text-sm text-soft sm:gap-1">
           {weekRow(lang).map((d, i) => <div key={i} className="py-1">{d}</div>)}
           {cells.map((date, i) => {
             if (!date) return <div key={`x${i}`} />;
@@ -104,8 +108,8 @@ export default function Calendar() {
                 key={date}
                 onClick={() => setPick(date)}
                 aria-label={[dayTitle(date, lang), ...said].join(", ")}
-                aria-pressed={pick === date}
-                className={`flex aspect-square flex-col items-center justify-center gap-0.5 rounded-xl border ${pick === date ? "border-leaf bg-leaf-soft" : "border-transparent hover:bg-paper"}`}
+                aria-pressed={day === date}
+                className={`flex aspect-square flex-col items-center justify-center gap-0.5 rounded-xl border ${day === date ? "border-leaf bg-leaf-soft" : "border-transparent hover:bg-paper"}`}
               >
                 <span className="text-xs text-ink">{Number(date.slice(8))}</span>
                 {/* 아침·하교 전 두 얼굴을 나란히, 겹치지 않게 */}
@@ -119,9 +123,9 @@ export default function Calendar() {
           })}
         </div>
       </div>
-      {pick && records && (
+      {day && records && (
         <div className="card mt-4">
-          <h2 className="font-display text-xl">{dayTitle(pick, lang)}</h2>
+          <h2 className="font-display text-xl">{dayTitle(day, lang)}</h2>
           {picked.length ? (
             picked.map((r) => (
               <div key={r.id} className="mt-3 flex items-start gap-3">
