@@ -549,16 +549,25 @@ export const addRiskDraftSummary = (id: string, text: string, summaryKo: string)
 // 학생이 기록을 마칠 때: 기록에 든 위험한 글이 모두 선생님이 이미 살펴본(「살펴봤어요」) 마치지 않은 글에 있던 것이면 그 글을 돌려준다
 // (같은 칸 것을 먼저). 기록은 살펴본 것으로 이어받고 알림을 다시 보내지 않는다. 새로 위험한 글(살펴본 글에 없던 되묻기 답,
 // 두 칸을 이어 붙여야 걸리는 말, 글 없이 AI만 위험하다고 본 것)이 하나라도 있으면 null — 지금처럼 다시 알린다.
+// 이어받는 것은 그 글을 「마친」 기록뿐이다: 그 글이 모두 기록에 담겼고, 바로 그 무렵(DRAFT_JOIN_MS 안)에 마쳤을 때만.
+// · 같은 칸에 마치지 않은 글이 있으면 그것만 본다 — 살펴보지 않은 글(그사이 새로 쓴 것)이면 다시 알린다.
+// · 다른 칸 글은 같은 칸 글이 없고, 정리하는 사이 정오를 넘긴 경우(아침 글 → 하교 전 기록)만.
+// (아침에 살펴본 「…죽고 싶어」가 오후에 새로 쓴 「죽고 싶어」나 되묻기 답을 조용히 덮지 않게)
+export const DRAFT_JOIN_MS = 30 * 60_000;
+export const recentDraft = (d: Pick<RiskDraft, "at">, at: number) => Math.abs(at - (Date.parse(d.at) || 0)) <= DRAFT_JOIN_MS;
 export interface SavedText { summary: string; answer: string; hits: string[]; summaryHits: string[]; answerHits: string[]; aiRisk: boolean }
-export function seenDraft(rec: SavedText, drafts: RiskDraft[], sameId: string): RiskDraft | null {
+export function seenDraft(rec: SavedText, drafts: RiskDraft[], sameId: string, at: number = Date.now()): RiskDraft | null {
   const parts: string[] = [];
   if (rec.summaryHits.length || rec.aiRisk) parts.push(rec.summary.trim());
   if (rec.answerHits.length) parts.push(rec.answer.trim());
   const known = new Set([...rec.summaryHits, ...rec.answerHits]);
   if (!parts.length || parts.some((p) => !p) || rec.hits.some((h) => !known.has(h))) return null;
-  const texts = (d: RiskDraft) => [d.text, ...(d.earlier ?? []).map((e) => e.text)];
-  const order = [...drafts].sort((a, b) => Number(b.id === sameId) - Number(a.id === sameId));
-  return order.find((d) => !!d.checked && parts.every((p) => texts(d).some((t) => t.includes(p)))) ?? null;
+  const same = drafts.find((d) => d.id === sameId);
+  const crossNoon = sameId.endsWith("_pm") ? drafts.find((d) => d.id === sameId.replace(/_pm$/, "_am")) : undefined;
+  const d = same ?? crossNoon;
+  if (!d?.checked || !recentDraft(d, at) || !draftKept(d, rec.summary, rec.answer)) return null;
+  const texts = [d.text, ...(d.earlier ?? []).map((e) => e.text)];
+  return parts.every((p) => texts.some((t) => t.includes(p))) ? d : null;
 }
 // 그 마치지 않은 글의 글이 모두 기록에 담겼나(그래야 지워도 글을 잃지 않는다)
 export const draftKept = (d: Pick<RiskDraft, "text" | "earlier">, summary: string, answer: string) =>
