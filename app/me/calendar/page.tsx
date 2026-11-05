@@ -1,8 +1,9 @@
 "use client";
 // 내 마음 달력: 날마다 아침·하교 전 스티커 두 개. 내 기록만 보인다.
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backToMe } from "@/lib/back";
+import { onQueueSent } from "@/lib/queue";
 import Doodle from "@/components/Doodle";
 import { Loading, useRetry, useStudentLang } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
@@ -37,15 +38,31 @@ export default function Calendar() {
   const [got, setGot] = useState<{ month: string; list: MoodRecord[] } | null>(null);
   const [pick, setPick] = useState("");
   const [buddy, setBuddy] = useState<{ look: BuddyLook; flowers: number; emotion?: string } | null>(null);
+  const todayMonth = useRef(""); // 서버가 마지막으로 알려 준 오늘이 있는 달
+  // 기기에 담아 둔 기록이 늦게 서버에 갔으면(와이파이가 돌아옴) 이 달 기록과 마음 꽃 수를 다시 읽는다 → 오늘 스티커가 빠지지 않게
+  const [sent, setSent] = useState(0);
+  useEffect(() => onQueueSent(() => setSent((n) => n + 1)), []);
+  // 다른 화면에 갔다 오면(숨겨졌다 다시 보이면) 넘겨 보던 달·고른 날을 잊고 오늘이 있는 달부터 새로 읽는다
+  // → 방금 남긴 오늘 스티커가 보이고, 같은 태블릿의 다음 친구에게 앞 친구가 보던 달이 열리지 않게. 다시 읽기 전까지 앞 기록은 가린다.
+  useLayoutEffect(() => () => {
+    setPick("");
+    const tm = todayMonth.current;
+    if (tm) setMonth(tm);
+    setGot((g) => (g ? { ...g, month: "" } : g));
+  }, []);
 
   // 로그인이 풀렸을 때(401)만 첫 화면으로. 와이파이가 끊긴 것이면 잠시 뒤 다시 묻는다(달력 칸도 같게).
   useRetry(() => api<CalMe>("student", "me"), (m) => {
-    setMonth((cur) => cur || m.today.slice(0, 7));
+    const tm = m.today.slice(0, 7);
+    const was = todayMonth.current;
+    todayMonth.current = tm;
+    // 처음이거나 오늘이 있는 달을 보던 중이면 서버의 오늘 달로(보는 사이 달이 바뀌었어도). 손수 넘긴 달은 그대로.
+    setMonth((cur) => (!cur || cur === was ? tm : cur));
     setWho((cur) => (cur?.no === m.no && cur.space === m.space ? cur : { no: m.no, space: m.space }));
     setBuddy({ look: m.look, flowers: m.flowers.length, emotion: m.flowers.at(-1)?.emotion });
-  });
+  }, sent);
   // 달을 빨리 넘기면 늦게 온 앞 달 답이 지금 달을 덮지 않게, 지금 달 답만 받는다
-  useRetry(month ? () => api<{ records: MoodRecord[] }>("student", "records", { month }).then((r) => ({ month, list: r.records })) : null, setGot, month);
+  useRetry(month ? () => api<{ records: MoodRecord[] }>("student", "records", { month }).then((r) => ({ month, list: r.records })) : null, setGot, `${month}|${sent}`);
   const records = got?.month === month ? got.list : null;
   // 새 달을 읽는 중: 잠깐은 「…」, 오래 걸리면(와이파이 끊김) 연결을 기다린다고 알린다(다시 묻기는 useRetry가)
   const [slow, setSlow] = useState(false);
