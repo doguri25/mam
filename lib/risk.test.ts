@@ -596,7 +596,6 @@ test("넓게 찾기로 받아들인 것: 위험하지 않을 수도 있지만 �
     ["죽고 십 등 했어", ["죽고 십"]],
     // 8판: 던진 돌을 맞은 말, 사람이 죽었다는 말(「Ông em chết đi」)은 그대로 찾는다
     ["Em bị bạn ném đá", ["bị đá"]],
-    ["Ông em chết đi em buồn lắm", ["chết đi"]],
     // 8판 기본 목록(뺄 수 있다): 놀이 말에도 걸린다
     ["게임에서 그냥 죽어 버렸어", ["죽어버", "그냥 죽어"]],
     ["너는 죽었어 내가 이겼다", ["너는 죽어"]],
@@ -1097,12 +1096,12 @@ test("중국어: 「想死你了」「想死我了」(보고 싶어 죽겠다)�
 });
 
 test("남에게 죽으라는 말의 평범한 쓰임: 「chết đi rồi」(이미 죽었다)·「Go Diego go!」는 거르고 「mày chết đi」「go die」는 찾는다", () => {
-  for (const s of ["Con mèo chết đi rồi", "ông em chết đi rồi", "Con cá chết đi rồi", "Go Diego go!"]) assert.deepEqual(matchRisk(s, []), [], s);
+  for (const s of ["Con mèo chết đi rồi", "ông em chết đi rồi", "Ông em chết đi em buồn lắm", "Con cá chết đi rồi", "Go Diego go!"]) assert.deepEqual(matchRisk(s, []), [], s);
   assert.deepEqual(matchRisk("mày chết đi", []), ["chết đi"]);
   assert.deepEqual(matchRisk("just go die already", []), ["go die"]);
   assert.deepEqual(matchRisk("just go dieeee", []), ["go die"]);
   assert.deepEqual(matchRisk("mày chết đi rồi tao vui", []), ["chết đi"]);
-  assert.deepEqual(matchRisk("Con buồn muốn chết đi rồi", []), ["muốn chết"]);
+  assert.deepEqual(matchRisk("Con buồn muốn chết đi rồi", []), ["muốn chết", "chết đi"]); // 「muốn chết」은 늘 찾는다
 });
 
 // 8판: 7판에서 「죽고 십 분」을 거르려고 둔 세는 말이 「도와줘」(도+와)·「살면」·「명이나」까지 걸러 「죽고 십」을 놓쳤다
@@ -1169,7 +1168,7 @@ test("베트남어: 무엇이 죽었다는 「chết đi」(đã·동물·식물
     ["Chết đi. Rồi tao vui", ["chết đi"]], ["Chết đi rồi tao vui", ["chết đi"]], ["Chết đi, vì mày mà tao bị phạt", ["chết đi"]],
     ["Mày phải chết đi vì mày xấu", ["chết đi"]], ["Em mong nó chết đi rồi", ["chết đi"]], ["Con chó chết đi!", ["chết đi"]], ["Đồ chó chết đi", ["chết đi"]],
     ["Mày là con chó chết đi", ["chết đi"]], ["Tao muốn mày chết đi", ["chết đi"]], ["chết đi cho rồi", ["chết đi"]], ["Mày đi chết đi", ["chết đi"]],
-    ["Con buồn muốn chết đi mất", ["muốn chết"]], // 붙여도 「muốn chết」은 찾는다
+    ["Con buồn muốn chết đi mất", ["muốn chết", "chết đi"]], // 「muốn chết」은 늘 찾는다(아무 낱말 뒤 「chết đi mất」은 가리지 않음)
   ]);
 });
 
@@ -1232,4 +1231,18 @@ test("글자에 덧씌운 꾸밈 표시(취소선·밑줄·빗금)를 지우고 
   core([[`con mu${u}o${String.fromCharCode(0x302)}${u}${String.fromCharCode(0x301)}n che${String.fromCharCode(0x302)}${u}${String.fromCharCode(0x301)}t`, ["muốn chết"]]]);
   // 성조는 지우지 않는다: 「Bí danh」은 「bị đánh」이 아니다
   core([[mark("Bí danh của con là Mèo", 0x336), []], [mark("Em bị ốm", 0x332), []], [mark("I had fun", 0x336), []]]);
+});
+
+test("「chết đi」: 동물·식물이 죽은 말과 「nóng… chết đi mất」만 거르고, 사람에게 죽으라는 말은 「vì/rồi」가 붙어도 찾는다", () => {
+  for (const s of ["Cậu chết đi vì cậu xấu", "Bạn nên chết đi vì bạn xấu", "Thà em chết đi vì không ai thương", "Mẹ bảo em chết đi vì em hư", "Em chết đi rồi mọi người sẽ vui", "Bạn chết đi rồi"])
+    assert.deepEqual(matchRisk(s, []), ["chết đi"], s);
+  for (const s of ["Con cá vàng đã chết đi", "Cây hoa chết đi vì thiếu nước", "Con chó chết đi mất rồi", "Nóng chết đi mất", "Con mèo chết đi rồi", "nhớ mẹ chết đi được"])
+    assert.deepEqual(matchRisk(s, []), [], s);
+});
+
+test("늘 살피는 말의 평범한 쓰임: 「bóp cổ tay」(손목 주물러 줌)·「tự cắt tay áo」(소매)·「门被踹开了」(문)은 거른다", () => {
+  for (const s of ["Mẹ bóp cổ tay cho em", "Bố bóp cổ chân cho con", "Em tự cắt tay áo", "门被踹开了", "窗户被踹坏了"]) assert.deepEqual(matchRisk(s, []), [], s);
+  assert.deepEqual(matchRisk("Mẹ bóp cổ em", []), ["bóp cổ"]);
+  assert.deepEqual(matchRisk("Em tự cắt tay", []), ["tự cắt tay"]);
+  assert.deepEqual(matchRisk("我被同学踹了一脚", []), ["被踹"]);
 });
