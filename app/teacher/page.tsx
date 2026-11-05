@@ -59,6 +59,7 @@ function writeCache(c: Cache | null) {
 const basePrefix = (o: { dataPrefix: string; space: string }) => (o.space ? o.dataPrefix.slice(0, -(o.space.length + 1)) : o.dataPrefix);
 const keep = (records: MoodRecord[], stamp: Stamp, prefix: string) =>
   writeCache({ prefix, wipe: stamp.wipe ?? 0, at: stamp.records, records });
+const LOAD_STUCK_MS = 60_000; // 다시 읽기 답을 이만큼 기다렸으면 멈춘 것으로 보고 변경 확인을 다시 한다
 
 export default function TeacherPage() {
   const [raw, setRaw] = useState<OverviewRaw | null>(null);
@@ -87,12 +88,18 @@ export default function TeacherPage() {
   const locked = useRef(false);
   const rawRef = useRef<OverviewRaw | null>(null); // 마지막으로 화면에 쓴 것(바뀐 기록을 합칠 때 그 자리에서 바로 쓰려고)
   const fresh = useCallback((my: number) => !locked.current && my > epoch.current && my > applied.current, []);
+  // 지금 받고 있는 다시 읽기(가장 나중에 시작한 것): 그 답을 기다리는 동안은 변경 확인이 다시 읽기를 또 시작하지 않는다
+  // (답이 20초보다 늦으면 확인할 때마다 통째로 다시 읽어 쌓이고, 바뀐 기록만 합친 것이 그 다시 읽기를 앞질러 버리게 했다).
+  // 답이 오지 않고 멈춘 요청이 변경 확인을 영영 막지 않게 LOAD_STUCK_MS가 지나면 기다리지 않는다.
+  const loading = useRef<{ my: number; at: number } | null>(null);
+  const loadBusy = useCallback(() => !!loading.current && Date.now() - loading.current.at < LOAD_STUCK_MS, []);
 
   // 잠그기·「학생 화면」을 누른 그때: 늦게 오는 응답을 모두 버리고, 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
   const freeze = useCallback(() => {
     locked.current = true;
     epoch.current = seq.current;
     stamp.current = null;
+    loading.current = null;
     writeCache(null);
   }, []);
   // 잠그기·비밀번호가 풀렸을 때: 위 + 위험 표현 글이 든 화면 데이터도 버리고 비밀번호 화면으로
@@ -101,8 +108,13 @@ export default function TeacherPage() {
     rawRef.current = null;
     setRaw(null);
     setNeedLogin(true);
+    // 학급마다 다른 화면 상태도 비운다(잠근 뒤 다른 학급으로 들어오면 앞 학급에서 고른 학생 번호·열어 둔 메뉴가 남지 않게)
+    setCheerNo(null);
+    setDrawer(false);
   }, [freeze]);
   const show = useCallback((o: OverviewRaw) => {
+    // 잠그지 않은 채 학급이 바뀌었으면(다른 창에서 다른 학급으로 들어와 표가 바뀜) 앞 학급에서 고른 학생 번호도 비운다
+    if (rawRef.current && rawRef.current.space !== o.space) setCheerNo(null);
     rawRef.current = o;
     setRaw(o);
     setVersion((v) => v + 1);
@@ -111,6 +123,7 @@ export default function TeacherPage() {
   // 처음·설정이 바뀌었을 때: 전부(최근 34일 기록)
   const load = useCallback(async () => {
     const my = ++seq.current;
+    loading.current = { my, at: Date.now() };
     try {
       const c = readCache();
       const o = await api<OverviewRaw>("teacher", "overview", c ? { since: c.at - 5000, prefix: c.prefix, wipe: c.wipe } : {});
@@ -139,6 +152,8 @@ export default function TeacherPage() {
       if (locked.current || my <= epoch.current) return; // 잠근 뒤에 온 실패는 볼 것 없음
       if ((e as { status?: number }).status === 401) lockOut();
       else dayTried.current = ""; // 날짜가 바뀌어 불렀는데 실패했으면 다음 확인 때 다시
+    } finally {
+      if (loading.current?.my === my) loading.current = null;
     }
   }, [fresh, show, freeze, lockOut]);
   // 비밀번호로 다시 들어왔을 때만 잠금을 푼다(잠금 전에 떠난 응답은 epoch로 계속 버림)
@@ -152,8 +167,9 @@ export default function TeacherPage() {
   // other·wipe가 바뀌었어도(받은 stamp에 담겨 옴) 통째로 다시 읽는다 — 그 값을 그대로 적어 두면 다음 확인이 바뀐 것을 못 본다.
   // 기록만 합칠 때는 records 칸만 앞으로 옮기고 other·wipe는 이 기기가 실제로 읽은 판 그대로 둔다(저장해 둔 기록도 그 판으로).
   // 번호표: 변경 확인도 시작할 때 받는다 → 그 뒤에 시작한 다시 읽기를 이미 썼으면 이 결과를 버리고, 이 결과를 쓴 뒤 늦게 온 앞 다시 읽기도 버린다.
+  // 다시 읽기를 기다리는 동안은 이번 확인을 건너뛴다(그 다시 읽기가 모두 가져온다) — 다음 확인 때 다시 본다.
   const poll = useCallback(async () => {
-    if (document.visibilityState !== "visible" || !stamp.current || locked.current) return;
+    if (document.visibilityState !== "visible" || !stamp.current || locked.current || loadBusy()) return;
     // 자정이 지나 한국 날짜가 바뀌었으면 「오늘」·이번 주를 새로 받는다
     const now = kToday();
     if (now !== day.current && now !== dayTried.current) {
@@ -164,14 +180,14 @@ export default function TeacherPage() {
     try {
       const s = await api<Stamp>("teacher", "stamp");
       const prev = stamp.current;
-      if (!prev || !fresh(my)) return;
+      if (!prev || !fresh(my) || loadBusy()) return; // 묻는 사이 다시 읽기가 시작됐으면 그것에 맡긴다
       const moved = (x: Stamp) => x.other !== prev.other || (x.wipe ?? 0) !== (prev.wipe ?? 0);
       if (moved(s)) return load();
       if (s.records === prev.records) return;
       const { records, stamp: next } = await api<{ records: MoodRecord[]; stamp: Stamp }>("teacher", "changes", { since: prev.records - 5000 });
       // 그사이 통째로 다시 읽었거나(더 나중 번호표) 잠갔으면 이 결과는 버린다
       const o = rawRef.current;
-      if (stamp.current !== prev || !fresh(my) || !o) return;
+      if (stamp.current !== prev || !fresh(my) || !o || loadBusy()) return;
       if (moved(next)) return load();
       const safe: Stamp = { ...prev, records: next.records };
       const byId = new Map(o.records.map((r) => [r.id, r]));
@@ -187,7 +203,7 @@ export default function TeacherPage() {
       if (locked.current || my <= epoch.current) return;
       if ((e as { status?: number }).status === 401) lockOut();
     }
-  }, [fresh, show, load, lockOut]);
+  }, [fresh, show, load, lockOut, loadBusy]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load는 fetch가 끝난 뒤에만 setState한다
@@ -310,7 +326,8 @@ export default function TeacherPage() {
           <p className="flex min-w-0 flex-1 items-center gap-2 font-display text-xl"><Doodle name={current[1]} size={26} /><span className="truncate">{current[2]}</span></p>
           <a href="/teacher/tv" target="_blank" rel="noopener" className="btn-sub min-h-11 px-3 text-sm" aria-label="교실 화면"><Doodle name="tv" size={24} /></a>
         </header>
-        <main className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-6">
+        {/* key: 학급이 바뀌면 탭마다 들고 있던 것(고른 학생·받아 둔 누적 기록·쓰던 글)을 모두 새로 — 앞 학급 것이 섞이지 않게 */}
+        <main key={data.space} className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-6">
           <h1 className="no-print mb-4 hidden items-center gap-3 font-display text-3xl lg:flex"><Doodle name={current[1]} size={38} />{current[2]}</h1>
           {data.trial ? (
             <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-3 text-sm">

@@ -58,8 +58,11 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     if (riskIssue) return say("save", `저장하지 않았어요. ${riskIssue}`);
     try {
       const d = draft;
+      // 키는 새로 친 칸만 보낸다. 쳤다가 지운 빈칸(·빈칸만 친 칸)은 보내지 않는다 — 서버는 빈 글자를 「지우기」로 받으므로
+      // 그대로 보내면 묻지도 않고 저장된 키를 지운다(키 지우기는 「키 지우기」 단추로만, 먼저 묻고).
+      const typed = Object.fromEntries(Object.entries(keys).map(([p, v]) => [p, v?.trim() ?? ""]).filter(([, v]) => v));
       await api("teacher", "settings", {
-        keys,
+        ...(Object.keys(typed).length ? { keys: typed } : {}),
         ...(d.provider ? { provider: d.provider } : {}), ...(d.className !== undefined ? { className: d.className } : {}),
         ...(d.models ? { models: d.models } : {}), ...(d.vocab !== undefined ? { vocab: split(d.vocab) } : {}),
         ...(d.risk !== undefined ? { riskWords: split(d.risk) } : {}), ...(d.voiceMode ? { voiceMode: d.voiceMode } : {}), ...(d.rules ? { rules: d.rules } : {}),
