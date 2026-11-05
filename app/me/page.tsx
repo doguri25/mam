@@ -759,7 +759,7 @@ export default function MePage() {
         </div>
         {outFail && !(outFail === "done" && step === "done") && <p ref={failNote} role="alert" className="scroll-mt-3 rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt("logoutFail")}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <div role="group" aria-label={`${slotName("am")} / ${slotName("pm")}`} className="flex rounded-2xl border border-line bg-card p-1">
+          <div role="group" aria-label={`${slotName("am")} / ${slotName("pm")}`} className="flex rounded-2xl border border-line bg-card p-0.5">
             {(["am", "pm"] as Slot[]).map((s) => (
               <button
                 key={s}
@@ -769,13 +769,13 @@ export default function MePage() {
                   setSlot(s);
                   if (step === "done") reset();
                 }}
-                className={`flex min-h-11 items-center gap-1.5 rounded-xl px-4 text-base font-bold ${slot === s ? "bg-leaf text-white" : "text-soft"}`}
+                className={`flex min-h-12 items-center gap-1.5 rounded-xl px-4 text-base font-bold ${slot === s ? "bg-leaf text-white" : "text-soft"}`}
               >
                 <Doodle name={s === "am" ? "sun" : "sunset"} size={24} /> {slotName(s)}
               </button>
             ))}
           </div>
-          {/* 읽어 주기·언어는 그림 단추 하나씩으로 작게 */}
+          {/* 읽어 주기·언어는 그림 단추 하나씩으로 작게. 아침·하교 전 단추와 언어 고르기도 누르는 곳은 48px(묶음 높이는 그대로) */}
           <button
             onClick={() => setReadAloud(readAloud === "1" ? "" : "1")}
             aria-pressed={readAloud === "1"}
@@ -787,7 +787,7 @@ export default function MePage() {
           </button>
           <label className="flex min-h-12 items-center gap-1 rounded-2xl border border-line bg-card px-2 text-base" title="Language">
             <Doodle name="globe" size={26} />
-            <select value={lang} onChange={(e) => setLang(isLang(e.target.value) ? e.target.value : "ko")} className="h-11 max-w-28 bg-transparent font-bold outline-none" aria-label="Language">
+            <select value={lang} onChange={(e) => setLang(isLang(e.target.value) ? e.target.value : "ko")} className="-my-px h-12 max-w-28 bg-transparent font-bold outline-none" aria-label="Language">
               {LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
           </label>
