@@ -115,6 +115,7 @@ export const DEFAULT_RISK_WORDS = [
   "don't want to go home", "don't want to go back home", "push me", "pushed me", "pushes me", "pushing me", "jump off",
   "不想回家", "不要回家", "không muốn về nhà",
   "に帰りたくない", "にかえりたくない", "うちかえりたくない", "うち帰りたくない", "いえかえりたくない", "家帰りたくない", "とびおりたい",
+  "목을 졸", "목 졸", "날 패", "날 팼", "나를 패", "처맞", "손목에 칼", "kms",
 ];
 // 예전 기본 목록에 나중에 더한 말(판마다) — 선생님이 목록을 고친 적이 있어도 그 판 뒤에 더한 말만 한 번 더해 준다(riskWordsV).
 // add는 더할 말, from은 그 말의 줄기(먼저 있던 말). from이 있으면 선생님 목록에 줄기가 하나라도 남아 있을 때만 더한다:
@@ -160,6 +161,11 @@ export const RISK_WORDS_BY_V: Record<number, { add: string[]; from?: string[] }[
       ],
     },
   ],
+  6: [
+    // 목을 조르고 때린 말(「아빠가 목을 졸랐어」「아빠가 날 패」「형이 나를 팼어」「아빠한테 처맞았어」), 손목에 칼을 댄 말,
+    // 「gonna kms」(kill myself를 줄인 말, 낱말 하나일 때만 — 「5 kms」 같은 킬로미터는 빼고). 「날 패스해 줘」처럼 흔한 말에도 걸릴 수 있어 뺄 수 있는 기본 목록에
+    { add: ["목을 졸", "목 졸", "날 패", "날 팼", "나를 패", "처맞", "손목에 칼", "kms"] },
+  ],
 };
 export const RISK_WORDS_V = Math.max(...Object.keys(RISK_WORDS_BY_V).map(Number));
 // 판 v에서 저장한 목록(saved)에 더해 줄 말: v보다 뒤 판에 더한 말 가운데 목록에 없고, 줄기가 남아 있는 것(앞 판에서 더한 말도 줄기로 친다).
@@ -184,8 +190,8 @@ export function riskWordsAfter(v: number, saved?: string[]) {
 
 // 선생님이 목록에서 지워도 늘 살피는 말: 스스로 해치려는 마음과, 한국어가 아닌 말로 쓴 위험 표현
 // (학생 화면은 영어·중국어·베트남어·일본어로도 쓸 수 있다). 아이들이 흔히 쓰는 맞춤법(「죽구 싶」「시퍼」「시러」「실타」)도 넣는다.
-// 성조 없이 친 베트남어(「muon chet」)와 가타카나(「シニタイ」), 「dont」「do not」「wanna」, 「被…打」「bị … đánh」,
-// 「살기가 싫어」「사는게 너무 싫어」, 「ぼくをたたく」는 matchRisk가 알아서 견준다.
+// 성조 없이 친 베트남어(「muon chet」)와 가타카나(「シニタイ」)·작은 모음(「しにたぃ」), 「dont」「do not」「wanna」, 「被…打」「bị … đánh」,
+// 「살기가 싫어」「사는게 너무 싫어」, 「손목 그었어」「죽고파요」, 「ぼくをたたく」는 matchRisk가 알아서 견준다.
 // 평범한 말에도 걸리는 말(「집에 가기 싫」「don't want to go home」「pushing me」)은 여기가 아니라 선생님이 뺄 수 있는 기본 목록에 둔다.
 export const RISK_CORE = [
   "죽고 싶", "사라지고 싶", "없어지고 싶", "자해", "자살", "살기 싫", "죽어버",
@@ -193,14 +199,16 @@ export const RISK_CORE = [
   "살고 싶지가 않", "살기 실", "사는 게 싫", "사는 거 싫", "뒤지고 싶", "디지고 싶",
   "죽구 십", "죽고 시프", "죽구 시프", "주그고 싶", "죽꼬 싶", "주거버", "사라지고 십", "없어지고 십",
   "사라지구 싶", "사라지구 시퍼", "없어지구 싶", "없어지구 시퍼", "사라져 버리고 싶", "없어져 버리고 싶", "뒤져 버리고 싶",
-  "차라리 죽", "죽는 게 나아", "죽는 게 낫", "죽는 게 나을", "내가 죽었으면 좋겠", "난 죽었으면 좋겠", "나는 죽었으면 좋겠",
+  "차라리 죽", "죽는 게 나아", "죽는 게 낫", "죽는 게 나을", "내가 죽었으면 좋겠", "난 죽었으면 좋겠", "나는 죽었으면 좋겠", "나 죽었으면 좋겠",
   "내가 없어졌으면 좋겠", "내가 사라졌으면 좋겠", "내가 없어지면 좋겠", "내가 사라지면 좋겠", "옥상에서 뛰어내리고 싶", "손목을 긋",
+  "죽고파", "죽구파", "사라지고파", "없어지고파",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   "disappear forever", "want to disappear", "don't want to live",
   "want to be dead", "wish i was dead", "wish i were dead", "hate my life", "end my life", "don't want to be alive",
   "want die", "wish i could disappear", "hate myself", "killmyself", "selfharm", "cut my self", "hurt my self",
   "wana die", "wont to die", "wanttodie", "sucid", "suisid", "wish i was never born", "wish i were never born", "wish i had never been born",
-  "wish i wasn't born", "kill yourself", "kill your self", "kill urself", "kys",
+  "wish i wasn't born", "kill yourself", "kill your self", "kill urself", "kys", "end it all",
+  "hitted me", "hurted me", "beated me",
   "bully", "bullied", "bullies", "bulling", "bulied", "bulies", "beat me", "beats me", "beating me", "hit me", "hits me", "hitting me",
   "hurt me", "hurts me", "hurting me",
   "punch me", "punched me", "punches me", "punching me", "kick me", "kicked me", "kicks me", "kicking me",
@@ -208,13 +216,14 @@ export const RISK_CORE = [
   "make fun of me", "makes fun of me", "made fun of me", "making fun of me",
   "想死", "不想活", "活不下去", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "想消失",
   "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "活著沒意思", "想杀", "恨自己", "恨我自己",
-  "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我",
+  "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我", "揍了我", "踢我", "踢了我", "被踢",
   "muốn chết", "mún chết", "không muốn sống", "chán sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh đòn",
-  "đánh con", "đánh em", "đánh tôi", "đánh mình", "muốn biến mất", "ghét bản thân",
+  "đánh con", "đánh em", "đánh tôi", "đánh mình", "muốn biến mất", "ghét bản thân", "đánh đập",
+  "tát con", "tát em", "tát tôi", "tát mình", "đá con", "đá em", "đá tôi", "đá mình",
   "死にたい", "しにたい", "しんじゃいたい", "消えたい", "きえたい", "いなくなりたい", "自殺", "じさつ", "自傷", "いじめ",
   "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "なかまはずれ", "仲間外れ",
   "死にたく", "しにたくな", "死んじゃいたい", "しんでしまいたい", "死んでしまいたい", "きえてしまいたい", "消えてしまいたい", "生きていたくない", "いきていたくない",
-  "消えてなくなりたい", "きえてなくなりたい", "生きたくない", "リスカ", "飛び降りたい",
+  "消えてなくなりたい", "きえてなくなりたい", "生きたくない", "リスカ", "飛び降りたい", "消えちゃいたい", "きえちゃいたい",
   "ぶたれ", "ころしたい", "殺したい", "ころしてやる", "殺してやる", "しねって", "死ね",
   "ぼくをたたく", "をなぐっ", "をなぐる", "殴っ", "殴る",
 ];
