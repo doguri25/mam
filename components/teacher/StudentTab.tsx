@@ -9,7 +9,7 @@ import Timeline from "./Timeline";
 import { RiskHistory, riskItems } from "./RiskActions";
 import { SEL_COMPS } from "@/lib/selcheck";
 import { selfComps } from "@/lib/selfcheck";
-import type { NameOf, Overview } from "./types";
+import type { NameOf, Overview, Reload } from "./types";
 import { kday } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
@@ -40,12 +40,11 @@ function Tile({ big, label: name, sub }: { big: string | number; label: string; 
 }
 
 // version: 선생님 화면이 다시 불러오거나 새 기록을 합칠 때마다 바뀐다 → 보고 있는 학생 기록도 다시 불러온다
-export default function StudentTab({ data, nameOf, no, setNo, version }: { data: Overview; nameOf: NameOf; no: number | null; setNo: (n: number) => void; version: number }) {
+// reload: 여기서 위험 표현을 살펴봤을 때 선생님 화면 전체(메뉴의 빨간 수·쪽지의 조치 기록)도 바로 새로 읽게
+export default function StudentTab({ data, reload, nameOf, no, setNo, version }: { data: Overview; reload: Reload; nameOf: NameOf; no: number | null; setNo: (n: number) => void; version: number }) {
   // 받아 온 기록·오류는 어느 학생 것인지 함께 둔다(다른 학생을 고르면 그 학생 것이 올 때까지 「불러오는 중」)
   const [got, setGot] = useState<{ no: number; all: All } | null>(null);
   const [fail, setFail] = useState<{ no: number; msg: string } | null>(null);
-  const [tick, setTick] = useState(0); // 「살펴봤어요」 뒤·그사이 학생이 고쳐 썼을 때 이 학생 기록을 다시 불러온다
-  const refresh = () => setTick((t) => t + 1);
   const s = data.students.find((x) => x.no === no);
 
   useEffect(() => {
@@ -56,7 +55,7 @@ export default function StudentTab({ data, nameOf, no, setNo, version }: { data:
       (e) => { if (live) setFail({ no, msg: (e as Error).message }); },
     );
     return () => { live = false; };
-  }, [no, version, tick]);
+  }, [no, version]);
 
   const all = got?.no === no ? got.all : null;
   const err = fail?.no === no && !all ? fail.msg : "";
@@ -70,13 +69,13 @@ export default function StudentTab({ data, nameOf, no, setNo, version }: { data:
       ) : !all ? (
         <div className="card text-soft">불러오는 중…</div>
       ) : (
-        <Report all={all} data={data} no={s.no} nameOf={nameOf} refresh={refresh} onActions={(riskActions) => setGot({ no: s.no, all: { ...all, riskActions } })} />
+        <Report all={all} data={data} no={s.no} nameOf={nameOf} reload={reload} onActions={(riskActions) => setGot({ no: s.no, all: { ...all, riskActions } })} />
       )}
     </div>
   );
 }
 
-function Report({ all, data, no, nameOf, onActions, refresh }: { all: All; data: Overview; no: number; nameOf: NameOf; onActions: (x: RiskAction[]) => void; refresh: () => void }) {
+function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: Overview; no: number; nameOf: NameOf; onActions: (x: RiskAction[]) => void; reload: Reload }) {
   const rs = all.records;
   const first = rs[0]?.date, last = rs.at(-1)?.date;
   const days = new Set(rs.map((r) => r.date)).size;
@@ -236,8 +235,10 @@ function Report({ all, data, no, nameOf, onActions, refresh }: { all: All; data:
       {riskItems(risks).length > 0 && (
         <section className="card space-y-3">
           <h3 className="font-display text-xl"><Doodle name="warning" /> 위험 표현과 조치 <span className="text-sm text-soft">(선생님만 · AI에 보내지 않음)</span></h3>
-          {/* 살펴본 뒤에는 기록의 「살펴봄」도 바뀌므로 조치 기록만 바꾸지 않고 이 학생 것을 다시 불러온다 */}
-          <RiskHistory {...risks} today={data.today} nameOf={nameOf} onStale={refresh} onChange={(x) => { onActions(x.filter((a) => a.no === no)); refresh(); }} />
+          {/* 살펴본 뒤에는 기록의 「살펴봄」도 바뀌므로 조치 기록만 바꾸지 않고 선생님 화면 전체를 새로 읽는다(메뉴의 빨간 수·마음 지도 알림·
+              쪽지 탭의 조치 기록이 20초 동안 어긋나지 않게). 다시 읽으면 version이 바뀌어 이 학생 것도 다시 불러온다 */}
+          <RiskHistory {...risks} today={data.today} nameOf={nameOf} onStale={reload}
+            onChange={async (x) => { onActions(x.filter((a) => a.no === no)); await reload(); }} />
         </section>
       )}
 
@@ -259,7 +260,10 @@ function Report({ all, data, no, nameOf, onActions, refresh }: { all: All; data:
               .sort((a, b) => b.l.createdAt.localeCompare(a.l.createdAt)).slice(0, 10).map(({ l, out }) => (
                 <p key={l.id + out} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0">
                   <span className="text-xs text-soft">{kday(l.createdAt)} · {out ? `→ ${l.to}번 ${nameOf(l.to)}에게` : `← ${l.from}번 ${nameOf(l.from)}에게서`} · {{ wait: "확인 전", ok: "전함", no: "보내지 않음" }[l.status]}</span>
+                  {l.risk && <span className="ml-1 rounded-full bg-alert px-1.5 text-xs text-white">걱정되는 말</span>}
                   <br />{l.text}
+                  {/* 선생님이 다듬어 전한 쪽지: 학생이 처음 쓴 글(선생님만) */}
+                  {l.original && <span className="block text-xs"><span className="font-bold text-alert">처음 쓴 글</span> “{l.original}”</span>}
                 </p>
               ))
           )}
