@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
-import { flushQueue, forgetToken, queueRecord, rememberToken } from "@/lib/queue";
+import { flushQueue, forgetToken, pendingCount, queueRecord, rememberToken } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
@@ -44,14 +44,15 @@ const HUB = ["/me/check", "/me/week", "/me/game", "/me/words", "/me/letters", "/
 
 // 저장한(또는 기기에 담은) 기록: 몇 번째로 남겼는지(seq)와 함께 둔다
 type Saved = { seq: number; no: number; record: MoodRecord };
+// 마음 꽃은 서버처럼 그날 마지막 마음(하교 전이 있으면 하교 전) 색: 하교 전을 남긴 날 손수 아침을 고쳐 남겨도 하교 전 색 그대로
+const lastMood = (records: MoodRecord[]) => records.find((r) => r.slot === "pm") ?? records.find((r) => r.slot === "am");
 // 학생 정보(me)를 물은 뒤에 남긴 기록은, 그 답이 늦게 와도 지우지 않게 다시 얹는다
 // (서버가 저장보다 먼저 답했는데 그 답이 저장 뒤에 오면 「아침: 아직이에요」로 돌아가던 것)
 function keepSaved(m: Me, late: Saved[]): Me {
   const mine = late.filter((x) => x.no === m.no && x.record.date === m.today);
   if (!mine.length) return m;
   const records = [...m.records.filter((r) => !mine.some((x) => x.record.slot === r.slot)), ...mine.map((x) => x.record)];
-  // 마음 꽃은 서버처럼 그날 마지막 마음(하교 전이 있으면 하교 전) 색
-  const last = records.find((r) => r.slot === "pm") ?? records.find((r) => r.slot === "am");
+  const last = lastMood(records);
   const words = mine.map((x) => x.record.word).filter((x): x is string => !!x && !m.words.includes(x));
   return {
     ...m,
@@ -343,16 +344,29 @@ export default function MePage() {
   }, [router]);
   // 끊긴 채 누른 작은 화면은 연결되자마자 연다. 그 사이 다른 것을 누르거나 화면이 바뀌면(단계·저장·시간·도구 상자·나가기) 잊는다:
   // 위 view가 바뀌면 바로 비우고, 이 화면에서 단추·칸을 누르거나 글을 쓰면 forgetWait가 비운다. 열기 직전에도 같은 화면인지 본다.
+  // 기기에 담아 둔 기록이 있으면 먼저 보내고(3초까지 기다림) 연다 → 연 화면(달력 등)에 방금 남긴 마음이 보이게
+  // (더 늦게 가면 달력은 보낸 뒤 다시 읽는다). 기다리는 사이 다시 끊기면 다음 연결을 기다린다.
   useEffect(() => {
     if (!netWait) return;
-    const online = () => {
+    let alive = true;
+    let sending = false;
+    const online = async () => {
+      if (sending) return;
+      sending = true;
+      if (pendingCount()) await Promise.race([flushQueue().catch(() => {}), new Promise((r) => setTimeout(r, 3_000))]);
+      sending = false;
+      if (!alive || navigator.onLine === false) return;
+      alive = false; // 연결 알림이 겹쳐 와도 한 번만 연다
       setNetWait(null);
       if (viewNow.current !== netWait.view) return;
       leftMe();
       router.push(netWait.href);
     };
     window.addEventListener("online", online);
-    return () => window.removeEventListener("online", online);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", online);
+    };
   }, [netWait, router]);
 
   // 「다음 친구 차례」를 못 했으면 그 안내가 보이게(360px에서 단추 곁 안내가 화면 밖이면 안으로)
@@ -391,8 +405,10 @@ export default function MePage() {
     if (step === "ask") return setStep(askFrom);
     reset(); // 고르기 화면으로(말하기·저장한 뒤)
   }, "me");
-  // 첫 화면에서 뒤로 가기를 눌러도 앱 밖으로 나가지 않고, 나가는 방법을 알려 준다
+  // 첫 화면에서 뒤로 가기를 눌러도 앱 밖으로 나가지 않고, 나가는 방법을 알려 준다.
+  // 끊긴 채 눌러 기다리던 작은 화면은 잊는다(카드 단계에서 뒤로 가기를 누를 때처럼)
   useBackGuard(() => {
+    setNetWait(null);
     setBackHint(true);
     setTimeout(() => setBackHint(false), 4000);
   }, "me");
@@ -560,12 +576,16 @@ export default function MePage() {
       setUnlocked(!heavy && words.length > me!.words.length && Object.values(ACC_UNLOCK).includes(words.length));
       setReply(said);
       // 기다리는 사이 새로 받은 학생 정보(쪽지 수 등)를 덮지 않게 지금 것 위에 더한다
-      setMe((cur) => cur && cur.today === today ? {
-        ...cur,
-        words: record.word && !cur.words.includes(record.word) ? [...cur.words, record.word] : cur.words,
-        records: [...cur.records.filter((r) => r.slot !== sl), record],
-        flowers: [...cur.flowers.filter((f) => f.date !== today), { date: today, emotion: record.emotion }],
-      } : cur);
+      setMe((cur) => {
+        if (!cur || cur.today !== today) return cur;
+        const records = [...cur.records.filter((r) => r.slot !== sl), record];
+        return {
+          ...cur,
+          words: record.word && !cur.words.includes(record.word) ? [...cur.words, record.word] : cur.words,
+          records,
+          flowers: [...cur.flowers.filter((f) => f.date !== today), { date: today, emotion: (lastMood(records) ?? record).emotion }],
+        };
+      });
       setStep("done");
       manual.current = false; // 손수 고른 시간은 이번 기록으로 다 썼다(정오가 지나면 다시 시계를 따라감)
       if (!heavy || hard) setCheer((n) => n + 1); // 위험한 말 뒤에 기쁜 마음 친구가 폴짝 뛰지 않게(힘든 마음은 끄덕이며 토닥)
@@ -852,7 +872,8 @@ export default function MePage() {
                 {slotName(slot)} · <b>{w(lang, pick.emotion ?? "")}</b>
                 {pick.word && <> · <b style={{ color: EMOTION_COLOR[pick.emotion ?? ""] }}>{w(lang, pick.word)}</b></>} · {w(lang, pick.reason ?? "")}
               </p>
-              <p className="flex items-center gap-1 text-sm text-soft"><Flower color={EMOTION_COLOR[pick.emotion ?? ""] ?? "#ffc23c"} size={24} /> {tt("flowerToday")}</p>
+              {/* 꽃밭의 오늘 꽃과 같은 색(하교 전을 남긴 날 아침을 고쳐 남겨도 하교 전 색) */}
+              <p className="flex items-center gap-1 text-sm text-soft"><Flower color={EMOTION_COLOR[me.flowers.find((f) => f.date === me.today)?.emotion ?? pick.emotion ?? ""] ?? "#ffc23c"} size={24} /> {tt("flowerToday")}</p>
               {calm === "offer" && (
                 <div className="w-full max-w-md rounded-2xl bg-leaf-soft p-4">
                   <p className="font-display text-xl">{tt("calmAsk")}<SayBtn lang={lang} text={tt("calmAsk")} /></p>
