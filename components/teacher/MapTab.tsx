@@ -2,7 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useState } from "react";
 import Doodle from "../Doodle";
-import { RiskActionForm, RiskHistory, riskItems } from "./RiskActions";
+import { MOVED_MSG, RiskActionForm, RiskHistory, movedTo, riskItems, type FormState } from "./RiskActions";
 import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
@@ -20,9 +20,13 @@ import { isHard } from "@/lib/shared";
 export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void }) {
   const [open, setOpen] = useState<number | null>(null);
   const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
+  const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 폼에 고른 것
   const { students, records, today, flags, settings, absent } = data;
   const todays = records.filter((r) => r.date === today);
   const alerts = riskAlerts(data);
+  // 마치지 않은 글을 살펴보는 사이 학생이 그 글로 기록을 마쳤으면 폼(고른 일·메모)을 같은 칸의 마음 기록 알림으로 옮긴다
+  const actingOn = movedTo(acting, alerts.map((a) => a.id));
+  const stopActing = () => { setActing(null); setCarry(null); };
   // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
   const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
   const openFlags = flags.filter((f) => !checkedAt(f.no));
@@ -113,13 +117,14 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
           return (
             <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
               {body}
-              {acting === a.id ? (
+              {actingOn === a.id ? (
                 <RiskActionForm recordId={a.id} kind={a.kind} today={today} first seen={a.seen} text={saw}
-                  onCancel={() => setActing(null)} onStale={reload} onDone={async () => { setActing(null); await reload(); }} />
+                  init={a.id !== acting && carry ? { ...carry, msg: MOVED_MSG } : null}
+                  onCancel={stopActing} onStale={async (st) => { setCarry(st); await reload(); }} onDone={async () => { stopActing(); await reload(); }} />
               ) : (
                 <span className="flex flex-wrap gap-2">
                   {a.kind === "letter" && onLetters && <button onClick={onLetters} className="btn-sub min-h-10 text-sm">공감 쪽지로</button>}
-                  <button onClick={() => setActing(a.id)} className="btn-sub min-h-10 text-sm">{a.kind === "letter" ? "살펴보고 적기" : "살펴봤어요"}</button>
+                  <button onClick={() => { setActing(a.id); setCarry(null); }} className="btn-sub min-h-10 text-sm">{a.kind === "letter" ? "살펴보고 적기" : "살펴봤어요"}</button>
                 </span>
               )}
             </li>

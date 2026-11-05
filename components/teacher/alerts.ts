@@ -4,7 +4,7 @@
 import { matchRisk } from "@/lib/rules";
 import type { Letter, MoodRecord, PrevVersion, Reflect, RiskAction, RiskDraft } from "@/lib/shared";
 import type { OverviewRaw } from "./types";
-import { kday } from "./when";
+import { kday } from "@/components/teacher/when"; // 교사 API(조치 기록에 남길 글 고르기)도 이 파일을 쓴다 — 서버 시험 도구도 찾게 @/로
 
 export type RiskAlert =
   | { kind: "record"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; seen: string; rec: MoodRecord }

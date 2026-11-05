@@ -38,9 +38,11 @@ test("연습 데이터만 지우기: 연습 학생과 그 흔적만 지우고 �
       ["2_2026-11-03_am", { id: "2_2026-11-03_am", no: 2, date: "2026-11-03" }],
       ["9_2026-03-03_am", { id: "9_2026-03-03_am", no: 9, date: "2026-03-03" }], // 명단에서 빠진 실제 학생의 지난 기록
     ]);
-    await db().set("letters", "l1", { id: "l1", from: 1, to: 2, demo: true });
-    await db().set("letters", "l2", { id: "l2", from: 2, to: 1 }); // 실제 학생이 연습 학생에게 쓴 쪽지
-    await db().set("letters", "l3", { id: "l3", from: 2, to: 9 });
+    await db().set("letters", "l1", { id: "l1", from: 1, to: 2, demo: true, status: "wait" });
+    await db().set("letters", "l2", { id: "l2", from: 2, to: 1, status: "wait", risk: true, text: "1번아 너 때문에 죽고싶어" }); // 실제 학생이 연습 학생에게 쓴 위험한 쪽지
+    await db().set("letters", "l3", { id: "l3", from: 2, to: 9, status: "ok" });
+    await db().set("letters", "l4", { id: "l4", from: 2, to: 1, status: "ok" }); // 실제 학생이 연습 학생에게 쓴 평범한 쪽지(이미 전함)
+    await db().set("letters", "l5", { id: "l5", from: 2, to: 1, status: "no" }); // 돌려보낸 쪽지
     await db().set("reflects", "1_2026-11-02", { id: "1_2026-11-02", no: 1, demo: true });
     await db().set("cheers", "c1", { id: "c1", no: 1 });
     await db().set("cheers", "c2", { id: "c2", no: 2 });
@@ -52,7 +54,9 @@ test("연습 데이터만 지우기: 연습 학생과 그 흔적만 지우고 �
     assert.deepEqual((await getRoster()).map((s) => s.no), [2]);
     assert.equal(await rosterIsDemo(), false);
     assert.deepEqual((await db().all<{ id: string }>("records")).map((r) => r.id).sort(), ["2_2026-11-03_am", "9_2026-03-03_am"]);
-    assert.deepEqual((await db().all<{ id: string }>("letters")).map((r) => r.id), ["l3"]);
+    // 실제 학생이 남긴 쪽지는 지우지 않고 「전할 수 없음」으로(위험한 쪽지는 기다리는 채로 선생님 알림에 남음). 이미 전한 평범한 쪽지만 지운다
+    const letters = await db().all<{ id: string; toPractice?: boolean; status: string }>("letters");
+    assert.deepEqual(letters.map((l) => [l.id, l.status, l.toPractice ?? false]).sort(), [["l2", "wait", true], ["l3", "ok", false], ["l5", "no", true]]);
     assert.deepEqual(await db().all("reflects"), []);
     assert.deepEqual((await db().all<{ id: string }>("cheers")).map((r) => r.id), ["c2"]);
     assert.deepEqual((await getRiskActions()).map((a) => a.id), ["a2"]);
