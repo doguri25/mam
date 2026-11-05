@@ -1246,3 +1246,12 @@ test("늘 살피는 말의 평범한 쓰임: 「bóp cổ tay」(손목 주물�
   assert.deepEqual(matchRisk("Em tự cắt tay", []), ["tự cắt tay"]);
   assert.deepEqual(matchRisk("我被同学踹了一脚", []), ["被踹"]);
 });
+
+test("「Ông/Bà chết đi」는 너에게 하는 말로 찾고, 「ông em / bà ngoại」처럼 집안 어른이 돌아가신 말만 거른다. 사람이 차여 넘어진 「被踹倒」는 찾는다", () => {
+  for (const s of ["Ông chết đi", "Bà chết đi", "Ông chết đi cho rồi", "Ông là đồ ngu, ông chết đi", "Bà chết đi vì bà xấu", "Ông ơi ông chết đi", "Cụ chết đi"])
+    assert.deepEqual(matchRisk(s, []), ["chết đi"], s);
+  for (const s of ["Ông em chết đi rồi", "Bà ngoại của em chết đi vì bệnh", "Ông nội chết đi rồi"]) assert.deepEqual(matchRisk(s, []), [], s);
+  for (const s of ["我被同学踹倒在地上", "我被他踹倒在地", "我被踹倒了", "我被踹翻在地"]) assert.deepEqual(matchRisk(s, []), ["被踹"], s);
+  assert.deepEqual(matchRisk("他踹倒了我", []), ["踹倒了我"]);
+  for (const s of ["门被踹开了", "窗户被踹坏了"]) assert.deepEqual(matchRisk(s, []), [], s);
+});

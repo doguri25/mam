@@ -114,7 +114,8 @@ const LOOSE_INNOCENT = / d(?=iet)| m(?=e the (?:ball|puck) )|(?<= the) e(?=nd it
 // · 「chết đi được」「chết đi sống lại」(죽을 만큼: 「nhớ mẹ chết đi được」「đau chết đi sống lại」)
 // · 더위·추위·배고픔처럼 「~해 죽겠다」는 「nóng/lạnh/đói… chết đi mất」(「Nóng chết đi mất」). 아무 낱말 뒤의 「chết đi vì/mất/rồi」는 가리지 않는다
 //   (「Cậu chết đi vì cậu xấu」「Thà em chết đi vì không ai thương」「Em chết đi rồi mọi người sẽ vui」는 찾는다 — 동물·식물이 죽은 말만 아래에서 가린다)
-// · 「đã chết đi」(「Con cá vàng đã chết đi」), 할머니·할아버지가 돌아가신 말(「ông em chết đi rồi」), 동물·식물이 죽은 말(「Con chó chết đi mất rồi」「Đàn kiến chết đi nhiều quá」「Cây chết đi」 — 「Con chó chết đi!」는 찾는다)
+// · 「đã chết đi」(「Con cá vàng đã chết đi」), 할머니·할아버지가 돌아가신 말(「ông em / bà ngoại chết đi rồi」 — ông·bà만 있으면 「너」로 부르는 말일 수 있어
+//   「Ông chết đi」「Bà chết đi vì bà xấu」는 찾는다), 동물·식물이 죽은 말(「Con chó chết đi mất rồi」「Đàn kiến chết đi nhiều quá」「Cây chết đi」 — 「Con chó chết đi!」는 찾는다)
 // 같은 마디에 너(mày·mi)·바라는 말(mong·ước·cầu)이 있으면 붙이지 않는다(「Mày chết đi rồi tao vui」「Mày phải chết đi vì…」「Em mong nó chết đi rồi」).
 const VI_W = "[\\p{L}\\p{M}\\p{N}]";
 const VI_CHET = "ch[eếêé]t";
@@ -128,7 +129,7 @@ const VI_DIED = new RegExp([
   `(?=${VI_DI}[ \\t]+(?:[dđ][uư][oơợ]c|s[oốô]ng[ \\t]+l[aạ]i)(?!${VI_W}))`,
   `|(?<=(?<!${VI_W})(?:n[oó]ng|l[aạ]nh|r[eé]t|[dđ][oó]i|kh[aá]t|vui|s[uư][oớ]ng|th[eè]m|c[uư][oờ]i)[ \\t]+${VI_CHET}[ \\t]+)(?=${VI_DI}[ \\t]+m[aấâ]t(?!${VI_W}))`,
   `|(?<=(?<!${VI_W})[dđ]ã[ \\t]+${VI_CHET}[ \\t]+)`,
-  `|(?<=(?<!${VI_W})(?:(?:con|đàn|bầy)[ \\t]+(?:${VI_ANIMAL})(?:[ \\t]+(?:vàng|cảnh|nhỏ|bé|con|cưng|của|nhà|em|mình|tôi|ấy|đó|này)){0,3}|cây|hoa|lá|cỏ|rau|mầm|nấm|bông|(?:ông|bà|cụ)(?:[ \\t]+(?:nội|ngoại|cố))?(?:[ \\t]+(?:của[ \\t]+)?(?:em|con|tôi|mình))?)[ \\t]+${VI_CHET}[ \\t]+)(?!${VI_DI}[ \\t]*[!！])`,
+  `|(?<=(?<!${VI_W})(?:(?:con|đàn|bầy)[ \\t]+(?:${VI_ANIMAL})(?:[ \\t]+(?:vàng|cảnh|nhỏ|bé|con|cưng|của|nhà|em|mình|tôi|ấy|đó|này)){0,3}|cây|hoa|lá|cỏ|rau|mầm|nấm|bông|(?:ông|bà|cụ)(?:[ \\t]+(?:nội|ngoại|cố)(?:[ \\t]+(?:của[ \\t]+)?(?:em|con|tôi|mình))?|[ \\t]+(?:của[ \\t]+)?(?:em|con|tôi|mình)))[ \\t]+${VI_CHET}[ \\t]+)(?!${VI_DI}[ \\t]*[!！])`,
   ")",
 ].join(""), "gu");
 // 「Nước đá con thích lắm」(얼음을 좋아해요)의 nước đá(얼음)가 「đá con」(아이를 차)으로 걸리지 않게 두 낱말을 하나로 붙인다.
@@ -396,8 +397,8 @@ const STRETCH = new Map<string, Find>([
   ["被揍", reFind(new RegExp(`被${ZH_IN}{0,8}?揍`, "u"), "plain")],
   // 「我被同学踢了」「我被他踢了一脚」(「我被选去踢足球」「我被叫去踢毽子」「球被小明踢进了球门」「足球被同学踢到树上了」는 빼고)
   ["被踢", reFind(new RegExp(`(?<!${ZH_BALL})被(?!${ZH_SENT})${ZH_IN}{0,8}?踢(?!${ZH_KICK_NOT})`, "u"), "plain")],
-  // 「我被踹了」「我被同学踹了一脚」(踹: 발바닥으로 세게 차다. 공·제기가 차인 말, 「门被踹开了」(문이 차여 열림)는 빼고)
-  ["被踹", reFind(new RegExp(`(?<!${ZH_BALL}|门|窗|箱子|柜子|椅子|桌子)被(?!${ZH_SENT})${ZH_IN}{0,8}?踹(?!开|坏|翻|倒)`, "u"), "plain")],
+  // 「我被踹了」「我被同学踹倒在地上」(踹: 발바닥으로 세게 차다. 공·제기·문·창문처럼 물건이 차인 말 「门被踹开了」「窗户被踹坏了」는 빼고)
+  ["被踹", reFind(new RegExp(`(?<!${ZH_BALL}|门|窗|窗户|箱子|柜子|椅子|桌子|瓶子|罐子)被(?!${ZH_SENT})${ZH_IN}{0,8}?踹`, "u"), "plain")],
   // 「爸爸把我打哭了」「他把我打了」「爸爸把我揍了一顿」: 把我와 打·揍·踢 사이 네 글자까지(「他把我的杯子打碎了」「妈妈把我打扮得很漂亮」은 빼고)
   ["把我打", reFind(new RegExp(`把我(?![的の])${ZH_IN}{0,4}?打(?!${ZH_NOT_HIT}|的)`, "u"), "plain")],
   ["把我揍", reFind(new RegExp(`把我(?![的の])${ZH_IN}{0,4}?揍`, "u"), "plain")],
