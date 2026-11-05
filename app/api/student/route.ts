@@ -4,9 +4,8 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
+import { addCalm, aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
 import { addRiskDraftSummary, draftKept, dropRiskDraft, getRiskDrafts, moveRiskActions, putRiskDraft, recentDraft, saveLook, seenDraft } from "@/lib/data";
-import { riskSrcOf } from "@/components/teacher/alerts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -14,8 +13,8 @@ import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
 import {
-  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, PREV_MAX, REASON_NAMES, TONES, cleanLook, isWordOf,
-  type CalmTool, type Felt, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type Student,
+  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, isWordOf,
+  type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type RiskDraft, type Student,
 } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
 
@@ -160,10 +159,9 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "calm") {
       const tool = body.tool as CalmTool, felt = body.felt as Felt;
       if (!CALM_TOOLS.includes(tool) || !FELT.includes(felt) || !["am", "pm"].includes(body.slot)) return bad("모양이 맞지 않아요.");
-      const rec = (await recordsOf(s.no)).find((r) => r.id === `${s.no}_${today()}_${body.slot}`);
-      if (!rec) return bad("먼저 마음을 남겨 주세요.", 404);
-      const next = { ...rec, calm: [...(rec.calm ?? []), { tool, felt, at: new Date().toISOString() }].slice(-10) };
-      await putRecord(next);
+      // 읽고 고쳐 쓰기를 한 번에(그사이 늦게 온 기록이 끼워 넣은 위험한 글을 덮지 않게)
+      const next = await addCalm(`${s.no}_${today()}_${body.slot}`, { tool, felt, at: new Date().toISOString() });
+      if (!next) return bad("먼저 마음을 남겨 주세요.", 404);
       return NextResponse.json({ record: publicRecord(next) });
     }
 
@@ -390,9 +388,11 @@ async function handle(req: NextRequest, body: Body) {
   }
 }
 
-// 같은 칸(아침·하교 전)에 다시 남기면 새 기록으로 바꾸되, 앞 기록은 prev에 모아 선생님이 볼 수 있게 한다.
+// 같은 칸(아침·하교 전)에 다시 남기면 새 기록으로 바꾸되, 앞 기록은 prev에 모아 선생님이 볼 수 있게 한다(합치기는 lib/data.ts mergeRecord).
 // 선생님이 아직 살펴보지 않은 위험 표시와 마음 다스리기 기록은 새 기록에도 그대로 남긴다(다시 남겨서 알림이 사라지지 않게).
 // 끊겼을 때 담아 둔 기록(madeAt)이 이미 저장된 기록보다 먼저 만든 것이면 덮어쓰지 않고 앞 기록으로만 끼워 넣는다.
+// 같은 칸 저장 둘이 겹쳐도(담아 둔 기록과 바로 보낸 기록·태블릿 두 대) 읽고 고쳐 쓰기를 한 번에 해서 서로 잇는다(위험한 글을 잃지 않게).
+// 같은 기록이 두 번 오면(답만 잃은 화면이 다시 보냄) 그대로 둔다: 앞 기록·살펴볼 판·휴대폰 알림을 다시 만들지 않는다.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 화면에서 온 그대로의 기록, 아래에서 하나씩 검사한다
 async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: string; madeAt?: number } = {}) {
   if (!validCard(r) || !["am", "pm"].includes(r.slot) || !["card", "voice"].includes(r.method)) return bad("기록 모양이 맞지 않아요.");
@@ -440,37 +440,11 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     summaryKo,
     ...(isDemo() || s.demo ? { demo: true } : {}),
   };
-  const old = await db().get<MoodRecord>("records", id);
-  let saved: MoodRecord = own ? { ...rec, riskAt: createdAt, ...(seen ? { riskChecked: seen.checked } : {}) } : rec;
-  // 시각은 글자가 아니라 때로 견준다(체험 반 기록처럼 「+09:00」로 적힌 시각과 「Z」 시각이 섞여도)
-  if (old && opt.madeAt && timeOf(old.createdAt) > timeOf(createdAt)) {
-    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로).
-    // 다시 연 알림과 그 조치 기록이 이미 살펴본 지금 글이 아니라 새로 온 그 글을 보이게 판(riskSrc)을 적는다.
-    // 알림이 아직 열려 있었으면(살펴보기 전) 앞서 열린 글도 함께 가리킨다.
-    const prev = trimPrev([...(old.prev ?? []), toPrev(rec)].sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt)));
-    const open = old.risk && !old.riskChecked;
-    saved = alertNew
-      ? {
-          ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])], riskAt: new Date().toISOString(),
-          riskSrc: [...new Set([...(open ? riskSrcOf(old) : []), createdAt])],
-        }
-      : { ...old, prev };
-  } else if (old) {
-    const carry = old.risk && !old.riskChecked; // 아직 살펴보지 않은 위험 표시
-    saved = {
-      ...saved,
-      prev: trimPrev([...(old.prev ?? []), toPrev(old)]),
-      ...(old.calm?.length ? { calm: old.calm } : {}),
-      // 새 글이 위험하지 않으면(또는 이미 살펴본 글이면) 위험 내용은 그대로(선생님이 보던 버전·글 그대로) — 새 글이 위험하면 위에서 riskAt을 새로 적었다
-      ...(carry ? {
-        risk: true, riskChecked: null, riskHits: [...new Set([...hits, ...old.riskHits])],
-        ...(alertNew
-          ? (old.riskSrc ? { riskSrc: [...old.riskSrc, createdAt] } : {})
-          : { riskAt: old.riskAt ?? old.createdAt, ...(own || old.riskSrc ? { riskSrc: riskSrcOf(old) } : {}) }),
-      } : {}),
-    };
-  }
-  await putRecord(saved);
+  const { record: saved, same } = await saveMoodRecord({ rec, own, alertNew, seenChecked: seen?.checked ?? undefined, queued: opt.madeAt !== undefined });
+  const reply = hits.length ? { reply: RISK_REPLY[lang] } : {};
+  // 같은 기록이 이미 있었으면 저장해 둔 그대로 돌려준다(위험한 글이면 같은 고맙다는 말). 조치 기록 옮기기·마치지 않은 글 정리·휴대폰 알림도 하지 않는다
+  // (다시 정리하며 새로 남긴 마치지 않은 글이 있으면 그 알림은 그대로 둔다).
+  if (same) return NextResponse.json({ record: publicRecord(saved), ...reply });
   // 살펴본 마치지 않은 글을 이어받았으면 그 글에 남긴 조치 기록을 이 기록으로 옮긴다(그 글이 모두 이 기록에 담겼을 때만 — 그래야 지워도 글을 잃지 않음).
   // 담기지 않은 앞서 쓴 글이 있으면 그 글(살펴본 것)과 조치 기록은 그대로 둔다.
   const moveFrom = seen && draftKept(seen, summary, answer) ? seen : null;
@@ -499,31 +473,7 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   }
   if (alertNew) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
   // 학생이 쓴 글(되묻기 답·말한 문장)에 위험한 말이 있었으면 화면이 응원·축하 대신 고맙다는 말을 보이게 그 말만 보낸다(위험 표시·걸린 말은 보내지 않음)
-  return NextResponse.json({ record: publicRecord(saved), ...(hits.length ? { reply: RISK_REPLY[lang] } : {}) });
-}
-
-// 적힌 시각을 밀리초로(읽지 못하면 0 = 가장 앞)
-const timeOf = (x: string | undefined) => Date.parse(x ?? "") || 0;
-
-// 앞 기록은 PREV_MAX개까지. 넘치면 위험하지 않은 오래된 것부터 뺀다(위험한 글이 다시 남기기로 밀려나 사라지지 않게, 위험한 글은 두 배까지)
-function trimPrev(list: PrevVersion[]): PrevVersion[] {
-  const out = [...list];
-  while (out.length > PREV_MAX) {
-    const i = out.findIndex((p) => !p.risk);
-    if (i < 0) break;
-    out.splice(i, 1);
-  }
-  return out.slice(-PREV_MAX * 2);
-}
-
-// 앞 기록으로 넘길 때 남길 것(말투 숫자·목소리 특징은 빼고, 그 기록 자체의 위험 여부만)
-function toPrev(r: MoodRecord): PrevVersion {
-  // Firestore는 undefined 값을 받지 않으므로 없는 칸은 아예 넣지 않는다
-  return {
-    method: r.method, emotion: r.emotion, intensity: r.intensity, reason: r.reason, ...(r.word ? { word: r.word } : {}),
-    summary: r.summary ?? "", ...(r.summaryKo ? { summaryKo: r.summaryKo } : {}), question: r.question ?? "", answer: r.answer ?? "",
-    risk: r.riskSelf ?? r.risk, riskHits: r.riskSelf === false ? [] : r.riskHits ?? [], ...(r.lang ? { lang: r.lang } : {}), createdAt: r.createdAt,
-  };
+  return NextResponse.json({ record: publicRecord(saved), ...reply });
 }
 
 function validCard(c: { emotion?: unknown; intensity?: unknown; reason?: unknown }) {
