@@ -12,9 +12,10 @@ import { ALL_SUB_WORDS, SUB_WORDS } from "@/lib/shared";
 type Dict = { counts: Record<string, number>; mine: string[]; vocab: string[] };
 
 export default function WordsPage() {
-  const { me, lang, tt } = useStudent();
+  const { me, lang, tt, sent } = useStudent();
   const [dict, setDict] = useState<Dict | null>(null);
-  useRetry(() => api<Dict>("student", "dictionary"), setDict); // 와이파이가 잠깐 끊겨도 다시 읽는다
+  // 와이파이가 잠깐 끊겨도 다시 읽는다. 이 기기에 담아 둔 기록이 서버에 가면(sent) 「내가 써 본 말」을 다시 읽는다
+  useRetry(() => api<Dict>("student", "dictionary"), setDict, sent);
   if (!me || !dict) return <Loading lang={me ? lang : undefined} />;
   const extra = dict.vocab.filter((v) => !ALL_SUB_WORDS.includes(v)); // 교과서에서 더한 말
 

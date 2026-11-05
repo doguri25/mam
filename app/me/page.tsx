@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
-import { flushQueue, forgetToken, pendingCount, queueRecord, rememberToken } from "@/lib/queue";
+import { flushQueue, forgetToken, newSaveId, onQueueSent, pendingCount, pendingIds, queueRecord, rememberToken } from "@/lib/queue";
 import { EMOTION_COLOR, EmotionArt, Flower } from "@/components/Art";
 import CalmBox from "@/components/CalmBox";
 import BuddyLazy from "@/components/BuddyLazy";
@@ -42,12 +42,22 @@ const THINK_MS = 20_000; // 마음 친구(AI)가 이보다 오래 생각하면 �
 // 「더 해 보기」 작은 화면들: 와이파이가 끊기기 전에 미리 받아 둔다
 const HUB = ["/me/check", "/me/week", "/me/game", "/me/words", "/me/letters", "/me/buddy", "/me/calendar"];
 
-// 저장한(또는 기기에 담은) 기록: 몇 번째로 남겼는지(seq)와 함께 둔다
-type Saved = { seq: number; no: number; record: MoodRecord };
+// 저장한(또는 기기에 담은) 기록: 몇 번째로 남겼는지(seq)와 함께 둔다.
+// queued: 이 기기에 담아 두어 아직 서버에 없는 기록의 saveId(보내고 나면 지우고 그때 차례를 새로 매긴다 — settle)
+type Saved = { seq: number; no: number; record: MoodRecord; queued?: string };
+type SavedList = { seq: number; list: Saved[] };
+// 담아 둔 기록 중 이제 기기에 없는 것(서버에 갔거나, 서버가 받지 않아 버림)은 「방금 서버에 간 기록」으로 차례를 새로 매긴다
+// → 그 뒤에 시작한 me 물음의 답이 그 기록을 맡고, 그 전에 시작한 물음의 답에는 없을 수 있으니 그대로 얹어 둔다(keepSaved)
+function settle(s: SavedList) {
+  if (!s.list.some((x) => x.queued)) return;
+  const left = pendingIds();
+  s.list = s.list.map((x) => (x.queued && !left.has(x.queued) ? { ...x, queued: undefined, seq: ++s.seq } : x));
+}
 // 마음 꽃은 서버처럼 그날 마지막 마음(하교 전이 있으면 하교 전) 색: 하교 전을 남긴 날 손수 아침을 고쳐 남겨도 하교 전 색 그대로
 const lastMood = (records: MoodRecord[]) => records.find((r) => r.slot === "pm") ?? records.find((r) => r.slot === "am");
-// 학생 정보(me)를 물은 뒤에 남긴 기록은, 그 답이 늦게 와도 지우지 않게 다시 얹는다
-// (서버가 저장보다 먼저 답했는데 그 답이 저장 뒤에 오면 「아침: 아직이에요」로 돌아가던 것)
+// 학생 정보(me)를 물은 뒤에 남긴 기록과 아직 기기에 담겨 있는(서버에 없는) 기록은, 그 답에 없어도 지우지 않게 다시 얹는다
+// (서버가 저장보다 먼저 답했는데 그 답이 저장 뒤에 오면 「아침: 아직이에요」로 돌아가던 것,
+//  달력에 갔다 와서 담아 둔 기록을 보내기 전에 me 답이 먼저 오면 「하교 전: 아직이에요」로 돌아가던 것)
 function keepSaved(m: Me, late: Saved[]): Me {
   const mine = late.filter((x) => x.no === m.no && x.record.date === m.today);
   if (!mine.length) return m;
@@ -97,7 +107,8 @@ export default function MePage() {
   const [leaving, setLeaving] = useState(false); // 「다음 친구 차례」를 눌러 나가는 중
   const [outFail, setOutFail] = useState<"" | "head" | "done">(""); // 「다음 친구 차례」를 못 함(와이파이 끊김): 누른 단추 곁에 안내
   // 끊긴 채 누른 작은 화면(연결되면 연다). view: 누른 때의 화면(단계·시간·도구 상자…) → 화면이 바뀌면 잊는다
-  const [netWait, setNetWait] = useState<{ href: string; at: "hub" | "done"; view: string } | null>(null);
+  // why: net = 와이파이가 끊겨 연결을 기다림, send = 연결은 돼 있고 담아 둔 기록을 먼저 보내 보는 중(3초까지)
+  const [netWait, setNetWait] = useState<{ href: string; at: "hub" | "done"; view: string; why: "net" | "send" } | null>(null);
   const [reply, setReply] = useState(""); // 학생이 쓴 글에 위험한 말이 있어 서버가 보낸 고맙다는 말
   const lastNo = useRef<number | null>(null);
   const lastServer = useRef<{ slot: Slot; today: string } | null>(null); // 서버가 마지막으로 알려 준 시간(아침·하교 전)과 날짜
@@ -189,16 +200,21 @@ export default function MePage() {
   const asked = useRef({ key: "", n: 0, at: 0 }); // 시계만 보고 다시 물은 경계(기기 시간)와 횟수
   const forcedAt = useRef(0); // 기다리지 않고 물은 때(깨어남·카드로·말로)
   // 이 화면에서 남긴 기록(저장·기기에 담기·도구 느낌)과 그 차례 수: 먼저 물은 me 답이 늦게 와도 지우지 않게(keepSaved)
-  const saved = useRef<{ seq: number; list: Saved[] }>({ seq: 0, list: [] });
-  const remember = useCallback((no: number, record: MoodRecord) => {
+  const saved = useRef<SavedList>({ seq: 0, list: [] });
+  // queued: 이 기기에 담아 둔 기록이면 그 saveId(서버에 갈 때까지는 어느 me 답에도 없을 수 있다)
+  const remember = useCallback((no: number, record: MoodRecord, queued?: string) => {
     const s = saved.current;
     s.seq++;
     // 같은 날·같은 시간 칸은 마지막 것만, 다른 날 것은 버린다(이 목록은 많아야 두 개)
-    s.list = [...s.list.filter((x) => x.no === no && x.record.date === record.date && x.record.slot !== record.slot), { seq: s.seq, no, record }];
+    s.list = [...s.list.filter((x) => x.no === no && x.record.date === record.date && x.record.slot !== record.slot), { seq: s.seq, no, record, queued }];
   }, []);
+  const again = useRef(false); // 묻는 사이 담아 둔 기록이 서버에 갔다: 지금 답이 오면 한 번 더 묻는다
+  const askNext = useRef<() => void>(() => {});
   const ask = useCallback(() => {
     if (asking.current) return;
     asking.current = true;
+    again.current = false; // 이제 묻는 것이 그 뒤의 일까지 맡는다
+    settle(saved.current); // 그사이(숨겨져 있던 동안 달력 등에서) 서버에 간 담아 둔 기록은 이 답이 맡는다
     const since = saved.current.seq; // 이보다 뒤에 남긴 기록은 이 답에 없을 수 있다
     askP.current = api<Me>("student", "me").then(
       (m) => {
@@ -220,8 +236,10 @@ export default function MePage() {
         // 기기 시계가 서버와 다르면 이 답을 그 경계의 첫 물음으로 센다(아래 recheck가 몇 번만 더 묻게)
         const key = `${slotNow()}|${kToday()}`;
         if (key !== `${m.slot}|${m.today}` && asked.current.key !== key) asked.current = { key, n: 1, at: Date.now() };
-        // 이 답을 기다리는 사이 저장을 마쳤으면 그 기록은 그대로 둔다(서버가 저장보다 먼저 답했을 수 있다)
-        setMe(keepSaved(m, saved.current.list.filter((x) => x.seq > since)));
+        // 이 답을 기다리는 사이 저장을 마쳤거나 담아 둔 기록이 서버에 갔으면 그 기록은 그대로 둔다(서버가 그보다 먼저 답했을 수 있다).
+        // 아직 기기에 담겨 있는 기록도 그대로(서버에 없으니 이 답에도 없다)
+        setMe(keepSaved(m, saved.current.list.filter((x) => !!x.queued || x.seq > since)));
+        if (again.current) askNext.current();
       },
       (e) => {
         asking.current = false;
@@ -231,6 +249,9 @@ export default function MePage() {
       },
     );
   }, [router, clearAll, follow]);
+  useEffect(() => {
+    askNext.current = ask;
+  }, [ask]);
 
   useEffect(() => {
     atMe(); // 작은 화면에서 돌아왔다
@@ -310,8 +331,11 @@ export default function MePage() {
     if (step === "ask") speak(qa.question, false, lang);
   }, [step, qa.question, lang]);
 
-  // 담아 둔 기록이 있으면 들어올 때와 연결이 돌아올 때 보낸다.
+  // 담아 둔 기록이 있으면 들어올 때와 연결이 돌아올 때, 그리고 남아 있는 동안 10초마다 보낸다
+  // (와이파이는 붙어 있는데 인터넷만 잠깐 안 되던 때는 연결 알림이 오지 않는다).
   // 연결이 돌아오면 「인터넷이 연결되면 다시 눌러 주세요」(다음 친구 차례를 못 했을 때) 안내도 내린다.
+  // 담아 둔 기록이 서버에 가면(이 화면이 보냈든 달력 등이 보냈든) 학생 정보를 다시 물어 「오늘 남긴 마음」·꽃을 서버 것과 맞춘다
+  // (묻는 중이면 그 답 뒤에 한 번 더). 숨겨져 있던 동안 간 것은 다시 보일 때 묻는 ask가 맡는다.
   useEffect(() => {
     const send = () => flushQueue().then(({ sent, dropped: d }) => {
       if (sent) setFlushed(sent);
@@ -321,10 +345,21 @@ export default function MePage() {
       setOutFail("");
       send();
     };
+    const off = onQueueSent(() => {
+      if (asking.current) again.current = true;
+      else ask();
+    });
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible" && pendingCount()) send();
+    }, 10_000);
     send();
     window.addEventListener("online", online);
-    return () => window.removeEventListener("online", online);
-  }, []);
+    return () => {
+      off();
+      clearInterval(id);
+      window.removeEventListener("online", online);
+    };
+  }, [ask]);
 
   // 「더 해 보기」 작은 화면들을 미리 받아 둔다: 와이파이가 끊긴 뒤 칸을 눌러도 브라우저 오류 화면 대신 그 화면(연결 안내)이 열리게.
   // (작은 화면에서는 칸이 화면 아래에 있어 저절로 미리 받지 않는다) 받아 둔 것이 낡으면 다시 받는다. 숨겨지면 멈춘다.
@@ -345,7 +380,8 @@ export default function MePage() {
   // 끊긴 채 누른 작은 화면은 연결되자마자 연다. 그 사이 다른 것을 누르거나 화면이 바뀌면(단계·저장·시간·도구 상자·나가기) 잊는다:
   // 위 view가 바뀌면 바로 비우고, 이 화면에서 단추·칸을 누르거나 글을 쓰면 forgetWait가 비운다. 열기 직전에도 같은 화면인지 본다.
   // 기기에 담아 둔 기록이 있으면 먼저 보내고(3초까지 기다림) 연다 → 연 화면(달력 등)에 방금 남긴 마음이 보이게
-  // (더 늦게 가면 달력은 보낸 뒤 다시 읽는다). 기다리는 사이 다시 끊기면 다음 연결을 기다린다.
+  // (더 늦게 가면 연 화면이 마저 보내고 다시 읽는다). 기다리는 사이 다시 끊기면 다음 연결을 기다린다.
+  // 연결된 채 눌렀으면(담아 둔 기록만 있음 — 와이파이는 붙어 있는데 인터넷만 잠깐 안 되던 때 등) 연결 알림을 기다리지 않고 바로 보내 본다.
   useEffect(() => {
     if (!netWait) return;
     let alive = true;
@@ -363,8 +399,10 @@ export default function MePage() {
       router.push(netWait.href);
     };
     window.addEventListener("online", online);
+    const now = navigator.onLine !== false ? setTimeout(online, 0) : undefined;
     return () => {
       alive = false;
+      clearTimeout(now);
       window.removeEventListener("online", online);
     };
   }, [netWait, router]);
@@ -551,10 +589,13 @@ export default function MePage() {
       }
     }
     const sl = slotRef.current;
-    const payload = { ...p, slot: sl, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn };
+    // saveId: 저장 한 번(누름 한 번)마다 새 이름. 서버에는 갔는데 답만 잃어 이 기기에 담아 두면 같은 이름으로 다시 보낸다
+    // → 서버가 같은 저장인 줄 알고 한 번만 남긴다(앞 기록·알림을 두 번 만들지 않게). 학생이 다시 눌러 남긴 것은 새 이름이라 새 기록.
+    const payload = { ...p, slot: sl, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn, saveId: newSaveId() };
     try {
       let record: MoodRecord;
       let said = ""; // 학생이 쓴 글에 위험한 말이 있으면 서버가 보내는 고맙다는 말
+      let queued: string | undefined; // 이 기기에 담아 뒀으면 그 saveId(아직 서버에 없다)
       try {
         const res = await api<{ record: MoodRecord; reply?: string }>("student", "save", { record: payload });
         record = res.record;
@@ -564,10 +605,12 @@ export default function MePage() {
         // 서버까지 못 갔으면(와이파이 끊김) 이 기기에 담아 두고, 화면은 저장된 것처럼 이어 간다
         if ((e as { status?: number }).status || !queueRecord(me!.no, payload)) throw e;
         record = { ...payload, id: `${me!.no}_${me!.today}_${sl}`, no: me!.no, date: me!.today, createdAt: "" } as unknown as MoodRecord;
+        queued = payload.saveId;
         setOffline(true);
       }
       const today = me!.today;
-      remember(me!.no, record); // 저장 전에 물은 me 답이 늦게 와도 이 기록을 지우지 않게
+      // 저장 전에 물은 me 답이 늦게 와도, 담아 둔 기록이 서버에 가기 전에 다시 물은 me 답이 와도 이 기록을 지우지 않게
+      remember(me!.no, record, queued);
       // 위험한 마음(되묻기 없이 저장했거나, 되묻기 칸 등에 쓴 글에 위험한 말): 응원·꾸미개 축하 대신 고맙다는 말과 도구 상자
       const heavy = q.skip || !!said;
       const hard = ["sad", "angry", "fear"].includes(groupOf(record.emotion));
@@ -630,11 +673,13 @@ export default function MePage() {
   }
 
   // 작은 화면으로 가기: 와이파이가 끊겼으면 가지 않고(미리 받아 두지 못한 화면이면 브라우저 오류 화면이 뜬다) 기다린다고 알린 뒤,
-  // 연결되자마자 연다. 그 사이 다른 것을 누르면 잊는다.
+  // 연결되자마자 연다. 이 기기에 담아 둔 기록이 있으면 연결돼 있어도 먼저 보내 본 뒤(3초까지) 연다
+  // (와이파이는 붙어 있는데 인터넷만 잠깐 안 되던 때는 연결 알림이 오지 않아, 바로 가면 달력에 방금 남긴 마음이 빠진다). 그 사이 다른 것을 누르면 잊는다.
   function go(e: { preventDefault: () => void }, href: string, at: "hub" | "done") {
-    if (navigator.onLine === false) {
+    const off = navigator.onLine === false;
+    if (off || pendingCount()) {
       e.preventDefault();
-      setNetWait({ href, at, view });
+      setNetWait({ href, at, view, why: off ? "net" : "send" });
       return;
     }
     setNetWait(null);
@@ -883,7 +928,7 @@ export default function MePage() {
                   </div>
                 </div>
               )}
-              {netWait?.at === "done" && <p ref={waitNote} role="status" className="rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt("waitNet")}</p>}
+              {netWait?.at === "done" && <p ref={waitNote} role="status" className="rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt(netWait.why === "send" ? "sendWait" : "waitNet")}</p>}
               {outFail === "done" && <p ref={failNote} role="alert" className="rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt("logoutFail")}</p>}
               <div className="mt-2 flex flex-wrap justify-center gap-3">
                 <Link href="/me/calendar" onClick={(e) => go(e, "/me/calendar", "done")} className="btn-sub min-h-12"><Doodle name="calendar" size={24} />{tt("calendar")}</Link>
@@ -905,7 +950,7 @@ export default function MePage() {
         {/* 더 해 보기: 세로 태블릿·휴대폰에서는 기록 아래 3~4칸, 넓은 화면(PC·가로 태블릿)에서는 맨 아래 가로 한 줄 7칸 */}
         <nav aria-label={tt("hubMore")} className="card p-3 lg:col-span-2 lg:col-start-1 lg:row-start-3 lg:p-4">
           <p className="mb-2 font-bold">{tt("hubMore")}</p>
-          {netWait?.at === "hub" && <p ref={waitNote} role="status" className="mb-2 rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt("waitNet")}</p>}
+          {netWait?.at === "hub" && <p ref={waitNote} role="status" className="mb-2 rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt(netWait.why === "send" ? "sendWait" : "waitNet")}</p>}
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
             {tiles.map((x) =>
               x.href ? (

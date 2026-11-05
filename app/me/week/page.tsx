@@ -15,7 +15,7 @@ type Week = { weekStart: string; today: string; records: MoodRecord[]; reflect: 
 const STARTERS: UIKey[] = ["weekS1", "weekS2", "weekS3", "weekS4"];
 
 export default function WeekPage() {
-  const { me, lang, tt } = useStudent();
+  const { me, lang, tt, sent } = useStudent();
   const [week, setWeek] = useState<Week | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,7 +23,8 @@ export default function WeekPage() {
   const [cheer, setCheer] = useState(0);
   const [editing, setEditing] = useState(false);
 
-  useRetry(() => api<Week>("student", "week"), setWeek); // 와이파이가 잠깐 끊겨도 다시 읽는다
+  // 와이파이가 잠깐 끊겨도 다시 읽는다. 이 기기에 담아 둔 기록이 서버에 가면(sent) 이번 주 스티커를 다시 읽는다
+  useRetry(() => api<Week>("student", "week"), setWeek, sent);
 
   if (!me || !week) return <Loading lang={me ? lang : undefined} />;
   const days = Array.from({ length: 7 }, (_, i) => addDays(week.weekStart, i)).filter((d) => d <= week.today);

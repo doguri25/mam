@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backToMe } from "@/lib/back";
-import { onQueueSent } from "@/lib/queue";
 import Doodle from "@/components/Doodle";
-import { Loading, useRetry, useStudentLang } from "@/components/StudentFrame";
+import { Loading, useQueueFlush, useRetry, useStudentLang } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { WEEKDAYS, langOf, t, w, type Lang } from "@/lib/i18n";
 import { label } from "@/lib/date";
@@ -39,9 +38,9 @@ export default function Calendar() {
   const [pick, setPick] = useState("");
   const [buddy, setBuddy] = useState<{ look: BuddyLook; flowers: number; emotion?: string } | null>(null);
   const todayMonth = useRef(""); // 서버가 마지막으로 알려 준 오늘이 있는 달
-  // 기기에 담아 둔 기록이 늦게 서버에 갔으면(와이파이가 돌아옴) 이 달 기록과 마음 꽃 수를 다시 읽는다 → 오늘 스티커가 빠지지 않게
-  const [sent, setSent] = useState(0);
-  useEffect(() => onQueueSent(() => setSent((n) => n + 1)), []);
+  // 기기에 담아 둔 기록은 이 화면이 보이는 동안에도 보낸다(와이파이는 붙어 있는데 인터넷만 잠깐 안 되던 때 — 마음 화면은 숨겨져 있다).
+  // 늦게 서버에 갔으면(어느 화면이 보냈든) 이 달 기록과 마음 꽃 수를 다시 읽는다 → 오늘 스티커가 빠지지 않게
+  const sent = useQueueFlush();
   // 다른 화면에 갔다 오면(숨겨졌다 다시 보이면) 넘겨 보던 달·고른 날을 잊고 오늘이 있는 달부터 새로 읽는다
   // → 방금 남긴 오늘 스티커가 보이고, 같은 태블릿의 다음 친구에게 앞 친구가 보던 달이 열리지 않게. 다시 읽기 전까지 앞 기록은 가린다.
   useLayoutEffect(() => () => {

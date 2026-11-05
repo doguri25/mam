@@ -24,7 +24,7 @@ test("기본 되묻기: 기쁜 마음 + 집·몸이면 「좋았겠다!」 뒤�
 });
 
 test("새 안내 글은 다섯 언어 모두에 있고, 서버의 「마음 점검이 새로 열림」 글도 학생 언어로", () => {
-  for (const key of ["slowThink", "checkChanged"] as const) {
+  for (const key of ["slowThink", "checkChanged", "sendWait"] as const) {
     const ko = t("ko", key);
     assert.ok(ko.length > 5);
     for (const { id } of LANGS) if (id !== "ko") assert.ok(t(id, key) && t(id, key) !== ko, `${key} ${id}`);

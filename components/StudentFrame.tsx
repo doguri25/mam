@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { backToMe } from "@/lib/back";
 import { isLang, t, type Lang, type UIKey } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
+import { flushQueue, onQueueSent, pendingCount } from "@/lib/queue";
 import type { BuddyLook } from "@/lib/shared";
 
 export type StudentMe = {
@@ -73,12 +74,36 @@ export function useRetry<T>(load: (() => Promise<T>) | null, done: (v: T) => voi
   }, [router, key, ready]);
 }
 
+// 작은 화면들: 이 기기에 담아 둔 기록(와이파이가 끊겼을 때 남긴 마음)이 있으면 보이는 동안 보낸다
+// — 들어올 때(숨겨졌다 다시 보일 때도)·연결이 돌아올 때·10초마다(와이파이는 붙어 있는데 인터넷만 안 되던 때는 연결 알림이 오지 않는다).
+// 마음 화면은 숨겨져 있어 듣지 못하니, 달력 등에 와 있는 사이에도 기록이 서버에 가게.
+// 돌려주는 수는 담아 둔 기록이 서버에 갔을 때마다(어느 화면이 보냈든) 하나씩 는다 → 기록을 보여 주는 화면이 다시 읽는 열쇠로.
+export function useQueueFlush() {
+  const [sent, setSent] = useState(0);
+  useEffect(() => {
+    const off = onQueueSent(() => setSent((n) => n + 1));
+    const go = () => {
+      if (document.visibilityState === "visible" && pendingCount()) flushQueue().catch(() => {});
+    };
+    go();
+    const id = setInterval(go, 10_000);
+    window.addEventListener("online", go);
+    return () => {
+      off();
+      clearInterval(id);
+      window.removeEventListener("online", go);
+    };
+  }, []);
+  return sent;
+}
+
 export function useStudent() {
   const [me, setMe] = useState<StudentMe | null>(null);
   const [lang] = useStudentLang(me);
   useRetry(() => api<StudentMe>("student", "me"), setMe);
+  const sent = useQueueFlush();
   const tt = (k: UIKey, vars?: Record<string, string | number>) => t(lang, k, vars);
-  return { me, lang, tt };
+  return { me, lang, tt, sent };
 }
 
 // 큰 「← 돌아가기」: 마음 화면에서 왔으면 실제로 뒤로(그 화면의 단계까지 건너), 아니면 /me로
