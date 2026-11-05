@@ -109,7 +109,7 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
               <button key={word} type="button" aria-pressed={on} onClick={() => pickCard(word)}
                 className={`chip flex min-h-28 flex-col items-center justify-center gap-1.5 px-1 py-3 ${on ? "chip-on" : ""}`}
                 style={on ? { borderColor: c, background: `${c}1f` } : undefined}>
-                <EmotionArt name={word} size={72} />
+                <EmotionArt lang={lang} name={word} size={72} />
                 <span className="text-center text-base font-bold leading-tight">
                   {w(lang, word)}
                   {vocab.includes(word) && <span className="ml-1 inline-block" title={t(lang, "learned")}><Doodle name="star" size={16} /></span>}
@@ -131,7 +131,7 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
     return (
       <section>
         {head(t(lang, "nuance"))}
-        <p className="mb-4 flex items-center gap-2 text-soft"><EmotionArt name={value.emotion} size={36} /> {w(lang, value.emotion)} · {t(lang, "nuanceSkip")}</p>
+        <p className="mb-4 flex items-center gap-2 text-soft"><EmotionArt lang={lang} name={value.emotion} size={36} /> {w(lang, value.emotion)} · {t(lang, "nuanceSkip")}</p>
         <div className="grid gap-3 sm:grid-cols-3">
           {(NUANCE[value.emotion] ?? []).map((word) => {
             const on = value.word === word;
@@ -140,7 +140,7 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
                 onClick={() => { onChange({ ...value, word }); say(word); go(2, 650); }}
                 className="flex min-h-20 items-center gap-3 rounded-3xl border-[3px] px-4 py-3 text-left font-display text-2xl transition active:scale-[0.97] sm:flex-col sm:text-center"
                 style={{ borderColor: color, background: on ? `${color}2e` : "#fff" }}>
-                <EmotionArt name={word} size={72} className="shrink-0" />
+                <EmotionArt lang={lang} name={word} size={72} className="shrink-0" />
                 <span className="min-w-0">
                   {w(lang, word)}
                   {vocab.includes(word) && <span className="ml-1 inline-block" title={t(lang, "learned")}><Doodle name="star" size={22} /></span>}
@@ -188,7 +188,7 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
             <button key={r.name} type="button" aria-pressed={on}
               onClick={() => { if (moving.current) return; const v = { ...value, reason: r.name }; onChange(v); say(r.name); later(() => onDone?.(v)); }}
               className={`chip flex min-h-32 flex-col items-center justify-center gap-2 py-3 ${on ? "chip-on" : ""}`}>
-              <ReasonArt name={r.name} size={58} />
+              <ReasonArt lang={lang} name={r.name} size={58} />
               <span className="text-center text-base font-bold">{w(lang, r.name)}</span>
             </button>
           );
@@ -218,7 +218,7 @@ function All({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick
                 <b className="w-16">{w(lang, GROUPS[g].label)}</b>
                 {EMOTIONS.filter((e) => e.group === g).map((e) => (
                   <span key={e.name} className="inline-flex items-center gap-1">
-                    <EmotionArt name={e.name} size={22} /> {w(lang, e.name)}
+                    <EmotionArt lang={lang} name={e.name} size={22} /> {w(lang, e.name)}
                   </span>
                 ))}
               </p>
@@ -247,7 +247,7 @@ function All({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick
                 className={`chip flex flex-col items-center gap-1 pb-2.5 pt-3 ${on ? "chip-on" : ""}`}
                 style={on ? { borderColor: EMOTION_COLOR[e.name], background: `${EMOTION_COLOR[e.name]}1f` } : undefined}
               >
-                <EmotionArt name={e.name} size={60} />
+                <EmotionArt lang={lang} name={e.name} size={60} />
                 <span className="text-sm font-bold">{w(lang, e.name)}</span>
                 {lang !== "ko" && <span className="text-[11px] text-soft">{e.name}</span>}
               </button>
@@ -329,7 +329,7 @@ function All({ value, onChange, vocab, lang }: { value: Pick; onChange: (v: Pick
               }}
               className={`chip flex flex-col items-center gap-1 py-2.5 ${value.reason === r.name ? "chip-on" : ""}`}
             >
-              <ReasonArt name={r.name} size={46} />
+              <ReasonArt lang={lang} name={r.name} size={46} />
               <span className="text-center text-sm font-bold">{w(lang, r.name)}</span>
             </button>
           ))}

@@ -1,7 +1,7 @@
 "use client";
 // 내 마음 달력: 날마다 아침·하교 전 스티커 두 개. 내 기록만 보인다.
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { backToMe } from "@/lib/back";
 import Doodle from "@/components/Doodle";
 import { Loading, useRetry, useStudentLang } from "@/components/StudentFrame";
@@ -33,7 +33,8 @@ export default function Calendar() {
   const [month, setMonth] = useState("");
   const [who, setWho] = useState<{ no: number; space?: string } | null>(null);
   const [lang] = useStudentLang(who);
-  const [records, setRecords] = useState<MoodRecord[] | null>(null);
+  // 받은 달과 그 달 기록: 달을 넘긴 뒤 새 달 기록이 오기 전에는 앞 달 기록으로 「아직」만 가득한 달을 보이지 않게
+  const [got, setGot] = useState<{ month: string; list: MoodRecord[] } | null>(null);
   const [pick, setPick] = useState("");
   const [buddy, setBuddy] = useState<{ look: BuddyLook; flowers: number; emotion?: string } | null>(null);
 
@@ -44,15 +45,27 @@ export default function Calendar() {
     setBuddy({ look: m.look, flowers: m.flowers.length, emotion: m.flowers.at(-1)?.emotion });
   });
   // 달을 빨리 넘기면 늦게 온 앞 달 답이 지금 달을 덮지 않게, 지금 달 답만 받는다
-  useRetry(month ? () => api<{ records: MoodRecord[] }>("student", "records", { month }) : null, (r) => setRecords(r.records), month);
+  useRetry(month ? () => api<{ records: MoodRecord[] }>("student", "records", { month }).then((r) => ({ month, list: r.records })) : null, setGot, month);
+  const records = got?.month === month ? got.list : null;
+  // 새 달을 읽는 중: 잠깐은 「…」, 오래 걸리면(와이파이 끊김) 연결을 기다린다고 알린다(다시 묻기는 useRetry가)
+  const [slow, setSlow] = useState(false);
+  const waiting = !!month && !!got && !records;
+  useEffect(() => {
+    if (!waiting) return;
+    const id = setTimeout(() => setSlow(true), 1500);
+    return () => {
+      clearTimeout(id);
+      setSlow(false);
+    };
+  }, [waiting]);
 
-  if (!month || !who || !records) return <Loading lang={who ? lang : undefined} />;
+  if (!month || !who || !got) return <Loading lang={who ? lang : undefined} />;
 
   const [y, m] = month.split("-").map(Number);
   const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`)];
-  const picked = records.filter((r) => r.date === pick).sort((a, b) => a.slot.localeCompare(b.slot));
+  const picked = (records ?? []).filter((r) => r.date === pick).sort((a, b) => a.slot.localeCompare(b.slot));
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-5" lang={lang}>
@@ -73,13 +86,18 @@ export default function Calendar() {
           </div>
         </div>
       )}
-      <div className="card p-3 sm:p-5">
+      <div className="card relative p-3 sm:p-5" aria-busy={!records}>
+        {!records && (
+          <p className="absolute inset-0 z-10 grid place-items-center rounded-[inherit] bg-card/85 px-4 text-center text-lg text-soft" aria-live="polite">
+            {slow ? t(lang, "waitNet") : "…"}
+          </p>
+        )}
         <div className="grid grid-cols-7 gap-1 text-center text-sm text-soft">
           {weekRow(lang).map((d, i) => <div key={i} className="py-1">{d}</div>)}
           {cells.map((date, i) => {
             if (!date) return <div key={`x${i}`} />;
-            const am = records.find((r) => r.date === date && r.slot === "am");
-            const pm = records.find((r) => r.date === date && r.slot === "pm");
+            const am = records?.find((r) => r.date === date && r.slot === "am");
+            const pm = records?.find((r) => r.date === date && r.slot === "pm");
             const said = [am, pm].filter((r): r is MoodRecord => !!r).map((r) => `${slotWord(r, lang)} ${w(lang, r.word || r.emotion)}`);
             return (
               <button
@@ -92,8 +110,8 @@ export default function Calendar() {
                 <span className="text-xs text-ink">{Number(date.slice(8))}</span>
                 {/* 아침·하교 전 두 얼굴을 나란히, 겹치지 않게 */}
                 <span className="flex h-5 items-center gap-px sm:h-7 sm:gap-1">
-                  {am && <EmotionArt name={am.word || am.emotion} size={20} className="sm:size-7" />}
-                  {pm && <EmotionArt name={pm.word || pm.emotion} size={20} className="sm:size-7" />}
+                  {am && <EmotionArt lang={lang} name={am.word || am.emotion} size={20} className="sm:size-7" />}
+                  {pm && <EmotionArt lang={lang} name={pm.word || pm.emotion} size={20} className="sm:size-7" />}
                   {!am && !pm && <span className="text-line">·</span>}
                 </span>
               </button>
@@ -101,13 +119,13 @@ export default function Calendar() {
           })}
         </div>
       </div>
-      {pick && (
+      {pick && records && (
         <div className="card mt-4">
           <h2 className="font-display text-xl">{dayTitle(pick, lang)}</h2>
           {picked.length ? (
             picked.map((r) => (
               <div key={r.id} className="mt-3 flex items-start gap-3">
-                <EmotionArt name={r.word || r.emotion} size={44} />
+                <EmotionArt lang={lang} name={r.word || r.emotion} size={44} />
                 <p>
                   <Doodle name={r.slot === "am" ? "sun" : "sunset"} /> {slotWord(r, lang)} · <b>{w(lang, r.emotion)}</b>{r.word && <> · {w(lang, r.word)}</>} · {w(lang, r.reason)}
                   {r.summary && <span className="block text-soft">“{r.summary}”</span>}
