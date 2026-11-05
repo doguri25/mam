@@ -37,6 +37,28 @@ test("마치지 않은 글: 같은 글을 다시 정리하면 다시 열지 않�
   });
 });
 
+test("마치지 않은 글에 한국어 정리 덧붙이기: 같은 글이 그대로 있고 정리가 없을 때만(판·살펴본 표시 그대로, 새 글은 덮지 않음)", async () => {
+  await inSpace("crisk1b", async () => {
+    await D.putRiskDraft(draft("my dad hits me", "2026-11-05T05:00:00.000Z", { lang: "en" }));
+    assert.equal(await D.checkRiskDraft(ID, "2026-11-05T05:00:00.000Z"), "ok");
+    await D.addRiskDraftSummary(ID, "my dad hits me", "아빠가 나를 때려요");
+    let [d] = await D.getRiskDrafts();
+    assert.equal(d.summaryKo, "아빠가 나를 때려요");
+    assert.equal(d.at, "2026-11-05T05:00:00.000Z");
+    assert.ok(d.checked);
+    // 이미 정리가 있으면 그대로
+    await D.addRiskDraftSummary(ID, "my dad hits me", "다른 정리");
+    [d] = await D.getRiskDrafts();
+    assert.equal(d.summaryKo, "아빠가 나를 때려요");
+    // 그사이 학생이 다른 글을 썼으면 앞 글의 정리를 붙이지 않고, 새 글도 덮지 않는다
+    await D.putRiskDraft(draft("they kick me", "2026-11-05T05:02:00.000Z", { lang: "en" }));
+    await D.addRiskDraftSummary(ID, "my dad hits me", "아빠가 나를 때려요");
+    [d] = await D.getRiskDrafts();
+    assert.equal(d.text, "they kick me");
+    assert.equal(d.summaryKo, undefined);
+  });
+});
+
 test("마치지 않은 글 살펴보기: 본 판(at)이 지금 글과 같을 때만 · 그사이 새 글이면 stale · 없어졌으면 missing", async () => {
   await inSpace("crisk2", async () => {
     await D.putRiskDraft(draft("죽고싶어", "2026-11-05T05:00:00.000Z"));

@@ -5,7 +5,7 @@ import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysi
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
-import { dropRiskDraft, putRiskDraft, saveLook } from "@/lib/data";
+import { addRiskDraftSummary, dropRiskDraft, putRiskDraft, saveLook } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -303,21 +303,19 @@ async function handle(req: NextRequest, body: Body) {
       // 쓴 문장에 위험한 말이 있으면 기록을 마치기 전에 바로 남기고 선생님께 알린다(학생이 중간에 나가도 놓치지 않게).
       // 그 칸을 저장하면 saveRecord가 이 글을 기록에 접어 넣는다. 남기다 실패해도 정리하기는 이어 간다(알림은 저장 때 다시).
       let drafted: RiskDraft | null = null;
-      // 먼저 남긴 글에 한국어 정리를 덧붙인다. 그사이 같은 칸에 다른 글이 왔거나 정리가 이미 있으면 그대로 둔다.
-      const addDraftSummary = async (d: RiskDraft, summaryKo: string) => {
-        try {
-          const cur = (await getRiskDrafts()).find((x) => x.id === d.id && x.text === d.text);
-          if (cur && !cur.summaryKo) await putRiskDraft({ ...cur, summaryKo });
-        } catch (e) {
-          console.error("마치지 않은 위험 표현에 한국어 정리 덧붙이기 실패", e);
-        }
-      };
       const draft = async (summaryKo = "", hits = ruleHits) => {
         if (!text) return;
         const ko = lang !== "ko" ? summaryKo.slice(0, 120) : "";
         if (drafted) {
-          // 규칙에 걸려 AI보다 먼저 남긴 글: 선생님이 읽을 한국어 정리만 덧붙인다(알림은 다시 보내지 않고, 시각·살펴본 표시·앞 글은 그대로)
-          if (ko) await addDraftSummary(drafted, ko);
+          // 규칙에 걸려 AI보다 먼저 남긴 글: 선생님이 읽을 한국어 정리만 덧붙인다(그 자리에 아직 같은 글이 있을 때만, 한 번에).
+          // 시각·살펴본 표시·앞 글은 그대로 두고, 알림은 다시 보내지 않는다.
+          if (ko) {
+            try {
+              await addRiskDraftSummary(drafted.id, drafted.text, ko);
+            } catch (e) {
+              console.error("마치지 않은 위험 표현에 한국어 정리 덧붙이기 실패", e);
+            }
+          }
           return;
         }
         const d: RiskDraft = {
@@ -326,8 +324,8 @@ async function handle(req: NextRequest, body: Body) {
         };
         drafted = d;
         try {
-          await putRiskDraft(d);
-          alertTeacher(s.no, "기록", `risk-${d.id}`);
+          // 같은 글을 다시 정리한 것(말로 → 카드로)이면 살펴본 표시를 그대로 두고 알림도 다시 보내지 않는다
+          if (await putRiskDraft(d)) alertTeacher(s.no, "기록", `risk-${d.id}`);
         } catch (e) {
           console.error("마치지 않은 위험 표현 남기기 실패", e);
         }
