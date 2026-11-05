@@ -2,7 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useState } from "react";
 import Doodle from "../Doodle";
-import { MOVED_MSG, RiskActionForm, RiskHistory, movedTo, riskItems, type FormState } from "./RiskActions";
+import { MOVED_MSG, RiskActionForm, RiskHistory, RiskTexts, movedTo, riskItems, type FormState } from "./RiskActions";
 import { EmotionArt } from "../Art";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
@@ -67,12 +67,8 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
                 <EmotionArt name={r.emotion} size={34} className="shrink-0" />
                 <span>
                   {head(r.emotion)}
-                  {src.prev ? (
-                    <span className="block text-sm"><span className="font-bold text-alert">고치기 전 글에 위험 표현</span> “{src.text}”</span>
-                  ) : (
-                    src.text && <span className="block text-sm">“{src.text}”</span>
-                  )}
-                  <span className="block text-xs text-soft">{src.hits.length ? `걸린 말: ${src.hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>
+                  {/* 알림이 두 글을 가리키면(열린 알림 위에 또 위험한 글) 「먼저 쓴 글」「다시 쓴 글」로 한 줄씩, 걸린 말도 글마다 */}
+                  <RiskTexts parts={src.parts} hits={src.hits} />
                   <PrevList prev={r.prev} now={r.createdAt} />
                 </span>
               </span>

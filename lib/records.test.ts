@@ -77,11 +77,120 @@ test("열린 알림 위에 또 위험한 글을 남기면 알림이 두 글을 �
   assert.ok(open(b));
   assert.equal(b.riskAt, at(5));
   assert.deepEqual(b.riskSrc, [at(0), at(5)]);
-  assert.equal(riskySource(b).text, "친구가 나를 때렸어 / 죽고 싶어");
+  assert.equal(riskySource(b).text, "[먼저 쓴 글 09:00] 친구가 나를 때렸어 ‖ [다시 쓴 글 09:05] 죽고 싶어");
   // 살펴본 뒤에 남긴 위험한 글은 그 글만
   const c = D.mergeRecord({ ...a, riskChecked: at(1) }, save(rec("죽고 싶어", at(5))))!;
   assert.equal(c.riskSrc, undefined);
   assert.equal(riskySource(c).text, "죽고 싶어");
+});
+
+test("저장 이름(saveId)이 오면 그 이름으로만 같은 저장을 알아본다(이름이 다르면 같은 글도 새로 털어놓은 것)", () => {
+  const named = (r: MoodRecord, saveId: string): MoodRecord => ({ ...r, saveId });
+  const first = D.mergeRecord(null, save(named(rec(X, at(0)), "s1")))!;
+  assert.equal(first.saveId, "s1");
+  const checked = { ...first, riskChecked: at(2) };
+  // 답을 잃어 담아 두었다가 같은 이름으로 다시 보냄 → 그대로(시각이 한참 달라도)
+  assert.equal(D.mergeRecord(checked, save(named(rec(X, at(1)), "s1"), true)), null);
+  assert.equal(D.mergeRecord(checked, save(named(rec(X, at(40)), "s1"), true)), null);
+  // 선생님이 닫은 뒤 끊긴 채 5분 뒤 같은 카드·같은 말을 다시 남김(새 이름) → 다시 알림
+  const again = D.mergeRecord(checked, save(named(rec(X, at(5)), "s2"), true))!;
+  assert.ok(open(again));
+  assert.equal(again.prev?.length, 1);
+  assert.equal(again.prev?.[0].saveId, "s1"); // 앞 기록에도 이름이 남는다
+  // 그 뒤 앞 저장(s1)이 또 늦게 옴: 앞 기록에 같은 이름이 있으면 그대로(늦게 온 앞 기록이든 아니든)
+  assert.equal(D.mergeRecord(again, save(named(rec(X, at(1)), "s1"), true)), null);
+  assert.equal(D.mergeRecord(again, save(named(rec(X, at(9)), "s1"), true)), null);
+  // 늦게 온 앞 기록인데 이름이 다르면 글이 같아도 앞 기록으로 끼워 넣는다
+  const late = D.mergeRecord(again, save(named(rec(X, at(3)), "s3"), true))!;
+  assert.deepEqual(late.prev?.map((p) => p.saveId), ["s1", "s3"]);
+  // 바로 보낸 저장은 이름이 같아도 걸러 내지 않는다(학생 화면은 저장마다 새 이름을 단다 — 담아 둔 것만 다시 보냄)
+  assert.ok(D.mergeRecord(checked, save(named(rec(X, at(1)), "s1"))));
+  // 이름 없는 예전 화면만 글·때로 견준다
+  assert.equal(D.mergeRecord(checked, save(rec(X, at(1)), true)), null);
+});
+
+test("늦게 온 앞 기록이 열린 알림 밑으로 끼면 알림이 보던 글을 그대로 가리킨다", () => {
+  const A = "죽고 싶어", C = "아빠가 때려서 집에 가기 싫어";
+  // 9:00 위험한 글(알림 열림) → 9:10 순한 글로 다시 남김(알림은 이어받음)
+  const a = D.mergeRecord(null, save(rec(A, at(0))))!;
+  const plain = D.mergeRecord(a, save(rec("오늘은 그냥 그래", at(10))))!;
+  assert.equal(riskySource(plain).text, A);
+  // 9:05에 만든 위험한 글이 늦게 옴 — 선생님이 이미 살펴본 마치지 않은 글이라 새로 알리지 않음(alertNew 없음)
+  const seen = D.mergeRecord(plain, { rec: rec(C, at(5)), own: true, alertNew: false, queued: true })!;
+  assert.deepEqual(seen.prev?.map((p) => p.summary), [A, C]);
+  assert.equal(riskySource(seen).text, A); // 「가장 최근 위험한 앞 글」(C)로 바뀌지 않음
+  assert.deepEqual(seen.riskSrc, [at(0)]);
+  assert.equal(seen.riskAt, plain.riskAt); // 선생님이 본 판도 그대로(닫기가 409로 막히지 않게)
+  // 알림이 닫혀 있었으면 판을 적지 않는다
+  const closed = D.mergeRecord({ ...plain, riskChecked: at(11) }, { rec: rec(C, at(5)), own: true, alertNew: false, queued: true })!;
+  assert.equal(closed.riskSrc, undefined);
+});
+
+test("앞 기록 정리: 위험한 앞 기록이 이미 열 개여도 늦게 온 살펴보지 않은 위험한 글과 알림이 가리키는 판은 빼지 않는다", () => {
+  const pv = (m: number, summary: string, risk: boolean) => D.toPrev({ ...rec(summary, at(m), risk), riskSelf: risk });
+  const cur: MoodRecord = {
+    ...rec("그냥 그래", at(30), false), risk: true, riskSelf: false, riskChecked: at(40), riskAt: at(20),
+    prev: Array.from({ length: 10 }, (_, i) => pv(10 + i, `죽고 싶어 ${i + 1}`, true)),
+  };
+  const late = D.mergeRecord(cur, save(rec(X, at(5)), true), new Date(T0 + 60 * 60_000))!;
+  assert.ok(open(late));
+  assert.equal(late.prev?.length, 10);
+  assert.equal(late.prev?.[0].summary, X); // 새 글이 남고 이미 살펴본 가장 오래된 위험한 글이 빠짐
+  assert.ok(!late.prev?.some((p) => p.summary === "죽고 싶어 1"));
+  assert.equal(riskySource(late).text, X);
+  // trimPrev: 붙들 판은 빼지 않고, 위험하지 않은 것부터 · 그다음 붙들지 않은 오래된 것부터 · 네 배를 넘으면 가장 오래된 것부터
+  const list = Array.from({ length: 12 }, (_, i) => pv(i, `죽고 싶어 ${i}`, true));
+  assert.deepEqual(D.trimPrev(list, [at(0), at(1)]).map((p) => p.createdAt), [at(0), at(1), ...list.slice(4).map((p) => p.createdAt)]);
+  assert.equal(D.trimPrev(Array.from({ length: 30 }, (_, i) => pv(i, `죽고 싶어 ${i}`, true)), Array.from({ length: 30 }, (_, i) => at(i))).length, 20);
+  assert.deepEqual(D.trimPrev([pv(0, "a", false), ...list.slice(0, 5)]).map((p) => p.summary), list.slice(0, 5).map((p) => p.summary));
+});
+
+test("걸린 말은 판마다 그 글의 것만 둔다(알림에 보일 때 모은다)", () => {
+  const hit = (r: MoodRecord, riskHits: string[]) => ({ ...r, riskHits });
+  const a = D.mergeRecord(null, save(hit(rec("죽고 싶어", at(0)), ["죽고 싶"])))!;
+  const b = D.mergeRecord(a, save(hit(rec("다 때리고 싶어", at(5), true), ["때리"])))!;
+  assert.deepEqual(b.riskHits, ["때리"]);
+  assert.deepEqual(b.prev?.[0].riskHits, ["죽고 싶"]);
+  assert.deepEqual(riskySource(b).hits, ["죽고 싶", "때리"]);
+  // 그 위에 또 다시 남겨도 앞 기록에 섞인 말이 들어가지 않는다
+  const c = D.mergeRecord(b, save(rec("이제 괜찮아", at(8), false)))!;
+  assert.deepEqual(c.prev?.map((p) => p.riskHits), [["죽고 싶"], ["때리"]]);
+  assert.deepEqual(c.riskHits, []);
+  assert.ok(open(c));
+  // 늦게 온 앞 기록이 알림을 다시 열어도 지금 글의 걸린 말은 그대로
+  const late = D.mergeRecord({ ...b, riskChecked: at(6) }, save(hit(rec(X, at(3)), ["때려"]), true), new Date(T0 + 60 * 60_000))!;
+  assert.deepEqual(late.riskHits, ["때리"]);
+  assert.deepEqual(riskySource(late).hits, ["때려"]);
+});
+
+test("담아 둔 기록의 만든 때: 느린 시계는 표를 받은 날 0시로, 빠른 시계는 지금으로(버리지 않음). 오래된 표는 받지 않는다", () => {
+  const NOW = Date.parse("2026-11-05T21:00:00.000Z"); // 한국 11월 6일 06:00
+  const day = "2026-11-06";
+  const start = Date.parse("2026-11-05T15:00:00.000Z"); // 11월 6일 0시(한국)
+  // 시계가 13시간 늦음(전날로 보임) → 그날 0시
+  assert.deepEqual(D.queuedWhen(new Date(NOW - 13 * 3600_000).toISOString(), day, NOW), { date: day, madeAt: start });
+  // 하루 늦음도
+  assert.deepEqual(D.queuedWhen(new Date(NOW - 26 * 3600_000).toISOString(), day, NOW), { date: day, madeAt: start });
+  // 맞는 시계는 그대로
+  assert.deepEqual(D.queuedWhen(new Date(NOW - 60_000).toISOString(), day, NOW), { date: day, madeAt: NOW - 60_000 });
+  // 조금(1분 안) 빠름 → 지금으로(자정 바로 앞이어도 다음 날로 넘어가 버려지지 않게)
+  assert.deepEqual(D.queuedWhen(new Date(NOW + 30_000).toISOString(), day, NOW), { date: day, madeAt: NOW });
+  const midnight = Date.parse("2026-11-06T14:59:50.000Z"); // 한국 11월 6일 23:59:50
+  assert.deepEqual(D.queuedWhen(new Date(midnight + 30_000).toISOString(), day, midnight), { date: day, madeAt: midnight });
+  // 12시간 빠름 → 지금으로
+  assert.deepEqual(D.queuedWhen(new Date(NOW + 12 * 3600_000).toISOString(), day, NOW), { date: day, madeAt: NOW });
+  // 어제 받은 표 + 많이 빠른 시계: 언제 만든지 모르니 표의 날, 그날을 넘지 않게
+  assert.deepEqual(D.queuedWhen(new Date(NOW + 12 * 3600_000).toISOString(), "2026-11-05", NOW), { date: "2026-11-05", madeAt: start - 1 });
+  // 만든 때가 없으면 표의 날(만든 때 없이)
+  assert.deepEqual(D.queuedWhen(undefined, day, NOW), { date: day });
+  assert.deepEqual(D.queuedWhen("이상한 값", day, NOW), { date: day });
+  // 사흘이 지난 표 · 앞날 표 · 이상한 날짜는 받지 않는다
+  assert.equal(D.queuedWhen(new Date(NOW).toISOString(), "2026-11-02", NOW), null);
+  assert.equal(D.queuedWhen(new Date(NOW - 5 * 86_400_000).toISOString(), "2026-11-01", NOW), null);
+  assert.equal(D.queuedWhen(new Date(NOW).toISOString(), "2026-11-07", NOW), null);
+  assert.equal(D.queuedWhen(new Date(NOW).toISOString(), "x", NOW), null);
+  // 사흘 안의 표로 오늘 만든 기록은 오늘로
+  assert.deepEqual(D.queuedWhen(new Date(NOW).toISOString(), "2026-11-03", NOW), { date: day, madeAt: NOW });
 });
 
 test("saveMoodRecord: 같은 기록이면 쓰지 않고 저장된 그대로 돌려준다", async () => {

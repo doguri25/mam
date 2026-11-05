@@ -2,7 +2,7 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, noteTeacherLogin, setConsent } from "@/lib/data";
-import { draftText, reflectEverRisk, reflectSource, riskySource } from "@/components/teacher/alerts";
+import { draftText, partsText, reflectEverRisk, reflectSource, riskySource } from "@/components/teacher/alerts";
 import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@/lib/limit";
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
@@ -415,8 +415,9 @@ async function handle(req: NextRequest) {
       if (first && seen && version !== seen) return bad(STALE, 409);
       // 조치 기록에는 위험 표현이 있던 그 글을 서버가 골라 남긴다(지금 글이 고쳐 써서 순해졌어도, 선생님이 다듬어 전한 쪽지여도).
       // 그 글이 나중에 지워지거나(34일·보관 기한·마치지 않은 기록 40일) 바뀌어도 조치 기록에 남는다.
+      // 글이 둘 이상이면 「[먼저 쓴 글 09:00] … ‖ [다시 쓴 글 09:05] …」(한 글 안의 「 / 」와 헷갈리지 않게 — alerts.ts partsText)
       const text =
-        kind === "draft" && d ? [...(d.earlier ?? []).map((e) => e.text), draftText(d)].join(" / ")
+        kind === "draft" && d ? partsText([...(d.earlier ?? []).map((e) => ({ text: e.text, hits: e.hits, at: e.at, now: false })), { text: draftText(d), hits: d.hits, at: d.at, now: true }])
         : kind === "reflect" && ref ? reflectSource(ref, settings.riskWords).text
         : kind === "letter" && l ? `${l.from}번 → ${l.to}번: ${l.original ?? l.text}`
         : kind === "record" && r ? riskySource(r).text

@@ -5,9 +5,9 @@
 import { useState } from "react";
 import Doodle from "../Doodle";
 import PrevList from "./PrevList";
-import { KIND_KO, draftText, everRisk, kindOfId, recordSeen, reflectEverRisk, reflectSource, riskySource, type RiskKind } from "./alerts";
+import { KIND_KO, PART_SEP, draftText, everRisk, kindOfId, partLabel, partsText, recordSeen, reflectEverRisk, reflectSource, riskyParts, riskySource, splitParts, type RiskKind, type RiskPart } from "./alerts";
 import type { NameOf } from "./types";
-import { kday } from "./when";
+import { kday, ktime } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { RISK_ACTIONS, RISK_ACTION_KO, type Letter, type MoodRecord, type Reflect, type RiskAction, type RiskActionKind, type RiskDraft } from "@/lib/shared";
@@ -15,6 +15,49 @@ import { RISK_ACTIONS, RISK_ACTION_KO, type Letter, type MoodRecord, type Reflec
 export const kindsText = (kinds: RiskActionKind[]) => kinds.map((k) => RISK_ACTION_KO[k]).join(" · ");
 export const STALE_MSG = "학생이 그사이 새로 남겼어요. 바뀐 글을 읽고 다시 눌러 주세요.";
 export const MOVED_MSG = "학생이 그 글로 기록을 마쳤어요. 고른 일과 메모를 이 마음 기록 알림으로 옮겨 왔어요. 기록을 읽고 다시 눌러 주세요.";
+
+const hitsText = (hits: string[]) => (hits.length ? `걸린 말: ${hits.join(", ")}` : "AI가 위험 내용으로 판단");
+// 위험 표현이 있던 글. 한 글이면 예전처럼 글 한 줄(고치기 전 글이면 그렇게)과 걸린 말.
+// 두 글 이상이면 「먼저 쓴 글 · 09:00」「다시 쓴 글 · 09:05」로 한 줄씩 나누고 걸린 말도 그 글의 것만(「 / 」로 이으면 한 줄과 답 사이와 헷갈림).
+// fresh: 아직 살펴보지 않은 판(누적 기록에서 그날 다른 위험한 글과 함께 보일 때 알림이 가리키는 판에 「새 글」)
+// hits: 글이 없을 때(판이 정리되어 남지 않음) 보일 걸린 말
+export function RiskTexts({ parts, hits = [], fresh = [] }: { parts: RiskPart[]; hits?: string[]; fresh?: string[] }) {
+  if (!parts.length) return <span className="block text-xs text-soft">{hitsText(hits)}</span>;
+  if (parts.length === 1) {
+    const p = parts[0];
+    return (
+      <>
+        <span className="block text-sm">{!p.now && <span className="font-bold text-alert">고치기 전 글에 위험 표현 </span>}“{p.text}”</span>
+        <span className="block text-xs text-soft">{hitsText(p.hits)}</span>
+      </>
+    );
+  }
+  return (
+    <span className="mt-1 block space-y-1">
+      {!parts.some((p) => p.now) && <span className="block text-xs font-bold text-alert">고치기 전 글에 위험 표현</span>}
+      {parts.map((p, i) => (
+        <span key={`${p.at}-${i}`} className="block border-l-2 border-alert/50 pl-2 text-sm">
+          <span className="block text-xs font-bold text-alert">
+            {partLabel(i, parts.length, p.now)}{ktime(p.at) && <span className="tabular-nums"> · {ktime(p.at)}</span>}
+            {fresh.includes(p.at) && <span className="ml-1 rounded bg-alert px-1 font-normal text-white">새 글</span>}
+          </span>
+          “{p.text}”
+          <span className="block text-xs text-soft">{hitsText(p.hits)}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+// 조치 기록에 남은 글(살펴본 그때의 글). 여러 글이면(「 ‖ 」로 이어 남김) 한 줄씩
+function SawText({ text }: { text: string }) {
+  if (!text.includes(PART_SEP)) return <span className="block text-xs text-soft">살펴본 글: “{text}”</span>;
+  return (
+    <span className="block text-xs text-soft">
+      살펴본 글:
+      {splitParts(text).map((t, i) => <span key={i} className="block pl-2">{t}</span>)}
+    </span>
+  );
+}
 
 // 폼에 고른 것(그사이 바뀌어 다시 불러올 때 잃지 않게 밖으로 넘긴다). msg: 새 폼에 처음 띄울 말
 export interface FormState { kinds: RiskActionKind[]; date: string; note: string; msg?: string }
@@ -123,6 +166,9 @@ export interface RiskItem {
   text: string; // 위험 표현이 있던 글(지워졌으면 조치 기록에 남은 글 · 쪽지는 학생이 처음 쓴 글)
   nowText?: string; // 위험 표현이 고쳐 쓰기 전 글에 있었으면 지금 글(돌아보기) · 선생님이 다듬어 전한 쪽지면 전한 글
   saw: string; // 조치 기록에 남길 「선생님이 본 글」(고치기 전 글이면 그렇다고 붙여서)
+  parts?: RiskPart[]; // 마음 기록: 그 칸에 위험 표현이 있던 글 모두(만든 차례대로)
+  fresh?: string[]; // 마음 기록: 그중 열린 알림이 가리키는 판(다른 위험한 글과 함께 보일 때 「새 글」)
+  src?: string; // 마음 기록: 알림이 가리키는 글(조치 기록에 남는 글과 견주려고)
   first: boolean; // 아직 살펴보지 않음 → 「살펴보고 적기」가 알림을 닫는다
   checked: boolean;
   seen?: string;
@@ -138,11 +184,17 @@ export function riskItems({ records, actions, drafts = [], reflects = [], letter
   const acts = (id: string) => actions.filter((a) => a.recordId === id);
   const out: RiskItem[] = [];
   // 지금 글이 아니어도 고치기 전 글에 위험 표현이 있었으면 보인다
+  // 누적 기록에는 그 칸에 위험 표현이 있던 글을 모두 보인다(살펴본 뒤 순한 글로 다시 남겨 알림이 가리키던 판이 지워져도 하나만 남지 않게).
+  // 알림이 열려 있고 그 밖에 이미 살펴본 위험한 글도 있으면 알림이 가리키는 글에 「새 글」을 붙인다.
   for (const r of records.filter(everRisk)) {
     const src = riskySource(r);
+    const all = riskyParts(r);
+    const parts = all.length ? all : src.parts;
+    const first = r.risk && !r.riskChecked;
+    const fresh = first && parts.length > src.parts.length ? src.parts.map((p) => p.at) : [];
     out.push({
-      id: r.id, kind: "record", no: r.no, date: r.date, at: r.createdAt, rec: r, text: src.text, saw: src.prev ? `고치기 전 글: ${src.text}` : src.text,
-      first: r.risk && !r.riskChecked, checked: !!r.riskChecked, seen: recordSeen(r), acts: acts(r.id),
+      id: r.id, kind: "record", no: r.no, date: r.date, at: r.createdAt, rec: r, text: partsText(parts), parts, fresh, src: src.text,
+      saw: src.prev ? `고치기 전 글: ${src.text}` : src.text, first, checked: !!r.riskChecked, seen: recordSeen(r), acts: acts(r.id),
     });
   }
   for (const d of drafts) {
@@ -212,7 +264,8 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
       {err && <li role="alert" className="text-sm text-alert">{err}</li>}
       {items.map((it) => {
         const { id, rec, draft, ref, letter, acts } = it;
-        const hits = rec ? riskySource(rec).hits : draft?.hits;
+        // 살펴볼 때 남긴 글이 지금 보이는 글과 같으면 다시 보이지 않는다
+        const shown = [it.text, it.nowText, bare(it.saw), it.src];
         return (
           <li key={id} className="rounded-2xl border border-alert/40 bg-alert-soft/50 p-3">
             <p className="text-sm">
@@ -221,20 +274,19 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
                 : draft ? <>{draft.slot === "am" ? "아침" : "하교 전"} · 마치지 않은 기록</>
                 : letter ? <>공감 쪽지 → {who(letter.to)} <span className="text-xs text-soft">· {LETTER_STATUS[letter.status]}</span></>
                 : KIND_KO[it.kind]}
-              {rec && (() => {
-                const s = riskySource(rec);
-                return s.text && <span className="block">{s.prev && <span className="font-bold text-alert">고치기 전 글 </span>}“{s.text}”</span>;
-              })()}
+              {rec && <RiskTexts parts={it.parts ?? []} hits={riskySource(rec).hits} fresh={it.fresh} />}
               {!rec && it.nowText !== undefined && (
                 <>
                   <span className="block"><span className="font-bold text-alert">{letter ? "처음 쓴 글 " : "고쳐 쓰기 전 글 "}</span>“{it.text}”</span>
                   <span className="block text-xs text-soft">{letter ? "선생님이 다듬어 전한 글" : "지금 글"}: “{it.nowText}”</span>
                 </>
               )}
-              {!rec && it.nowText === undefined && it.text && <span className="block">“{it.text}”</span>}
+              {!rec && it.nowText === undefined && it.text && (it.text.includes(PART_SEP)
+                ? splitParts(it.text).map((t, i) => <span key={i} className="block">{t}</span>)
+                : <span className="block">“{it.text}”</span>)}
               {letter?.toPractice && <span className="block text-xs text-soft">받을 학생이 명단에서 빠져(연습용 학생) 전할 수 없어요.</span>}
               {!rec && !draft && !ref && !letter && (it.kind !== "record" || it.text) && <span className="block text-xs text-soft">글은 지금 없고 살펴볼 때 남긴 글이에요.</span>}
-              {(rec || draft) && <span className="block text-xs text-soft">{hits?.length ? `걸린 말: ${hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>}
+              {draft && <span className="block text-xs text-soft">{hitsText(draft.hits)}</span>}
             </p>
             {draft?.earlier?.length ? (
               <ul className="mt-1 space-y-0.5 text-xs">
@@ -250,7 +302,7 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
                     <span className="font-bold text-leaf">{label(a.date)}</span> {kindsText(a.kinds)}
                     {a.note && <span className="block text-soft">{a.note}</span>}
                     {/* 살펴볼 때 남긴 글이 지금 보이는 글과 다르면(그 뒤에 고쳐 씀) 함께 보인다. 쪽지의 「3번 → 4번:」 앞머리는 빼고 견준다 */}
-                    {a.text && ![it.text, it.nowText, bare(it.saw)].includes(bare(a.text)) && <span className="block text-xs text-soft">살펴본 글: “{bare(a.text)}”</span>}
+                    {a.text && !shown.includes(bare(a.text)) && <SawText text={bare(a.text)} />}
                     {!print && <button onClick={() => remove(a)} className="no-print ml-1 text-xs text-soft underline underline-offset-2">지우기</button>}
                   </li>
                 ))}

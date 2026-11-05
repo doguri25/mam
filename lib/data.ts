@@ -364,14 +364,23 @@ export const recordsChangedAfter = (ms: number) => db().find<MoodRecord>("record
 export const timeOf = (x: string | undefined) => Date.parse(x ?? "") || 0;
 
 // 앞 기록은 PREV_MAX개까지. 넘치면 위험하지 않은 오래된 것부터 뺀다(위험한 글이 다시 남기기로 밀려나 사라지지 않게, 위험한 글은 두 배까지)
-export function trimPrev(list: PrevVersion[]): PrevVersion[] {
+// keep: 열린 알림이 가리키는 판(riskSrc)과 방금 끼워 넣은 살펴보지 않은 위험한 글의 판(createdAt). 이것들은 빼지 않고 이미 살펴본
+// 오래된 위험한 글을 대신 뺀다(위험한 앞 기록 열 개보다 오래된 글이 늦게 오면 바로 잘려, 다시 연 알림이 없는 판을 가리키고 새 글은 어디에도 없게 되던 것).
+// 그래도 네 배를 넘으면(열린 알림 위에 위험한 글을 계속 남김) 가장 오래된 것부터 뺀다 — 문서가 한없이 커지지 않게.
+export function trimPrev(list: PrevVersion[], keep: readonly string[] = []): PrevVersion[] {
   const out = [...list];
-  while (out.length > PREV_MAX) {
-    const i = out.findIndex((p) => !p.risk);
-    if (i < 0) break;
-    out.splice(i, 1);
-  }
-  return out.slice(-PREV_MAX * 2);
+  const held = (p: PrevVersion) => keep.includes(p.createdAt);
+  const cut = (ok: (p: PrevVersion) => boolean, max: number) => {
+    while (out.length > max) {
+      const i = out.findIndex(ok);
+      if (i < 0) break;
+      out.splice(i, 1);
+    }
+  };
+  cut((p) => !p.risk && !held(p), PREV_MAX);
+  cut((p) => !held(p), PREV_MAX * 2);
+  cut(() => true, PREV_MAX * 4);
+  return out;
 }
 
 // 앞 기록으로 넘길 때 남길 것(말투 숫자·목소리 특징은 빼고, 그 기록 자체의 위험 여부만)
@@ -381,13 +390,33 @@ export function toPrev(r: MoodRecord): PrevVersion {
     method: r.method, emotion: r.emotion, intensity: r.intensity, reason: r.reason, ...(r.word ? { word: r.word } : {}),
     summary: r.summary ?? "", ...(r.summaryKo ? { summaryKo: r.summaryKo } : {}), question: r.question ?? "", answer: r.answer ?? "",
     risk: r.riskSelf ?? r.risk, riskHits: r.riskSelf === false ? [] : r.riskHits ?? [], ...(r.lang ? { lang: r.lang } : {}), createdAt: r.createdAt,
+    ...(r.saveId ? { saveId: r.saveId } : {}), // 같은 저장이 늦게 다시 오면 앞 기록에서도 알아보게
   };
 }
 
+// 끊겼을 때 담아 둔 기록의 날짜와 만든 때(기기 시계 madeAt). 표(qtoken)는 담을 때 이미 기기에 있던 것이라
+// 그 표를 받은 날(qDate) 0시보다 앞서 만들 수 없다 → 그보다 앞이면 느린 기기 시계이니 버리지 않고 그날 0시로 당긴다
+// (버리면 와이파이가 끊긴 채 쓴 위험한 글이 선생님께 닿지 않는다. 0시로 두면 이미 저장된 기록을 덮지 않고 앞 기록으로 끼워진다).
+// 지금보다 뒤도 될 수 없다 → 빠른 시계는 지금으로(앞날 시각이 만든 때로 남으면 그 뒤에 바로 남긴 기록이 앞 기록으로 밀린다).
+// 1분 넘게 앞서 있으면 언제 만든 것인지 모르니 날짜는 표의 날로 두고 그날을 넘지 않게. 표가 정말 오래됐으면(사흘) null.
+export const QUEUE_DAYS = 3;
+export function queuedWhen(madeAt: unknown, qDate: string, now = Date.now()): { date: string; madeAt?: number } | null {
+  const start = Date.parse(`${qDate}T00:00:00+09:00`);
+  if (!Number.isFinite(start)) return null;
+  const end = Date.parse(`${addDays(qDate, 1)}T00:00:00+09:00`) - 1;
+  const made = Date.parse(String(madeAt ?? ""));
+  const at = !Number.isFinite(made) ? undefined : made > now + 60_000 ? Math.min(now, end) : Math.max(start, Math.min(made, now));
+  const date = at === undefined ? qDate : today(new Date(at));
+  const day = today(new Date(now));
+  if (date < qDate || date > addDays(qDate, QUEUE_DAYS) || date > day || date < addDays(day, -QUEUE_DAYS)) return null;
+  return at === undefined ? { date } : { date, madeAt: at };
+}
+
 // 같은 기록이 두 번 왔나: 저장은 됐는데 답만 잃은 화면이 같은 기록을 담아 두었다가 다시 보내거나(새 madeAt),
-// 담아 둔 것을 보내다 답을 잃어 또 보낼 때(같은 madeAt). 학생이 고르고 쓴 것이 모두 같고 그 무렵(DUP_MS 안 — 기기 시계가 조금 달라도) 만든 것이면 같은 기록.
-// 담아 둔 기록(끊김·답을 잃은 저장 — saveQueued)에만 쓴다. 바로 보낸 저장은 학생이 정말 다시 남긴 것이다
-// (선생님이 닫은 뒤 같은 카드·같은 「죽고 싶어」를 다시 쓴 것도 새로 털어놓은 것이니 다시 알린다).
+// 담아 둔 것을 보내다 답을 잃어 또 보낼 때(같은 madeAt). 담아 둔 기록(끊김·답을 잃은 저장 — saveQueued)에만 쓴다.
+// 바로 보낸 저장은 학생이 정말 다시 남긴 것이다(선생님이 닫은 뒤 같은 카드·같은 「죽고 싶어」를 다시 쓴 것도 새로 털어놓은 것이니 다시 알린다).
+// · 저장 이름(saveId)이 온 기록은 그 이름으로만 견준다 — 이름이 다르면 글이 같아도 학생이 새로 남긴 것(끊긴 채 10분 안에 같은 말을 다시 털어놓음).
+// · 이름이 없는 예전 화면만, 학생이 고르고 쓴 것이 모두 같고 그 무렵(DUP_MS 안 — 기기 시계가 조금 달라도) 만든 것이면 같은 기록으로 본다.
 export const DUP_MS = 10 * 60_000;
 type Content = Pick<MoodRecord, "method" | "emotion" | "intensity" | "reason" | "summary" | "answer" | "word" | "lang" | "createdAt">;
 export const sameSave = (a: Content, b: Content) =>
@@ -410,35 +439,38 @@ export interface RecordSave {
 export function mergeRecord(cur: MoodRecord | null, s: RecordSave, now = new Date()): MoodRecord | null {
   const { rec, own, alertNew } = s;
   const createdAt = rec.createdAt;
-  if (cur && s.queued && sameSave(cur, rec)) return null;
+  const named = !!rec.saveId;
+  const sameName = (x: { saveId?: string }) => x.saveId === rec.saveId;
+  if (cur && s.queued && (named ? sameName(cur) || !!cur.prev?.some(sameName) : sameSave(cur, rec))) return null;
   const base: MoodRecord = own ? { ...rec, riskAt: createdAt, ...(s.seenChecked ? { riskChecked: s.seenChecked } : {}) } : rec;
   if (!cur) return base;
+  // 걸린 말(riskHits)은 판마다 그 글의 것만 둔다(앞 글의 말을 섞어 두면 앞 기록·CSV에 「“다 때리고 싶어” · 걸린 말: 때리, 죽고 싶」처럼 남는다).
+  // 알림에 보일 걸린 말은 화면이 알림이 가리키는 판들에서 모은다(components/teacher/alerts.ts riskySource).
+  const open = cur.risk && !cur.riskChecked; // 아직 살펴보지 않은 위험 표시
   if (s.queued && timeOf(cur.createdAt) > timeOf(createdAt)) {
     // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로).
-    // 같은 것이 이미 앞 기록에 있으면(같은 기록이 두 번 옴) 그대로 둔다.
+    // 같은 것이 이미 앞 기록에 있으면(같은 기록이 두 번 옴) 그대로 둔다(이름 없는 예전 화면 — 이름이 있으면 위에서 이미 견줌).
     // 다시 연 알림과 그 조치 기록이 이미 살펴본 지금 글이 아니라 새로 온 그 글을 보이게 판(riskSrc)을 적는다.
     // 알림이 아직 열려 있었으면(살펴보기 전) 앞서 열린 글도 함께 가리킨다.
-    if (cur.prev?.some((p) => sameSave(p, rec))) return null;
-    const prev = trimPrev([...(cur.prev ?? []), toPrev(rec)].sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt)));
-    const open = cur.risk && !cur.riskChecked;
-    return alertNew
-      ? {
-          ...cur, prev, risk: true, riskChecked: null, riskHits: [...new Set([...cur.riskHits, ...rec.riskHits])], riskAt: now.toISOString(),
-          riskSrc: [...new Set([...(open ? riskSrcOf(cur) : []), createdAt])],
-        }
-      : { ...cur, prev };
+    // 새로 알릴 것이 없는 글(위험하지 않음·선생님이 이미 살펴본 마치지 않은 글)이 열린 알림 아래로 끼면, 알림이 보던 글을 그대로 가리키게
+    // 판을 적어 둔다(적지 않으면 「가장 최근 위험한 앞 글」이 늦게 온 그 글로 바뀌어 선생님이 보던 글과 조치 기록에 남는 글이 바뀐다).
+    if (!named && cur.prev?.some((p) => sameSave(p, rec))) return null;
+    const src = alertNew ? [...new Set([...(open ? riskSrcOf(cur) : []), createdAt])] : open ? riskSrcOf(cur) : [];
+    const prev = trimPrev([...(cur.prev ?? []), toPrev(rec)].sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt)), src);
+    if (alertNew) return { ...cur, prev, risk: true, riskChecked: null, riskAt: now.toISOString(), riskSrc: src };
+    return { ...cur, prev, ...(src.length ? { riskSrc: src } : {}) };
   }
-  const carry = cur.risk && !cur.riskChecked; // 아직 살펴보지 않은 위험 표시
+  const src = !open ? [] : alertNew ? [...new Set([...riskSrcOf(cur), createdAt])] : riskSrcOf(cur);
   return {
     ...base,
-    prev: trimPrev([...(cur.prev ?? []), toPrev(cur)]),
+    prev: trimPrev([...(cur.prev ?? []), toPrev(cur)], src),
     ...(cur.calm?.length ? { calm: cur.calm } : {}),
     // 새 글이 위험하지 않으면(또는 이미 살펴본 글이면) 위험 내용은 그대로(선생님이 보던 판·글 그대로) — 새 글이 위험하면 위에서 riskAt을 새로 적었다
-    ...(carry ? {
-      risk: true, riskChecked: null, riskHits: [...new Set([...rec.riskHits, ...cur.riskHits])],
+    ...(open ? {
+      risk: true, riskChecked: null,
       ...(alertNew
-        ? { riskSrc: [...new Set([...riskSrcOf(cur), createdAt])] }
-        : { riskAt: cur.riskAt ?? cur.createdAt, ...(own || cur.riskSrc ? { riskSrc: riskSrcOf(cur) } : {}) }),
+        ? { riskSrc: src }
+        : { riskAt: cur.riskAt ?? cur.createdAt, ...((own || cur.riskSrc) && src.length ? { riskSrc: src } : {}) }),
     } : {}),
   };
 }

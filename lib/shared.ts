@@ -327,7 +327,12 @@ export interface MoodRecord {
   toneBy?: "device" | "gemini" | null;
   calm?: CalmUse[]; // 마음 다스리기 도구를 써 본 뒤 학생이 고른 느낌
   prev?: PrevVersion[]; // 같은 칸에 다시 남기기 전의 기록(오래된 것부터, 최대 PREV_MAX개) — 선생님만 봄
+  saveId?: string; // 학생 화면이 저장마다 새로 다는 이름(답을 잃어 담아 두었다가 다시 보낸 같은 저장을 알아보려고). 학생 API로는 내보내지 않는다
 }
+
+// 저장 이름(saveId): 영문·숫자·_·- 40자까지. 모양이 다르면 없는 것으로(예전 화면처럼 글·때로 견준다)
+export const cleanSaveId = (v: unknown): string | undefined =>
+  typeof v === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(v) ? v : undefined;
 
 // 같은 칸(아침·하교 전)에 다시 남기면 앞 기록은 지우지 않고 여기에 모아 둔다
 export const PREV_MAX = 5;
@@ -345,6 +350,7 @@ export interface PrevVersion {
   riskHits: string[];
   lang?: string;
   createdAt: string;
+  saveId?: string; // 그 판의 저장 이름(같은 저장이 늦게 다시 와도 앞 기록에서 알아보게)
 }
 
 // 마음 다스리기 도구 상자: 숨 고르기 · 꼭 쥐었다 펴기 · 5-4-3-2-1 찾기 · 마음 그리기

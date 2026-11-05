@@ -10,7 +10,7 @@ process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), "mam-alerts-")));
 for (const k of ["MONGODB_URI", "FIREBASE_SERVICE_ACCOUNT", "VERCEL"]) delete process.env[k];
 const { db, inSpace } = await import("./db.ts");
 const D = await import("./data.ts");
-const { riskySource, riskSrcOf } = await import("../components/teacher/alerts.ts");
+const { riskySource, riskSrcOf, riskyParts, partsText, splitParts } = await import("../components/teacher/alerts.ts");
 
 const draft = (id: string, text: string, extra: Partial<RiskDraft> = {}): RiskDraft =>
   ({ id, no: 1, date: "2026-11-05", slot: "am", text, hits: ["죽고 싶"], lang: "ko", at: "2026-11-05T00:00:00.000Z", checked: "2026-11-05T00:10:00.000Z", ...extra });
@@ -101,10 +101,15 @@ test("알림을 연 판(riskSrc): 늦게 온 앞 기록의 글을 보이고, 없
   assert.equal(riskySource(r).text, "아빠한테 맞고 있어");
   assert.equal(riskySource(r).prev, late);
   assert.deepEqual(riskySource(r).hits, ["맞고"]);
-  // 알림이 열려 있던 때 늦게 옴 → 두 글 모두(만든 차례대로)
+  // 알림이 열려 있던 때 늦게 옴 → 두 글 모두(만든 차례대로). 한 글 안의 「 / 」와 헷갈리지 않게 「먼저 쓴 글」「다시 쓴 글」과 때를 붙여 「 ‖ 」로
   const both = record("친구를 때리고 싶어", { prev: [late], riskSrc: [r.createdAt, late.createdAt] });
-  assert.equal(riskySource(both).text, "아빠한테 맞고 있어 / 친구를 때리고 싶어");
+  assert.equal(riskySource(both).text, "[먼저 쓴 글 09:04] 아빠한테 맞고 있어 ‖ [다시 쓴 글 09:05] 친구를 때리고 싶어");
   assert.equal(riskySource(both).prev, null);
+  // 걸린 말은 글마다 그 글의 것, 모은 것은 따로
+  assert.deepEqual(riskySource(both).parts.map((p) => [p.text, p.hits, p.now]), [["아빠한테 맞고 있어", ["맞고"], false], ["친구를 때리고 싶어", ["때리고"], true]]);
+  assert.deepEqual(riskySource(both).hits, ["맞고", "때리고"]);
+  // 한 글 안의 한 줄·답은 그대로 「 / 」
+  assert.equal(riskySource(record("친구를 때리고 싶어", { answer: "응" })).text, "친구를 때리고 싶어 / 응");
   // 적어 둔 판이 없으면(예전 기록) 예전처럼
   assert.equal(riskySource(record("친구를 때리고 싶어", { prev: [late] })).text, "친구를 때리고 싶어");
   assert.deepEqual(riskSrcOf(record("친구를 때리고 싶어", { prev: [late] })), [r.createdAt]);
@@ -114,4 +119,20 @@ test("알림을 연 판(riskSrc): 늦게 온 앞 기록의 글을 보이고, 없
   assert.deepEqual(riskSrcOf(r), [late.createdAt]);
   // 가리키는 판이 앞 기록 정리로 빠졌으면 예전처럼
   assert.equal(riskySource(record("친구를 때리고 싶어", { riskSrc: ["2020-01-01T00:00:00.000Z"] })).text, "친구를 때리고 싶어");
+});
+
+test("누적 기록: 살펴본 뒤 순한 글로 다시 남겨 알림이 가리키던 판이 지워져도 그 칸의 위험한 글을 모두 보인다", () => {
+  const a = ver("아빠한테 맞고 있어", "2026-11-05T00:04:00.000Z", true);
+  const b = { ...ver("다 때리고 싶어", "2026-11-05T00:05:00.000Z", true), riskHits: ["때리"] };
+  // 두 글을 가리키던 알림을 살펴본 뒤 순한 글로 다시 남김(riskSrc 없음)
+  const calm = record("이제 괜찮아", { risk: false, riskSelf: false, riskHits: [], riskChecked: "2026-11-05T00:06:00.000Z", createdAt: "2026-11-05T00:07:00.000Z", prev: [a, b] });
+  assert.equal(riskySource(calm).text, "다 때리고 싶어"); // 알림이 가리킬 글(가장 최근)은 그대로
+  const parts = riskyParts(calm);
+  assert.deepEqual(parts.map((p) => [p.text, p.hits]), [["아빠한테 맞고 있어", ["맞고"]], ["다 때리고 싶어", ["때리"]]]);
+  assert.equal(partsText(parts), "[먼저 쓴 글 09:04] 아빠한테 맞고 있어 ‖ [다시 쓴 글 09:05] 다 때리고 싶어");
+  assert.deepEqual(splitParts(partsText(parts)), ["[먼저 쓴 글 09:04] 아빠한테 맞고 있어", "[다시 쓴 글 09:05] 다 때리고 싶어"]);
+  // 지금 글도 위험하면 맨 뒤에
+  assert.deepEqual(riskyParts(record("친구를 때리고 싶어", { prev: [a] })).map((p) => p.now), [false, true]);
+  // 한 글이면 이름표 없이 그 글 그대로
+  assert.equal(partsText(riskyParts(record("친구를 때리고 싶어"))), "친구를 때리고 싶어");
 });
