@@ -77,3 +77,15 @@ test("명단 표시만 잘못 켜진 실제 명단은 「연습 데이터만 지
     assert.deepEqual((await db().all<{ id: string }>("records")).map((r) => r.id), ["1_2026-11-03_am"]);
   });
 });
+
+test("연습 명단 위에 실제 명단을 붙여 넣은 반: 실제 기록이 있는 번호는 지우지 않고 연습 기록만 지운다", async () => {
+  await inSpace("cmixed", async () => {
+    await db().set("meta", "roster", { students: [{ no: 1, alias: "김민지", code: "MIX111" }, { no: 2, alias: "박하늘", code: "MIX222" }], demo: true });
+    await db().set("records", "1_2026-09-01_am", { id: "1_2026-09-01_am", no: 1, date: "2026-09-01", demo: true });
+    await db().set("records", "1_2026-11-03_am", { id: "1_2026-11-03_am", no: 1, date: "2026-11-03" });
+    await db().set("records", "2_2026-09-01_am", { id: "2_2026-09-01_am", no: 2, date: "2026-09-01", demo: true });
+    await clearPractice();
+    assert.deepEqual((await getRoster()).map((s) => s.no), [1]); // 2번은 연습 기록뿐이라 가짜 학생
+    assert.deepEqual((await db().all<{ id: string }>("records")).map((r) => r.id), ["1_2026-11-03_am"]);
+  });
+});

@@ -43,6 +43,7 @@ export async function getSettings(): Promise<Settings> {
   const s = await db().get<Partial<Settings>>("meta", "settings");
   const d = defaultSettings();
   const out: Settings = { ...d, ...s, models: { ...d.models, ...s?.models }, rules: { ...d.rules, ...s?.rules } };
+  out.riskWords = out.riskWords.map((w) => String(w).replace(/[\p{Cc}\p{Cf}]/gu, "")).filter(Boolean); // 보이지 않는 글자 빼기
   // 예전에 저장한 목록에는 그 판 뒤에 더한 기본 위험 표현만 한 번 넣어 준다(선생님이 그 뒤에 지우면 그대로 둠).
   // 선생님이 일부러 지운 줄기의 다른 꼴은 넣지 않는다(「때렸」「때려」를 지운 반에 「때린」을 다시 넣지 않게).
   // 설정을 한 번도 저장하지 않은 반은 새 기본 목록을 그대로 쓴다.
@@ -601,7 +602,13 @@ export async function clearPractice() {
   // 학생마다 연습 표시가 붙기 전에 만든 연습 명단(명단에 표시만 있고 학생에게는 없음): 연습 기록이 있는 번호만 가짜 학생으로 본다.
   // (명단 표시가 잘못 켜진 실제 명단이면 연습 기록이 없으므로 아무도 지우지 않는다 — 실제 반을 통째로 지우지 않게)
   const legacy = doc?.demo === true && !roster.some((s) => s.demo);
-  const practiceNos = legacy ? new Set((await db().find<MoodRecord>("records", "demo", "==", true)).map((r) => r.no)) : new Set<number>();
+  // 그 번호에 연습이 아닌 기록이 하나라도 있으면 실제 학생(연습 명단 위에 실제 명단을 붙여 넣은 반) — 연습 표시가 붙은 것만 지운다
+  let practiceNos = new Set<number>();
+  if (legacy) {
+    const recs = await db().all<MoodRecord>("records");
+    const real = new Set(recs.filter((r) => !r.demo).map((r) => r.no));
+    practiceNos = new Set(recs.filter((r) => r.demo && !real.has(r.no)).map((r) => r.no));
+  }
   const fake = new Set(roster.filter((s) => s.demo || (legacy && practiceNos.has(s.no))).map((s) => s.no));
   await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다
   await db().del("sheets", PRACTICE_SHEET);

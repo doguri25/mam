@@ -458,3 +458,10 @@ test("설정 판 올리기: 뒤 판에 더한 말을 받되, 지운 줄기의 �
     assert.equal(s.riskWordsV, 4);
   });
 });
+
+test("다른 반이 낱말 안에 보이지 않는 글자를 넣어 기본 목록과 같은 열쇠를 꾸며도 기본 목록 찾기가 꺼지지 않는다", () => {
+  const forged: string[] = [];
+  for (let i = 0; i < DEFAULT_RISK_WORDS.length; i += 2) forged.push(DEFAULT_RISK_WORDS.slice(i, i + 2).join("\u0000"));
+  matchRisk("아무 말", forged);
+  assert.deepEqual(matchRisk("어제 아빠가 나를 때렸어", DEFAULT_RISK_WORDS), ["때렸"]);
+});
