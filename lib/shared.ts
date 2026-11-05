@@ -261,7 +261,7 @@ export interface RiskAction {
 export const riskKinds = (x: unknown): RiskActionKind[] =>
   Array.isArray(x) ? RISK_ACTIONS.filter((k) => x.includes(k)) : [];
 // 선생님이 고치는 위험 표현 단어 목록의 한도: 한 낱말 글자 수 · 낱말 수(서버가 이 수로 받고, 설정 화면이 저장 전에 넘는 것을 알린다)
-export const RISK_WORD_LEN = 20;
+export const RISK_WORD_LEN = 30; // 기본 목록의 가장 긴 말(「don't want to go back home」 26자)보다 넉넉히 — 기본 말이 걸려 저장이 막히지 않게
 export const RISK_WORDS_MAX = 150;
 
 export interface MoodRecord {
