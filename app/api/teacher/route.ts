@@ -405,7 +405,8 @@ async function handle(req: NextRequest) {
       // 마치지 않은 글이 그사이 마음 기록이 되어 없어졌으면 409: 화면이 새로 읽고 같은 칸의 마음 기록 알림에서 살펴보게 한다.
       if (first && !target) return kind === "draft" ? bad(DRAFT_DONE, 409) : bad(GONE, 404);
       const no = r?.no ?? ref?.no ?? d?.no ?? l?.from ?? before?.no;
-      if (no === undefined) return bad("기록이 없어요.");
+      // 마치지 않은 글에 「조치 더 적기」: 그사이 학생이 그 글로 기록을 마쳐 글과 조치 기록이 마음 기록으로 옮겨 갔으면 409(화면이 새로 읽고 폼을 그 기록으로 옮긴다)
+      if (no === undefined) return kind === "draft" ? bad(DRAFT_DONE, 409) : bad("기록이 없어요.");
       const now = new Date().toISOString();
       const seen = typeof body.seen === "string" ? body.seen : null;
       const STALE = "학생이 그사이 새로 쓰거나 고친 글이 있어요. 바뀐 글을 읽고 다시 눌러 주세요.";
@@ -420,7 +421,9 @@ async function handle(req: NextRequest) {
         : kind === "letter" && l ? `${l.from}번 → ${l.to}번: ${l.original ?? l.text}`
         : kind === "record" && r ? riskySource(r).text
         : "";
-      const recordDate = r?.date ?? (ref ? today(new Date(ref.createdAt)) : undefined) ?? d?.date ?? (l ? today(new Date(l.createdAt)) : undefined) ?? before!.recordDate;
+      // 글이 지워진 뒤 이어 적을 때는 앞 조치 기록의 날짜로. recordDate가 없던 예전 조치 기록이면 그 한 날(정리 기준 actDate와 같게) —
+      // undefined를 그대로 쓰면 Firestore가 거래 전체를 거절한다(500)
+      const recordDate = r?.date ?? (ref ? today(new Date(ref.createdAt)) : undefined) ?? d?.date ?? (l ? today(new Date(l.createdAt)) : undefined) ?? (before!.recordDate || before!.date);
       // opId: 화면이 폼마다 하나 정해 보내는 이름. 같은 폼에서 다시 눌러도(닫다가 실패해 다시 누름 등) 조치 기록이 두 번 남지 않는다.
       const op = typeof body.opId === "string" && /^[a-z0-9]{8,40}$/i.test(body.opId) ? body.opId : `${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
       const act: RiskAction = {
@@ -480,7 +483,8 @@ async function handle(req: NextRequest) {
       const byDate = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
         records: records.map(lean).sort((a, b) => a.id.localeCompare(b.id)),
-        cheers: byDate(cheers), notes: byDate(notes), sent: byDate(sent), got: byDate(got), reflects: byDate(reflects),
+        // 연습 학생에게 가던 쪽지(toPractice)는 같은 번호를 새로 받은 실제 학생이 받은 쪽지가 아니다(보낸 학생의 sent·위험 알림에는 남음)
+        cheers: byDate(cheers), notes: byDate(notes), sent: byDate(sent), got: byDate(got.filter((l) => !l.toPractice)), reflects: byDate(reflects),
         sheets: sheets.sort((a, b) => b.date.localeCompare(a.date)),
         riskActions: actions.filter((x) => x.no === no),
         drafts: drafts.filter((x) => x.no === no), // 마치지 않은 위험 표현(살펴본 것 포함)

@@ -546,6 +546,45 @@ export async function putRiskDraft(d: RiskDraft): Promise<boolean> {
 // putRiskDraft를 다시 부르면 그사이 학생이 새로 쓴 글을 앞 글로 덮을 수 있어 따로 둔다.
 export const addRiskDraftSummary = (id: string, text: string, summaryKo: string) =>
   editRiskDrafts((items) => items.map((x) => (x.id === id && x.text === text && !x.summaryKo ? { ...x, summaryKo } : x)));
+// 학생이 기록을 마칠 때: 기록에 든 위험한 글이 모두 선생님이 이미 살펴본(「살펴봤어요」) 마치지 않은 글에 있던 것이면 그 글을 돌려준다
+// (같은 칸 것을 먼저). 기록은 살펴본 것으로 이어받고 알림을 다시 보내지 않는다. 새로 위험한 글(살펴본 글에 없던 되묻기 답,
+// 두 칸을 이어 붙여야 걸리는 말, 글 없이 AI만 위험하다고 본 것)이 하나라도 있으면 null — 지금처럼 다시 알린다.
+export interface SavedText { summary: string; answer: string; hits: string[]; summaryHits: string[]; answerHits: string[]; aiRisk: boolean }
+export function seenDraft(rec: SavedText, drafts: RiskDraft[], sameId: string): RiskDraft | null {
+  const parts: string[] = [];
+  if (rec.summaryHits.length || rec.aiRisk) parts.push(rec.summary.trim());
+  if (rec.answerHits.length) parts.push(rec.answer.trim());
+  const known = new Set([...rec.summaryHits, ...rec.answerHits]);
+  if (!parts.length || parts.some((p) => !p) || rec.hits.some((h) => !known.has(h))) return null;
+  const texts = (d: RiskDraft) => [d.text, ...(d.earlier ?? []).map((e) => e.text)];
+  const order = [...drafts].sort((a, b) => Number(b.id === sameId) - Number(a.id === sameId));
+  return order.find((d) => !!d.checked && parts.every((p) => texts(d).some((t) => t.includes(p)))) ?? null;
+}
+// 그 마치지 않은 글의 글이 모두 기록에 담겼나(그래야 지워도 글을 잃지 않는다)
+export const draftKept = (d: Pick<RiskDraft, "text" | "earlier">, summary: string, answer: string) =>
+  [d.text, ...(d.earlier ?? []).map((e) => e.text)].every((t) => !!t && (summary.includes(t) || answer.includes(t)));
+
+// 마치지 않은 글(draft:…)에 남긴 조치 기록을 그 글로 마친 마음 기록(to)으로 옮긴다 — 누적 기록·리포트·CSV·연습 정리·보관 정리가
+// recordId 하나로 보므로 이름을 바꿔 둔다(원래 이름은 via에). 무엇을 살펴봤나(kind)는 마음 기록으로. 옮길 것이 없으면 쓰지 않는다.
+export async function moveRiskActions(from: string, to: string, recordDate: string) {
+  let moved = false;
+  await db().update<{ items: RiskAction[] }>("meta", "riskActions", (cur) => {
+    moved = !!cur?.items?.some((a) => a.recordId === from);
+    if (!moved) return undefined;
+    return {
+      ...cur,
+      items: cur!.items.map((a) => {
+        if (a.recordId !== from) return a;
+        const { kind: _k, ...rest } = a;
+        void _k;
+        return { ...rest, recordId: to, recordDate, via: from };
+      }),
+    };
+  });
+  if (moved) await touch("other");
+  return moved;
+}
+
 // 그 칸 기록을 저장했으면 지운다(기록에 같은 글과 위험 표시가 담김). when: 지워도 되는지 — 지우는 그 순간의 글로 견준다
 // (먼저 읽고 견준 뒤 지우면, 그사이 학생이 새로 쓴 위험한 글까지 함께 지워진다)
 export const dropRiskDraft = (id: string, when: (d: RiskDraft) => boolean = () => true) =>
@@ -704,12 +743,16 @@ export async function clearPractice() {
   // 학생마다 연습 표시가 붙기 전에 만든 연습 명단(명단에 표시만 있고 학생에게는 없음): 연습 기록이 있는 번호만 가짜 학생으로 본다.
   // (명단 표시가 잘못 켜진 실제 명단이면 연습 기록이 없으므로 아무도 지우지 않는다 — 실제 반을 통째로 지우지 않게)
   const legacy = doc?.demo === true && !roster.some((s) => s.demo);
-  // 그 번호에 연습이 아닌 기록이 하나라도 있으면 실제 학생(연습 명단 위에 실제 명단을 붙여 넣은 반) — 연습 표시가 붙은 것만 지운다
+  // 그 번호에 연습이 아닌 기록이 하나라도 있으면 실제 학생(연습 명단 위에 실제 명단을 붙여 넣은 반) — 연습 표시가 붙은 것만 지운다.
+  // 가명이 그 번호의 연습 가명(demoStudents)과 다르면 아직 기록하지 않은 실제 학생일 수 있으므로 지우지 않는다(연습 기록만 지움).
+  // 확실히 연습 학생인 것(연습 기록만 있고 가명도 연습 가명 그대로)만 명단에서 뺀다 — 실제 학생일 수도 있는 학생은 절대 지우지 않게.
   let practiceNos = new Set<number>();
   if (legacy) {
     const recs = await db().all<MoodRecord>("records");
     const real = new Set(recs.filter((r) => !r.demo).map((r) => r.no));
-    practiceNos = new Set(recs.filter((r) => r.demo && !real.has(r.no)).map((r) => r.no));
+    const seeded = new Map(demoStudents(() => "").map((s) => [s.no, s.alias]));
+    const looksSeeded = new Set(roster.filter((s) => seeded.get(s.no) === s.alias).map((s) => s.no));
+    practiceNos = new Set(recs.filter((r) => r.demo && !real.has(r.no) && looksSeeded.has(r.no)).map((r) => r.no));
   }
   const fake = new Set(roster.filter((s) => s.demo || (legacy && practiceNos.has(s.no))).map((s) => s.no));
   await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다

@@ -172,7 +172,8 @@ export function riskItems({ records, actions, drafts = [], reflects = [], letter
     if (have.has(id)) continue;
     const as = acts(id);
     const text = [...as].reverse().find((a) => a.text)?.text ?? "";
-    out.push({ id, kind: as.find((a) => a.kind)?.kind ?? kindOfId(id), no: as[0].no, date: as[0].recordDate, at: as[0].createdAt, text, saw: text, first: false, checked: true, acts: as });
+    // recordDate가 없던 예전 조치 기록은 한 날로(없으면 날짜 정렬이 깨진다)
+    out.push({ id, kind: as.find((a) => a.kind)?.kind ?? kindOfId(id), no: as[0].no, date: as[0].recordDate || as[0].date, at: as[0].createdAt, text, saw: text, first: false, checked: true, acts: as });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at));
 }

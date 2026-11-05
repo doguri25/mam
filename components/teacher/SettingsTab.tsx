@@ -54,12 +54,12 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     riskList.length > RISK_WORDS_MAX ? `위험 표현이 ${riskList.length}개예요. ${RISK_WORDS_MAX}개까지 저장돼요 — ${riskList.length - RISK_WORDS_MAX}개를 빼 주세요(넘는 것은 저장되지 않아요).` : "",
   ].filter(Boolean).join(" ");
 
-  async function save(extraKeys: Partial<Record<Provider, string>> = keys) {
+  async function save() {
     if (riskIssue) return say("save", `저장하지 않았어요. ${riskIssue}`);
     try {
       const d = draft;
       await api("teacher", "settings", {
-        keys: extraKeys,
+        keys,
         ...(d.provider ? { provider: d.provider } : {}), ...(d.className !== undefined ? { className: d.className } : {}),
         ...(d.models ? { models: d.models } : {}), ...(d.vocab !== undefined ? { vocab: split(d.vocab) } : {}),
         ...(d.risk !== undefined ? { riskWords: split(d.risk) } : {}), ...(d.voiceMode ? { voiceMode: d.voiceMode } : {}), ...(d.rules ? { rules: d.rules } : {}),
@@ -145,7 +145,8 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
       if (kind === "record" || done.has(id)) continue;
       const text = [...as].reverse().find((a) => a.text)?.text ?? "";
       const first = [...as].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-      extra.push(other({ id, date: first.recordDate, no: first.no, method: METHOD[kind], line: text, risk: text ? hitsOf(text) : "있음", checked: first.createdAt }));
+      // recordDate가 없던 예전 조치 기록은 한 날로(없으면 날짜 정렬이 깨진다)
+      extra.push(other({ id, date: first.recordDate || first.date, no: first.no, method: METHOD[kind], line: text, risk: text ? hitsOf(text) : "있음", checked: first.createdAt }));
     }
     const all = [...rows, ...extra].sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.k.localeCompare(b.k));
     const csv = "﻿" + [head, ...all.map((r) => r.cells)].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
@@ -157,10 +158,23 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     say("export", extra.length ? `마음 기록 ${records.length}건과 그 밖의 위험 표현 ${extra.length}건을 내보냈어요.` : `${records.length}건을 내보냈어요.`);
   }
 
+  // 키 하나만 저장하거나 지운다(연결 확인·키 지우기). 다른 칸에 넣던 키와 고치던 반 이름·위험 표현 등은 보내지도 비우지도 않는다
+  // (전체 저장을 부르면 다른 칸 키가 빈칸이 되고, 위험 표현 경고가 떠 있으면 키도 저장되지 않은 채 옛 키로 확인했다).
+  async function saveKey(p: Provider, value: string) {
+    await api("teacher", "settings", { keys: { [p]: value } });
+    setKeys((k) => {
+      const { [p]: _done, ...rest } = k;
+      void _done;
+      return rest;
+    });
+    await reload();
+  }
+
   async function test(p: Provider) {
     say(p, "확인하는 중…");
     try {
-      if (keys[p]) await save({ [p]: keys[p] });
+      const typed = keys[p]?.trim();
+      if (typed) await saveKey(p, typed);
       const r = await api<{ model: string }>("teacher", "testAI", { provider: p });
       say(p, `✓ 연결됐어요 (${r.model})`);
     } catch (e) {
@@ -229,7 +243,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
               <div className="mt-3 flex items-center gap-2">
                 <button onClick={() => test(p)} disabled={!s.keys[p] && !keys[p] && !(p === "upstage" && shared)} className="btn-sub min-h-9 px-3 text-sm">연결 확인</button>
                 {s.keys[p] && (
-                  <button onClick={() => confirm("이 키를 지울까요?") && save({ [p]: "" })} className="text-xs text-soft underline">키 지우기</button>
+                  <button onClick={() => confirm("이 키를 지울까요?") && saveKey(p, "").then(() => say(p, "키를 지웠어요."), (e) => say(p, (e as Error).message))} className="text-xs text-soft underline">키 지우기</button>
                 )}
                 <span className="text-xs">{msg[p]}</span>
               </div>

@@ -1,10 +1,11 @@
 // 「바로 살펴봐 주세요」에 모아 보여 줄 위험 표현: 마음 기록 · 마치지 않은 기록 · 한 주 돌아보기 · 허락 기다리는 쪽지.
 // 마음 지도 알림과 메뉴의 빨간 수가 같은 목록을 쓴다.
 // seen: 「살펴봤어요」 때 서버에 알리는 「선생님이 본 판」 — 그사이 학생이 고쳐 썼으면 서버가 닫지 않는다(409).
-import { matchRisk } from "@/lib/rules";
-import type { Letter, MoodRecord, PrevVersion, Reflect, RiskAction, RiskDraft } from "@/lib/shared";
-import type { OverviewRaw } from "./types";
-import { kday } from "@/components/teacher/when"; // 교사 API(조치 기록에 남길 글 고르기)도 이 파일을 쓴다 — 서버 시험 도구도 찾게 @/로
+// 교사·학생 API(조치 기록에 남길 글 고르기)와 node 시험(lib/alerts.test.ts)도 이 파일을 쓴다 — 확장자까지 적은 상대 경로로(node가 바로 찾게)
+import { matchRisk } from "../../lib/rules.ts";
+import type { Letter, MoodRecord, PrevVersion, Reflect, RiskAction, RiskDraft } from "../../lib/shared.ts";
+import type { OverviewRaw } from "./types.ts";
+import { kday } from "./when.ts";
 
 export type RiskAlert =
   | { kind: "record"; id: string; no: number; date: string; slot: "am" | "pm"; at: string; seen: string; rec: MoodRecord }
@@ -39,13 +40,30 @@ export const riskAlertCount = (data: Parameters<typeof riskAlerts>[0]) => riskAl
 // 이 기록이 한 번이라도 위험 표현이었나(지금 글 또는 고치기 전 글)
 export const everRisk = (r: MoodRecord) => r.risk || !!r.prev?.some((p) => p.risk);
 
-// 위험 표현이 있던 글: 지금 글이 아니면 고치기 전 글 중 위험했던 것(가장 최근)
+type Ver = Pick<PrevVersion, "summary" | "summaryKo" | "answer" | "riskHits" | "createdAt">;
+const verText = (v: Ver) => [v.summaryKo ? `${v.summaryKo} (원문: ${v.summary})` : v.summary, v.answer].filter(Boolean).join(" / ");
+
+// 위험 표현이 있던 글: 지금 글이 아니면 고치기 전 글 중 위험했던 것(가장 최근).
+// 알림을 연 판을 따로 적어 둔 기록(riskSrc — 끊겼다가 늦게 온 앞 기록이 살펴본 알림을 다시 열 때 등)은 그 판들의 글.
+// 화면 알림·누적 기록과 서버가 조치 기록에 남기는 글이 이 함수 하나를 쓴다(선생님이 본 글 = 남는 글).
 export function riskySource(r: MoodRecord): { text: string; hits: string[]; prev: PrevVersion | null } {
+  if (r.riskSrc?.length) {
+    const vs: (MoodRecord | PrevVersion)[] = [...(r.prev ?? []), r].filter((v) => r.riskSrc!.includes(v.createdAt) && (v === r ? !!(r.riskSelf ?? r.risk) : v.risk));
+    if (vs.length) {
+      const last = vs.at(-1)!;
+      return { text: vs.map(verText).join(" / "), hits: [...new Set(vs.flatMap((v) => v.riskHits ?? []))], prev: last === r ? null : (last as PrevVersion) };
+    }
+  }
   const now = (r.riskSelf ?? r.risk) ? r : null;
   const p = now ? null : [...(r.prev ?? [])].reverse().find((x) => x.risk) ?? null;
   const src = now ?? p;
-  const text = src ? [src.summaryKo ? `${src.summaryKo} (원문: ${src.summary})` : src.summary, src.answer].filter(Boolean).join(" / ") : "";
-  return { text, hits: src?.riskHits ?? r.riskHits, prev: p };
+  return { text: src ? verText(src) : "", hits: src?.riskHits ?? r.riskHits, prev: p };
+}
+// 알림이 가리키는 글의 판(createdAt): riskySource가 고르는 것과 같게 — 저장할 때 열린 알림의 글을 이어 가리키려고
+export function riskSrcOf(r: MoodRecord): string[] {
+  if (r.riskSrc?.length) return r.riskSrc;
+  const at = (r.riskSelf ?? r.risk) ? r.createdAt : [...(r.prev ?? [])].reverse().find((x) => x.risk)?.createdAt;
+  return at ? [at] : [];
 }
 
 // 한 주 돌아보기도 같은 방식: 지금 글에 위험 표현이 없고(riskSelf가 false) 고쳐 쓰기 전 글에 있었으면 그 글(가장 최근)을 보인다.

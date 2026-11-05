@@ -266,6 +266,7 @@ export interface RiskAction {
   // 무엇을 살펴봤나(없으면 마음 기록). recordId 앞머리: 「draft:」 마치지 않은 기록 · 「reflect:」 돌아보기 · 「letter:」 쪽지
   kind?: "record" | "draft" | "reflect" | "letter";
   text?: string; // 살펴볼 때의 글(마치지 않은 기록·돌아보기·쪽지는 나중에 지워지거나 바뀌어도 조치 기록에 남게)
+  via?: string; // 마치지 않은 기록(draft:…)으로 살펴본 것을 학생이 같은 글로 기록을 마쳐 그 마음 기록으로 옮겼을 때 원래 이름
 }
 export const riskKinds = (x: unknown): RiskActionKind[] =>
   Array.isArray(x) ? RISK_ACTIONS.filter((k) => x.includes(k)) : [];
@@ -290,6 +291,7 @@ export interface MoodRecord {
   riskChecked: string | null;
   riskSelf?: boolean; // 이 기록 자체에 위험 표현이 있었나(risk는 다시 남기기 전 기록의 살펴보지 않은 위험까지 이어받음)
   riskAt?: string; // 위험 내용이 마지막으로 바뀐 때(늦게 온 앞 기록·마치지 않은 글이 끼어들 때도) — 「살펴봤어요」 버전 확인에 쓴다(없으면 createdAt)
+  riskSrc?: string[]; // 알림이 가리키는 글의 판(createdAt) — 지금 글이 아닌 판(늦게 온 앞 기록 등)이 알림을 열었을 때만. 없으면 지금 글·가장 최근 위험한 앞 글
   createdAt: string;
   tone?: string | null; // 말투(목소리 기운) — 말하기로 남긴 기록만, 교사만 봄
   toneWhy?: string;
