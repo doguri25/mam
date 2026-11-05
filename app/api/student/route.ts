@@ -5,7 +5,7 @@ import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysi
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
-import { dropRiskDraft, getRiskDrafts, putRiskDraft, saveLook } from "@/lib/data";
+import { dropRiskDraft, putRiskDraft, saveLook } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -438,10 +438,10 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   await putRecord(saved);
   // 마치지 않은 위험 표현: 이번에 저장한 글이 바로 그 글(위험 표시까지)이면 기록에 담긴 것이니 지운다.
   // 다른 글이나 카드만 저장했으면 그대로 둔다(선생님 알림에 「기록을 마치지 않고 나감」으로 남아, 알림만 가고 글이 사라지지 않게).
+  // 견주기는 지우는 그 순간의 글로 한다(그사이 새로 쓴 위험한 글이 함께 지워지지 않게).
   try {
-    const d = (await getRiskDrafts()).find((x) => x.id === saved.id && !x.checked);
     const kept = (t: string) => !!t && (summary.includes(t) || answer.includes(t));
-    if (d && own && [d.text, ...(d.earlier ?? []).map((e) => e.text)].every(kept)) await dropRiskDraft(d.id);
+    if (own) await dropRiskDraft(saved.id, (d) => !d.checked && [d.text, ...(d.earlier ?? []).map((e) => e.text)].every(kept));
   } catch (e) {
     console.error("마치지 않은 위험 표현 정리 실패", e);
   }

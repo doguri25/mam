@@ -1,6 +1,6 @@
 "use client";
 // 설정: 쓸 AI 고르기 · 4가지 API 키(서버에 암호화 저장, 화면엔 가려서) · 반 감정 단어 · 위험 단어 · 시연 데이터
-import { kday, ktime } from "./when";
+import { kday, kstamp, ktime } from "./when";
 import { kindOfId, reflectEverRisk, reflectSource } from "./alerts";
 import { useState } from "react";
 import Doodle from "../Doodle";
@@ -11,7 +11,7 @@ import type { Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
 import { matchRisk } from "@/lib/rules";
-import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, type MoodRecord, type Provider, type RiskAction, type Rules, type VoiceMode } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, type MoodRecord, type Provider, type RiskAction, type Rules, type VoiceMode } from "@/lib/shared";
 
 const LANG_KO: Record<string, string> = { ko: "한국어", en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 
@@ -46,8 +46,16 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   const adv = advRaw === "1";
   const say = (k: string, v: string) => setMsg((m) => ({ ...m, [k]: v }));
   const split = (t: string) => t.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+  // 위험 표현 단어: 서버는 한 낱말 RISK_WORD_LEN자·모두 RISK_WORDS_MAX개까지만 받는다 → 넘는 것을 저장 전에 알린다(말없이 잘려 빠지지 않게)
+  const riskList = [...new Set(split(risk).map((w) => w.replace(/[\p{Cc}\p{Cf}]/gu, "").trim()).filter(Boolean))];
+  const tooLong = riskList.filter((w) => w.length > RISK_WORD_LEN);
+  const riskIssue = draft.risk === undefined ? "" : [
+    tooLong.length ? `「${tooLong.slice(0, 5).join("」, 「")}」${tooLong.length > 5 ? ` 등 ${tooLong.length}개` : ""}는 ${RISK_WORD_LEN}자가 넘어요. 짧게 줄여 주세요(앞 ${RISK_WORD_LEN}자만 남으면 다른 뜻이 될 수 있어요).` : "",
+    riskList.length > RISK_WORDS_MAX ? `위험 표현이 ${riskList.length}개예요. ${RISK_WORDS_MAX}개까지 저장돼요 — ${riskList.length - RISK_WORDS_MAX}개를 빼 주세요(넘는 것은 저장되지 않아요).` : "",
+  ].filter(Boolean).join(" ");
 
   async function save(extraKeys: Partial<Record<Provider, string>> = keys) {
+    if (riskIssue) return say("save", `저장하지 않았어요. ${riskIssue}`);
     try {
       const d = draft;
       await api("teacher", "settings", {
@@ -94,7 +102,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     const rows: Row[] = records.map((r) => ({
       date: r.date, no: r.no, k: r.slot,
       cells: [
-        r.date, slotKo(r.slot), r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", r.riskChecked ?? "", did(r.id),
+        r.date, slotKo(r.slot), r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "", r.risk ? r.riskHits.join(" ") || "AI 판단" : "", kstamp(r.riskChecked), did(r.id),
         r.word ?? "", r.summaryKo ?? "", lang(r.lang), calm(r),
         // 같은 칸에 다시 남겨 지금 글에는 없지만, 고치기 전 글에 있던 위험 표현(때·글·걸린 말)
         (r.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.summaryKo || p.summary}${p.answer ? ` / ${p.answer}` : ""}” ${p.riskHits.join(" ") || "AI 판단"}`).join(" / "),
@@ -104,7 +112,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     const hitsOf = (t: string) => matchRisk(t, s.riskWords).join(" ") || "있음";
     const other = (o: { id: string; date: string; slot?: string; no: number; method: string; line: string; risk: string; checked?: string | null; summaryKo?: string; lang?: string; earlier?: string }): Row => ({
       date: o.date, no: o.no, k: `z${o.method}`,
-      cells: [o.date, slotKo(o.slot), o.no, alias(o.no), o.method, "", "", "", o.line, "", "", "", o.risk, o.checked ?? "", did(o.id), "", o.summaryKo ?? "", lang(o.lang), "", o.earlier ?? ""],
+      cells: [o.date, slotKo(o.slot), o.no, alias(o.no), o.method, "", "", "", o.line, "", "", "", o.risk, kstamp(o.checked), did(o.id), "", o.summaryKo ?? "", lang(o.lang), "", o.earlier ?? ""],
     });
     const extra: Row[] = [];
     const done = new Set<string>();
@@ -127,7 +135,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     for (const l of (got.letters ?? data.letters).filter((l) => l.risk)) {
       done.add(`letter:${l.id}`);
       const status = { wait: "허락 기다림", ok: "전함", no: "돌려보냄" }[l.status];
-      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}) ${l.text}${l.original ? ` (처음 쓴 글: ${l.original})` : ""}`, risk: hitsOf(l.original ?? l.text), checked: l.riskChecked, lang: l.lang }));
+      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}${l.toPractice ? " · 받을 학생 없음" : ""}) ${l.text}${l.original ? ` (처음 쓴 글: ${l.original})` : ""}`, risk: hitsOf(l.original ?? l.text), checked: l.riskChecked, lang: l.lang }));
     }
     // 화면에 없는(오래됐거나 지워진) 것은 조치 기록에 남긴 글로
     const METHOD = { draft: "마치지 않은 기록", reflect: "돌아보기", letter: "쪽지" } as const;
@@ -213,8 +221,9 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
               </label>
               {adv && (
                 <label className="mt-2 block text-xs text-soft">
-                  모델 이름
-                  <input value={models[p]} onChange={(e) => setModels({ ...draft.models, [p]: e.target.value })} className="field mt-1 py-2 font-mono text-sm" />
+                  모델 이름{data.trial && " (체험에서는 바꿀 수 없어요)"}
+                  {/* 체험은 실제 반의 키를 빌려 쓰므로 모델 이름을 바꾸지 않는다(서버도 받지 않음) */}
+                  <input value={models[p]} onChange={(e) => setModels({ ...draft.models, [p]: e.target.value })} disabled={!!data.trial} className="field mt-1 py-2 font-mono text-sm disabled:opacity-60" />
                 </label>
               )}
               <div className="mt-3 flex items-center gap-2">
@@ -245,10 +254,13 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
         {adv && <label className="block md:col-span-2">
           <span className="font-bold">위험 표현 단어</span>
           <span className="block text-xs text-soft">학생 말에 이 글자가 들어 있으면 선생님 화면에만 빨간 알림이 떠요. AI 판단과 함께 두 겹으로 살펴요.</span>
-          <textarea value={risk} onChange={(e) => setRisk(e.target.value)} rows={2} className="field mt-1 text-sm" />
+          <textarea value={risk} onChange={(e) => setRisk(e.target.value)} rows={2} className="field mt-1 text-sm" aria-describedby="risk-limit" />
+          <span id="risk-limit" className={`mt-1 block text-xs wrap-anywhere ${riskIssue ? "font-bold text-alert" : "text-soft"}`} role={riskIssue ? "alert" : undefined}>
+            {riskIssue || `${riskList.length}/${RISK_WORDS_MAX}개 · 한 낱말 ${RISK_WORD_LEN}자까지`}
+          </span>
         </label>}
         <div className="flex items-center justify-end gap-3 md:col-span-2">
-          <span className="text-sm">{msg.save}</span>
+          <span className="min-w-0 text-sm wrap-anywhere">{msg.save}</span>
           <button onClick={() => save()} className="btn-main">설정 저장</button>
         </div>
       </section>
@@ -281,7 +293,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
         </div>
         {voiceMode === "gemini" && !s.keys.gemini && <p className="text-sm text-alert">Gemini 키가 없어요. 위 「AI 연결」에서 Gemini 키를 넣어 주세요(쓸 AI로 고르지 않아도 돼요).</p>}
         <div className="flex items-center justify-end gap-3">
-          <span className="text-sm">{msg.save}</span>
+          <span className="min-w-0 text-sm wrap-anywhere">{msg.save}</span>
           <button onClick={() => save()} className="btn-main">설정 저장</button>
         </div>
       </section>

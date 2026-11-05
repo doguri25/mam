@@ -7,7 +7,7 @@ import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type MoodRecord, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type Letter, type MoodRecord, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 
 export interface Settings {
   className: string;
@@ -415,8 +415,75 @@ export async function saveSelChecks(items: SelCheck[]) {
   await db().set("meta", "selChecks", { items: items.slice(-80) });
 }
 
+// ── 문서 하나의 크기: 조치 기록·마치지 않은 위험 표현은 문서 하나에 모으므로, Firestore 한 문서 한도(1 MiB)를 넘기 전에 줄인다 ──
+// 저장소마다 여유를 두고 잡은 한도(JSON 바이트로 어림. Firestore 크기 셈보다 조금 크게 나온다). 로컬 파일은 한도가 없다.
+export const DOC_CAP: Record<"mongo" | "firestore" | "local", number> = { firestore: 900_000, mongo: 15_000_000, local: Infinity };
+const bytes = (x: unknown) => Buffer.byteLength(JSON.stringify(x));
+export const DOC_FULL = "위험 표현 기록이 너무 많이 쌓였어요. 「설정 → 기록 보관·정리」에서 지난 기록을 내려받은 뒤 정리해 주세요.";
+
+// 조치 기록이 한도를 넘으면: ① 같은 위험 표현에 같은 글을 여러 번 남긴 것은 처음 것에만 두고(잃는 것 없음)
+// ② 보관 기한이 지난(정리 대상) 조치 기록을 오래된 것부터 뺀다. 그래도 limit를 넘으면 아무것도 지우지 않고 분명한 오류를 낸다.
+// limit: 고치기 전 크기가 이미 한도를 넘었으면 그 크기(줄이거나 지우는 일은 늘 되게)
+export function fitRiskActions(items: RiskAction[], cap: number, cut: string, limit = cap): RiskAction[] {
+  let size = bytes({ items });
+  if (size <= cap) return items;
+  const firstOf = new Map<string, RiskAction>();
+  for (const a of items) {
+    const k = `${a.recordId}\u0000${a.text ?? ""}`;
+    const f = firstOf.get(k);
+    if (a.text && (!f || a.createdAt < f.createdAt)) firstOf.set(k, a);
+  }
+  let out = items.map((a) => {
+    if (!a.text || firstOf.get(`${a.recordId}\u0000${a.text}`) === a) return a;
+    const { text: _t, ...rest } = a;
+    void _t;
+    return rest;
+  });
+  size = bytes({ items: out });
+  if (size > cap) {
+    // 한 위험 표현의 조치 기록은 함께 뺀다(글을 남긴 처음 것만 빠지고 글 없는 뒤의 것이 남지 않게)
+    const old = out.filter((a) => actDate(a) < cut).sort((a, b) => actDate(a).localeCompare(actDate(b)) || a.createdAt.localeCompare(b.createdAt));
+    const gone = new Set<string>();
+    for (const a of old) {
+      if (size <= cap) break;
+      if (gone.has(a.recordId)) continue;
+      gone.add(a.recordId);
+      for (const x of out) if (x.recordId === a.recordId) size -= bytes(x) + 1;
+    }
+    out = out.filter((a) => !gone.has(a.recordId));
+  }
+  if (size > limit) throw new Error(DOC_FULL);
+  return out;
+}
+
+// 마치지 않은 위험 표현이 한도를 넘으면: ① 선생님이 살펴본 것의 앞서 쓴 글(살펴볼 때 조치 기록에 함께 남김)을 오래 전에 살펴본 것부터 빼고
+// ② 살펴본 것을 오래 전에 살펴본 것부터 뺀다(40일 지나면 어차피 뺌). 살펴보지 않은 것은 줄이지 않는다 — 그래도 limit를 넘으면 분명한 오류.
+export function fitRiskDrafts(items: RiskDraft[], cap: number, limit = cap): RiskDraft[] {
+  let size = bytes({ items });
+  if (size <= cap) return items;
+  const checked = items.filter((d) => d.checked).sort((a, b) => a.checked!.localeCompare(b.checked!));
+  const slim = new Map<RiskDraft, RiskDraft>();
+  for (const d of checked) {
+    if (size <= cap) break;
+    if (!d.earlier?.length) continue;
+    const { earlier: _e, ...rest } = d;
+    void _e;
+    size -= bytes(d) - bytes(rest);
+    slim.set(d, rest);
+  }
+  const drop = new Set<RiskDraft>();
+  for (const d of checked) {
+    if (size <= cap) break;
+    drop.add(d);
+    size -= bytes(slim.get(d) ?? d) + 1;
+  }
+  if (size > limit) throw new Error(DOC_FULL);
+  return items.filter((d) => !drop.has(d)).map((d) => slim.get(d) ?? d);
+}
+const capNow = () => DOC_CAP[db().kind];
+
 // 위험 표현 조치 기록(선생님만). 학급마다 한 해 수십 건이라 문서 하나에 모은다(모음을 늘리지 않음).
-// 아이 보호 기록이라 개수로 잘라 버리지 않는다 — 보관 기한 정리(purgeBefore)로만 지운다.
+// 아이 보호 기록이라 개수로 잘라 버리지 않는다 — 보관 기한 정리(purgeBefore)로만 지운다(문서가 한도에 닿으면 fitRiskActions).
 export async function getRiskActions(): Promise<RiskAction[]> {
   const items = (await db().get<{ items: RiskAction[] }>("meta", "riskActions"))?.items ?? [];
   return items.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
@@ -427,7 +494,12 @@ export async function saveRiskActions(items: RiskAction[]) {
 }
 // 읽고 고쳐 쓰기를 한 번에(두 기기에서 같은 순간 적어도 둘 다 남음). fn은 겹치면 다시 불릴 수 있다.
 export async function editRiskActions(fn: (items: RiskAction[]) => RiskAction[]) {
-  await db().update<{ items: RiskAction[] }>("meta", "riskActions", (cur) => ({ ...cur, items: fn(cur?.items ?? []) }));
+  const cap = capNow();
+  const cut = Number.isFinite(cap) ? await cutoffNow() : "";
+  await db().update<{ items: RiskAction[] }>("meta", "riskActions", (cur) => {
+    const before = cur?.items ?? [];
+    return { ...cur, items: fitRiskActions(fn(before), cap, cut, Number.isFinite(cap) ? Math.max(cap, bytes({ items: before })) : cap) };
+  });
   await touch("other");
 }
 export const addRiskAction = (act: RiskAction) => editRiskActions((items) => [...items.filter((x) => x.id !== act.id), act]);
@@ -439,27 +511,52 @@ const DRAFT_DAYS = 40;
 export async function getRiskDrafts(): Promise<RiskDraft[]> {
   return (await db().get<{ items: RiskDraft[] }>("meta", "riskDrafts"))?.items ?? [];
 }
+// fn은 겹치면 다시 불릴 수 있으므로 fn 안에서 정한 값(결과)은 부를 때마다 새로 정한다
 async function editRiskDrafts(fn: (items: RiskDraft[]) => RiskDraft[]) {
   const from = addDays(today(), -DRAFT_DAYS);
+  const cap = capNow();
   let changed = false;
   await db().update<{ items: RiskDraft[] }>("meta", "riskDrafts", (cur) => {
     const before = cur?.items ?? [];
     const items = fn(before).filter((d) => !d.checked || d.date >= from);
     changed = JSON.stringify(items) !== JSON.stringify(before);
-    return changed ? { ...cur, items } : undefined;
+    return changed ? { ...cur, items: fitRiskDrafts(items, cap, Number.isFinite(cap) ? Math.max(cap, bytes({ items: before })) : cap) } : undefined;
   });
   if (changed) await touch("other");
 }
 // 같은 칸은 마지막 글을 앞에 두고, 앞서 쓴 다른 위험한 글은 earlier에 남긴다(새 글이 와도 지우지 않음). 살펴본 표시는 새 글이 오면 비운다.
-export const putRiskDraft = (d: RiskDraft) =>
-  editRiskDrafts((items) => {
+// 같은 글을 다시 정리한 것(말하기 → 카드로 고치기 등)이면 다시 열지 않고 판(at)·살펴본 표시도 그대로 둔다(한국어 정리·걸린 말만 더함).
+// 새로 열었거나 글이 바뀌었으면 true(그때만 선생님께 알림을 보내면 된다).
+export async function putRiskDraft(d: RiskDraft): Promise<boolean> {
+  let fresh = false;
+  await editRiskDrafts((items) => {
     const old = items.find((x) => x.id === d.id);
-    const earlier = old && old.text !== d.text ? [...(old.earlier ?? []), { text: old.text, hits: old.hits, at: old.at }].slice(-5) : old?.earlier;
+    fresh = !old || old.text !== d.text;
+    if (old && !fresh) {
+      const summaryKo = old.summaryKo || d.summaryKo;
+      const same = { ...old, hits: [...new Set([...old.hits, ...d.hits])], ...(summaryKo ? { summaryKo } : {}) };
+      return items.map((x) => (x.id === d.id ? same : x));
+    }
+    const earlier = old ? [...(old.earlier ?? []), { text: old.text, hits: old.hits, at: old.at }].slice(-5) : undefined;
     return [...items.filter((x) => x.id !== d.id), { ...d, ...(earlier?.length ? { earlier } : {}) }];
   });
-// 그 칸 기록을 저장했으면 지운다(기록에 같은 글과 위험 표시가 담김)
-export const dropRiskDraft = (id: string) => editRiskDrafts((items) => items.filter((x) => x.id !== id));
-export const checkRiskDraft = (id: string) => editRiskDrafts((items) => items.map((x) => (x.id === id ? { ...x, checked: new Date().toISOString() } : x)));
+  return fresh;
+}
+// 그 칸 기록을 저장했으면 지운다(기록에 같은 글과 위험 표시가 담김). when: 지워도 되는지 — 지우는 그 순간의 글로 견준다
+// (먼저 읽고 견준 뒤 지우면, 그사이 학생이 새로 쓴 위험한 글까지 함께 지워진다)
+export const dropRiskDraft = (id: string, when: (d: RiskDraft) => boolean = () => true) =>
+  editRiskDrafts((items) => items.filter((x) => x.id !== id || !when(x)));
+// 선생님이 살펴봄: seen(선생님이 본 판 = at)이 지금 글과 같을 때만 그 자리에서 표시한다.
+// stale = 그사이 학생이 새로 씀, missing = 그사이 그 글로 기록을 마쳐 없어짐
+export async function checkRiskDraft(id: string, seen?: string | null): Promise<"ok" | "stale" | "missing"> {
+  let res: "ok" | "stale" | "missing" = "missing";
+  await editRiskDrafts((items) => {
+    const d = items.find((x) => x.id === id);
+    res = !d ? "missing" : seen && d.at !== seen ? "stale" : "ok";
+    return res === "ok" ? items.map((x) => (x.id === id ? { ...x, checked: new Date().toISOString() } : x)) : items;
+  });
+  return res;
+}
 
 // 학생 자기진단: 회차 목록은 문서 하나, 학생 답은 학생마다 문서 하나(meta 모음 안, kind로 찾음)
 // 회차는 한 해 몇 번이라 개수로 잘라 버리지 않는다(문서 크기 걱정 없음). 너무 많으면 여는 쪽(selfOpen)이 분명한 오류를 낸다.
@@ -587,9 +684,10 @@ export async function seedPractice() {
   await saveSelChecks([...(await getSelChecks()).filter((c) => !c.demo), ...demoSelChecks(date)]); // 역량 진단 연습 회차(실제 회차는 그대로)
   await saveRiskActions(demoRiskActions(date)); // 위험 표현 조치 연습 기록
   await seedSelfChecks(date); // 학생 자기진단 연습 회차(실제 회차는 그대로)
-  // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게)
+  // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).
+  // 모델 이름도 처음 것으로: 체험은 실제 반의 키를 빌려 쓰므로, 누군가 바꿔 둔 모델(예: 말소리 듣기의 Gemini 모델)로 그 키를 쓰지 않게
   const cur = await getSettings();
-  await saveSettings(isDemo() ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider, models: cur.models } : { ...cur, checks: {} });
+  await saveSettings(isDemo() ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} });
   await db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION });
   await touch("wipe");
   await touch("records");
@@ -637,8 +735,15 @@ export async function purgePractice(gone: (no: number) => boolean, opt: { onlyTh
   for (const r of recs) if (hit(r.demo, r.no)) { await db().del("records", r.id); dropped.add(r.id); }
   for (const col of ["cheers", "notes", "reflects"] as const)
     for (const x of await db().all<{ id: string; no: number; demo?: boolean }>(col)) if (hit(x.demo, x.no)) await db().del(col, x.id);
-  for (const l of await db().all<{ id: string; from: number; to: number; demo?: boolean }>("letters"))
-    if (hit(l.demo, l.from, l.to)) await db().del("letters", l.id);
+  // 쪽지는 연습 표시가 붙었거나 연습 학생이 보낸 것만 지운다. 실제 학생이 연습 학생에게 쓴 쪽지는 실제 학생이 남긴 기록이라 그대로 둔다
+  // (위험 표현이면 선생님 알림·조치·CSV에 남아야 한다). 다만 받을 학생이 없어지므로 「전할 수 없음」(toPractice)으로 표시해
+  // 나중에 같은 번호로 들어온 다른 학생에게 가지 않게 한다. 이미 전한 평범한 쪽지는 가짜 학생 쪽지함에만 있던 것이라 지운다.
+  for (const l of await db().all<Letter>("letters")) {
+    if (hit(l.demo, l.from) || (l.demo && gone(l.to))) await db().del("letters", l.id);
+    else if (!gone(l.to)) continue;
+    else if (l.status === "ok" && !l.risk) await db().del("letters", l.id);
+    else if (!l.toPractice) await db().update<Letter>("letters", l.id, (cur) => (cur ? { ...cur, toPractice: true } : undefined));
+  }
   await editRiskActions((xs) => xs.filter((a) => !hit(a.demo, a.no) && !dropped.has(a.recordId)));
   await deleteSelfAnswers((a) => !hit(a.demo, a.no));
   const drafts = await getRiskDrafts();

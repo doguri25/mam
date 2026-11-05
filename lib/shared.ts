@@ -260,6 +260,9 @@ export interface RiskAction {
 }
 export const riskKinds = (x: unknown): RiskActionKind[] =>
   Array.isArray(x) ? RISK_ACTIONS.filter((k) => x.includes(k)) : [];
+// 선생님이 고치는 위험 표현 단어 목록의 한도: 한 낱말 글자 수 · 낱말 수(서버가 이 수로 받고, 설정 화면이 저장 전에 넘는 것을 알린다)
+export const RISK_WORD_LEN = 20;
+export const RISK_WORDS_MAX = 150;
 
 export interface MoodRecord {
   id: string; // `${no}_${date}_${slot}` — 같은 시점에 다시 기록하면 덮어씀
@@ -412,6 +415,7 @@ export interface Letter {
   risk?: boolean; lang?: string; demo?: boolean;
   riskChecked?: string | null; // 위험 표현 쪽지를 선생님이 「살펴봤어요」한 시각
   original?: string; // 선생님이 다듬어 전한 쪽지면 학생이 처음 쓴 글(선생님만 봄)
+  toPractice?: boolean; // 받을 학생이 연습용 가짜 학생이라 지워짐 — 전할 수 없다(같은 번호의 새 학생에게 가지 않게)
 }
 
 // 한 주 돌아보기: 학생이 이번 주(월요일부터)를 돌아보며 쓴 한 줄과 마음 친구의 답

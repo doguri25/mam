@@ -2,6 +2,7 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
 import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, noteTeacherLogin, setConsent } from "@/lib/data";
+import { draftText, reflectEverRisk, reflectSource, riskySource } from "@/components/teacher/alerts";
 import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@/lib/limit";
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
@@ -17,7 +18,7 @@ import { isLang } from "@/lib/i18n";
 import { cleanCheck } from "@/lib/selcheck";
 import type { SelfRound } from "@/lib/selfcheck";
 import { cutoffOf, isRetention } from "@/lib/retention";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
@@ -44,7 +45,11 @@ export async function POST(req: NextRequest) {
 // 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
 const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush", "pushClear"]);
 // 체험 반은 로그인 없이 누구나 쓰므로, 함께 쓰는 문서를 바꾸는 일은 IP마다 10분에 정한 번까지(lib/limit.ts trialEditWait)
-const TRIAL_WRITES = new Set(["roster", "newCode", "settings", "note", "deleteNote", "saveCheer", "checkFlag", "checkAlert", "riskAction", "riskActionDelete", "letterCheck", "consent", "selfOpen", "selfClose", "selfReopen", "selfDelete", "saveSelCheck", "saveLesson", "sheetEdit"]);
+// (아래 handle의 쓰는 일 이름과 하나하나 맞춘 목록 — 「demo」는 resetWait로 따로 막는다)
+const TRIAL_WRITES = new Set([
+  "roster", "newCode", "settings", "note", "deleteNote", "saveCheer", "checkFlag", "checkAlert", "riskAction", "riskActionDelete", "letterCheck", "consent",
+  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selSave", "selDelete", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly",
+]);
 const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
 async function handle(req: NextRequest) {
@@ -188,12 +193,22 @@ async function handle(req: NextRequest) {
 
     // ── 공감 쪽지 검토: 허락(필요하면 살짝 고쳐서)하거나 돌려보내기 ──
     if (body.action === "letterCheck") {
-      const l = await db().get<Letter>("letters", String(body.id));
-      if (!l || !["ok", "no"].includes(body.status)) return bad("쪽지를 찾지 못했어요.", 404);
-      const text = typeof body.text === "string" && body.text.trim().length >= 2 ? body.text.trim().slice(0, 120) : l.text;
-      // 다듬어 전하면 학생이 처음 쓴 글은 original에 남긴다(위험한 말이 고쳐 쓰여 사라지지 않게). 한 번에 고쳐 쓰기.
-      await db().update<Letter>("letters", l.id, (cur) =>
-        cur ? { ...cur, text, status: body.status, checkedAt: new Date().toISOString(), ...(text !== cur.text && !cur.original ? { original: cur.text } : {}) } : undefined);
+      const status = body.status;
+      if (status !== "ok" && status !== "no") return bad("쪽지를 찾지 못했어요.", 404);
+      const edited = typeof body.text === "string" && body.text.trim().length >= 2 ? body.text.trim().slice(0, 120) : null;
+      const roster = status === "ok" ? new Set((await getRoster()).map((s) => s.no)) : null;
+      // 허락을 기다리는 쪽지만 바꾼다(읽고 고쳐 쓰기를 한 번에): 두 기기가 같은 쪽지를 하나는 돌려보내고 하나는 전하는 일이 없게.
+      // 다듬어 전하면 학생이 처음 쓴 글은 original에 남긴다(위험한 말이 고쳐 쓰여 사라지지 않게).
+      const out: { why?: "none" | "done" | "gone" } = {};
+      await db().update<Letter>("letters", String(body.id), (cur) => {
+        out.why = !cur ? "none" : cur.status !== "wait" ? "done" : roster && (cur.toPractice || !roster.has(cur.to)) ? "gone" : undefined;
+        if (out.why || !cur) return undefined;
+        const text = edited ?? cur.text;
+        return { ...cur, text, status, checkedAt: new Date().toISOString(), ...(text !== cur.text && !cur.original ? { original: cur.text } : {}) };
+      });
+      if (out.why === "none") return bad("쪽지를 찾지 못했어요.", 404);
+      if (out.why === "done") return bad("다른 기기에서 이미 전하거나 돌려보낸 쪽지예요. 화면을 새로 읽을게요.", 409);
+      if (out.why === "gone") return bad("받을 친구가 지금 명단에 없어요(연습용 학생이었거나 명단에서 빠짐). 전하지 말고 돌려보내 주세요.", 409);
       await touch("other");
       return NextResponse.json({ ok: true });
     }
@@ -230,10 +245,11 @@ async function handle(req: NextRequest) {
 
     // 기록 내보내기(전체). 화면에서 CSV로 만든다.
     if (body.action === "export") {
-      const [riskyReflects, riskyLetters] = await Promise.all([db().find<Reflect>("reflects", "risk", "==", true), db().find<Letter>("letters", "risk", "==", true)]);
+      // 돌아보기는 한 번이라도 위험했던 것(고쳐 써서 지금 글은 순해졌어도 고치기 전 글에 있었으면)을 모두
+      const [reflects, riskyLetters] = await Promise.all([db().all<Reflect>("reflects"), db().find<Letter>("letters", "risk", "==", true)]);
       return NextResponse.json({
         records: (await allRecords()).map(lean), students: await getRoster(), riskActions: await getRiskActions(), riskDrafts: await getRiskDrafts(),
-        reflects: riskyReflects, letters: riskyLetters, // 위험 표현이 있었던 돌아보기·쪽지(오래된 것도 CSV에)
+        reflects: reflects.filter(reflectEverRisk), letters: riskyLetters, // 위험 표현이 있었던 돌아보기·쪽지(오래된 것도 CSV에)
       });
     }
 
@@ -300,14 +316,14 @@ async function handle(req: NextRequest) {
       if (PROVIDER_IDS.includes(body.provider)) next.provider = body.provider;
       if (typeof body.className === "string" && body.className.trim()) next.className = body.className.trim().slice(0, 20);
       for (const p of PROVIDER_IDS) {
-        const m = body.models?.[p];
+        const m = isDemo() ? undefined : body.models?.[p]; // 체험은 실제 반 키를 빌려 쓰므로 모델 이름도 바꾸지 않는다
         if (typeof m === "string" && m.trim()) next.models[p] = m.trim().slice(0, 80);
         const k = isDemo() ? undefined : body.keys?.[p]; // 체험에서는 키를 바꾸지 않는다
         if (k === "") delete next.keys[p]; // 빈 글자 = 지우기, 안 보내면 그대로
         else if (typeof k === "string" && k.trim()) next.keys[p] = encrypt(k.trim());
       }
       next.vocab = strList(body.vocab, 60, 12) ?? next.vocab;
-      next.riskWords = strList(body.riskWords, 150, 20) ?? next.riskWords; // 기본 목록이 늘어도 잘리지 않게 넉넉히
+      next.riskWords = strList(body.riskWords, RISK_WORDS_MAX, RISK_WORD_LEN) ?? next.riskWords; // 기본 목록이 늘어도 잘리지 않게 넉넉히(넘으면 화면이 저장 전에 알림)
       if (["off", "device", "gemini"].includes(body.voiceMode)) next.voiceMode = body.voiceMode;
       if (isRetention(body.retention)) next.retention = body.retention;
       if (body.rules && typeof body.rules === "object") {
@@ -370,8 +386,9 @@ async function handle(req: NextRequest) {
       const kinds = riskKinds(body.kinds);
       if (!kinds.length) return bad("한 일을 하나 이상 골라 주세요.");
       // 무엇을 살펴봤나: 마음 기록(기본) · 「reflect:」 한 주 돌아보기 · 「draft:」 마치지 않은 위험 표현 · 「letter:」 공감 쪽지
-      // seen: 선생님이 본 그 글의 시각. 그사이 학생이 새로 쓰거나 고쳤으면 닫지 않고 409로 다시 보게 한다(어느 종류든).
-      const id = String(body.action === "checkAlert" ? body.id : body.recordId);
+      // seen: 선생님이 본 그 글의 판(시각). 그사이 학생이 새로 쓰거나 고쳤으면 닫지 않고 409로 다시 보게 한다(어느 종류든).
+      const first = body.action === "checkAlert";
+      const id = String(first ? body.id : body.recordId);
       const items = await getRiskActions();
       const pre = id.match(/^(reflect|draft|letter):(.+)$/);
       const kind = (pre?.[1] ?? "record") as "record" | "reflect" | "draft" | "letter";
@@ -382,52 +399,48 @@ async function handle(req: NextRequest) {
       const l = kind === "letter" ? await db().get<Letter>("letters", key) : null;
       const before = items.find((x) => x.recordId === id); // 보관 기한이 지나 기록을 지운 뒤에도 이어 적을 수 있게
       const target = r ?? ref ?? d ?? l;
+      const DRAFT_DONE = "학생이 그 글로 기록을 마쳤어요. 고른 일과 메모는 마음 기록 알림으로 옮겨 둘게요. 기록을 읽고 다시 눌러 주세요.";
+      const GONE = "그 글이 지금 없어요(지워졌거나 정리됨). 화면을 새로 읽을게요.";
+      // 알림 닫기는 그 글이 있어야 한다(없으면 조치 기록만 남기고 200을 돌려주지 않게).
+      // 마치지 않은 글이 그사이 마음 기록이 되어 없어졌으면 409: 화면이 새로 읽고 같은 칸의 마음 기록 알림에서 살펴보게 한다.
+      if (first && !target) return kind === "draft" ? bad(DRAFT_DONE, 409) : bad(GONE, 404);
       const no = r?.no ?? ref?.no ?? d?.no ?? l?.from ?? before?.no;
-      if (no === undefined) {
-        // 마치지 않은 글이 그사이 마음 기록에 담겨 사라졌으면: 새로 읽어 기록 알림에서 살펴보게
-        if (kind === "draft") return bad("학생이 그 글로 기록을 마쳤어요. 화면을 새로 읽고 마음 기록 알림에서 살펴봐 주세요.", 409);
-        return bad("기록이 없어요.");
-      }
+      if (no === undefined) return bad("기록이 없어요.");
       const now = new Date().toISOString();
       const seen = typeof body.seen === "string" ? body.seen : null;
       const STALE = "학생이 그사이 새로 쓰거나 고친 글이 있어요. 바뀐 글을 읽고 다시 눌러 주세요.";
-      if (body.action === "checkAlert" && target) {
-        let stale = false;
-        const fresh = <T,>(cur: T | null, at: (x: T) => string) => {
-          if (!cur) return false;
-          if (seen && at(cur) !== seen) stale = true;
-          return !stale;
-        };
-        if (kind === "record") {
-          await db().update<MoodRecord>("records", key, (cur) => (fresh(cur, (x) => x.riskAt ?? x.createdAt) ? { ...cur!, riskChecked: now, updatedAt: Date.now() } : undefined));
-          if (!stale) await touch("records");
-        } else if (kind === "reflect") {
-          await db().update<Reflect>("reflects", key, (cur) => (fresh(cur, (x) => x.createdAt) ? { ...cur!, riskChecked: now } : undefined));
-        } else if (kind === "letter") {
-          await db().update<Letter>("letters", key, (cur) => (fresh(cur, (x) => x.createdAt) ? { ...cur!, riskChecked: now } : undefined));
-        } else {
-          if (seen && d && d.at !== seen) stale = true;
-          else await checkRiskDraft(key);
-        }
-        if (stale) return bad(STALE, 409);
-        if (kind !== "record") await touch("other");
-      }
-      // 조치 기록에는 살펴본 글을 함께 남긴다(마치지 않은 기록·돌아보기·쪽지는 나중에 지워지거나 바뀌어도 남게)
+      const version = r ? (r.riskAt ?? r.createdAt) : ref ? ref.createdAt : d ? d.at : l ? l.createdAt : null;
+      // 남기기 전에 먼저 견준다(그사이 바뀐 것이면 아무것도 남기지 않고 409)
+      if (first && seen && version !== seen) return bad(STALE, 409);
+      // 조치 기록에는 위험 표현이 있던 그 글을 서버가 골라 남긴다(지금 글이 고쳐 써서 순해졌어도, 선생님이 다듬어 전한 쪽지여도).
+      // 그 글이 나중에 지워지거나(34일·보관 기한·마치지 않은 기록 40일) 바뀌어도 조치 기록에 남는다.
       const text =
-        kind === "draft" && d ? [...(d.earlier ?? []).map((e) => e.text), d.summaryKo ? `${d.summaryKo} (원문: ${d.text})` : d.text].join(" / ")
-        : kind === "reflect" && ref ? ref.text
-        : kind === "letter" && l ? `${l.from}번 → ${l.to}번: ${l.text}`
+        kind === "draft" && d ? [...(d.earlier ?? []).map((e) => e.text), draftText(d)].join(" / ")
+        : kind === "reflect" && ref ? reflectSource(ref, settings.riskWords).text
+        : kind === "letter" && l ? `${l.from}번 → ${l.to}번: ${l.original ?? l.text}`
+        : kind === "record" && r ? riskySource(r).text
         : "";
       const recordDate = r?.date ?? (ref ? today(new Date(ref.createdAt)) : undefined) ?? d?.date ?? (l ? today(new Date(l.createdAt)) : undefined) ?? before!.recordDate;
+      // opId: 화면이 폼마다 하나 정해 보내는 이름. 같은 폼에서 다시 눌러도(닫다가 실패해 다시 누름 등) 조치 기록이 두 번 남지 않는다.
+      const op = typeof body.opId === "string" && /^[a-z0-9]{8,40}$/i.test(body.opId) ? body.opId : `${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
       const act: RiskAction = {
-        id: `${Date.now()}_${no}`, no, recordId: id, recordDate,
+        id: `${op}_${no}`, no, recordId: id, recordDate,
         date: isDay(body.date) && body.date <= today() ? body.date : today(), kinds, note: String(body.note ?? "").trim().slice(0, 300),
         createdAt: now,
         ...(kind !== "record" ? { kind } : {}), ...(text ? { text: text.slice(0, 400) } : {}),
         // 연습(시연) 기록에 대한 조치면 연습 표시 → 「연습 데이터만 지우기」가 함께 지운다
         ...((target?.demo ?? before?.demo) ? { demo: true } : {}),
       };
-      await addRiskAction(act); // 목록을 읽고 고쳐 쓰기를 한 번에(두 기기에서 같은 순간 적어도 둘 다 남음)
+      // 조치 기록을 먼저 남기고(목록을 읽고 고쳐 쓰기를 한 번에 — 두 기기에서 같은 순간 적어도 둘 다 남음) 그다음 알림을 닫는다.
+      // 기록을 남기지 못하면 알림도 닫지 않는다. 닫다가 실패하면 기록은 남고 알림은 열려 있어, 다시 누르면 같은 기록(opId)을 고쳐 쓰고 닫는다.
+      await addRiskAction(act);
+      if (first) {
+        const closed = await closeAlert(kind, key, seen, now);
+        if (closed !== "ok") {
+          await deleteRiskAction(act.id); // 닫지 못했으면(그사이 바뀜·없어짐) 방금 남긴 조치 기록도 거둔다
+          return closed === "stale" ? bad(STALE, 409) : kind === "draft" ? bad(DRAFT_DONE, 409) : bad(GONE, 404);
+        }
+      }
       return NextResponse.json({ ok: true, riskActions: await getRiskActions() });
     }
     if (body.action === "riskActionDelete") {
@@ -645,4 +658,25 @@ function publicSettings(s: Awaited<ReturnType<typeof getSettings>>) {
     return [p, box ? (plain ? mask(plain) : "다시 입력 필요") : null];
   }));
   return { ...s, keys, checks: s.checks };
+}
+
+// 위험 표현 알림 닫기(살펴본 시각 적기). seen(선생님이 본 판)이 지금 글과 다르면 바꾸지 않는다 — 읽고 견주고 쓰기를 한 번에.
+// ok = 닫음, stale = 그사이 학생이 새로 쓰거나 고침, missing = 그 글이 없어짐(마치지 않은 글이 기록이 됨 등)
+async function closeAlert(kind: "record" | "reflect" | "draft" | "letter", key: string, seen: string | null, now: string): Promise<"ok" | "stale" | "missing"> {
+  if (kind === "draft") return checkRiskDraft(key, seen);
+  const out: { res: "ok" | "stale" | "missing" } = { res: "missing" };
+  const check = <T,>(cur: T | null, at: (x: T) => string) => {
+    out.res = !cur ? "missing" : seen && at(cur) !== seen ? "stale" : "ok";
+    return out.res === "ok";
+  };
+  if (kind === "record") {
+    await db().update<MoodRecord>("records", key, (cur) => (check(cur, (x) => x.riskAt ?? x.createdAt) ? { ...cur!, riskChecked: now, updatedAt: Date.now() } : undefined));
+    if (out.res === "ok") await touch("records");
+  } else if (kind === "reflect") {
+    await db().update<Reflect>("reflects", key, (cur) => (check(cur, (x) => x.createdAt) ? { ...cur!, riskChecked: now } : undefined));
+  } else {
+    await db().update<Letter>("letters", key, (cur) => (check(cur, (x) => x.createdAt) ? { ...cur!, riskChecked: now } : undefined));
+  }
+  if (out.res === "ok" && kind !== "record") await touch("other");
+  return out.res;
 }

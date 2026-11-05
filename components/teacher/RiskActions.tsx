@@ -14,22 +14,38 @@ import { RISK_ACTIONS, RISK_ACTION_KO, type Letter, type MoodRecord, type Reflec
 
 export const kindsText = (kinds: RiskActionKind[]) => kinds.map((k) => RISK_ACTION_KO[k]).join(" · ");
 export const STALE_MSG = "학생이 그사이 새로 남겼어요. 바뀐 글을 읽고 다시 눌러 주세요.";
+export const MOVED_MSG = "학생이 그 글로 기록을 마쳤어요. 고른 일과 메모를 이 마음 기록 알림으로 옮겨 왔어요. 기록을 읽고 다시 눌러 주세요.";
+
+// 폼에 고른 것(그사이 바뀌어 다시 불러올 때 잃지 않게 밖으로 넘긴다). msg: 새 폼에 처음 띄울 말
+export interface FormState { kinds: RiskActionKind[]; date: string; note: string; msg?: string }
+// 폼마다 하나: 같은 폼에서 다시 눌러도 서버가 같은 조치 기록을 고쳐 쓴다(두 번 남지 않음)
+const newOp = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
+// 마치지 않은 글(draft:칸)을 살펴보는 사이 학생이 그 글로 기록을 마치면 그 알림은 없어지고 같은 칸(번호·날·때)의 마음 기록 알림이 생긴다.
+// 열어 둔 폼을 그 마음 기록으로 옮길 id(옮길 것이 없으면 그대로)
+export function movedTo(open: string | null, ids: string[]): string | null {
+  if (!open?.startsWith("draft:") || ids.includes(open)) return open;
+  return ids.includes(open.slice(6)) ? open.slice(6) : open;
+}
 
 // 한 일 고르기 + 한 날 + 메모. action: 처음 살펴볼 때 checkAlert(알림이 닫힘), 그 뒤에 더 적을 때 riskAction
 // seen·text: 선생님이 보고 있는 글의 판과 그 글. 폼을 연 때 것으로 묶어 둔다(20초마다 새 기록이 들어와도 바꾸지 않음).
 // 그사이 학생이 고쳐 썼으면 서버가 닫지 않고(409) → 고른 일·메모는 그대로 두고 알린 뒤 onStale로 새 글을 불러온다.
 // 그다음 선생님이 다시 누를 때에만 그때 화면의 새 판으로 닫는다.
-export function RiskActionForm({ recordId, today, first, seen, text, kind, onDone, onCancel, onStale }: {
-  recordId: string; today: string; first: boolean; seen?: string; text?: string; kind?: RiskKind;
-  onDone: (items: RiskAction[]) => void | Promise<void>; onCancel: () => void; onStale?: () => void | Promise<void>;
+// init: 앞 폼에서 옮겨 온 고른 일·한 날·메모(마치지 않은 글 → 마음 기록). onStale은 고른 것을 함께 받는다.
+// 조치 기록에 남는 글은 서버가 그 위험 표현의 글에서 골라 남긴다(화면이 보내는 글을 믿지 않음).
+export function RiskActionForm({ recordId, today, first, seen, text, kind, init, onDone, onCancel, onStale }: {
+  recordId: string; today: string; first: boolean; seen?: string; text?: string; kind?: RiskKind; init?: FormState | null;
+  onDone: (items: RiskAction[]) => void | Promise<void>; onCancel: () => void; onStale?: (st: FormState) => void | Promise<void>;
 }) {
-  const [kinds, setKinds] = useState<RiskActionKind[]>([]);
-  const [date, setDate] = useState(today);
-  const [note, setNote] = useState("");
+  const [kinds, setKinds] = useState<RiskActionKind[]>(init?.kinds ?? []);
+  const [date, setDate] = useState(init?.date ?? today);
+  const [note, setNote] = useState(init?.note ?? "");
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState(init?.msg ?? "");
   const [base, setBase] = useState({ seen, text }); // 폼을 연 때 본 판
-  const [stale, setStale] = useState(false); // 서버가 「그사이 바뀜」이라고 돌려보낸 뒤
+  const [stale, setStale] = useState(!!init?.msg); // 서버가 「그사이 바뀜」이라고 돌려보낸 뒤(옮겨 온 폼도 새 글을 읽고 누르는 것)
+  const [op] = useState(newOp);
   // 「걱정할 내용이 아니었음」은 다른 일과 함께 고르지 않는다
   const toggle = (k: RiskActionKind) =>
     setKinds((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : k === "none" ? ["none"] : [...ks.filter((x) => x !== "none"), k]));
@@ -43,7 +59,7 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, onDon
     }
     setBusy(true);
     setErr("");
-    const what = { kinds, date, note, kind: kind ?? kindOfId(recordId), ...(v.text ? { text: v.text } : {}) };
+    const what = { kinds, date, note, kind: kind ?? kindOfId(recordId), opId: op };
     try {
       const r = first
         ? await api<{ riskActions: RiskAction[] }>("teacher", "checkAlert", { id: recordId, ...what, ...(v.seen ? { seen: v.seen } : {}) })
@@ -51,10 +67,12 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, onDon
       await onDone(r.riskActions);
     } catch (e) {
       setBusy(false);
-      if ((e as { status?: number }).status === 409) {
+      // 409 = 그사이 바뀜(새로 씀 · 그 글로 기록을 마침), 404 = 그 글이 없어짐(지움·정리) → 까닭을 보이고 새로 읽는다
+      const st = (e as { status?: number }).status;
+      if (st === 409 || st === 404) {
         setStale(true);
-        setErr(STALE_MSG);
-        await onStale?.(); // 새 글을 화면에 불러온다(고른 일·메모는 그대로)
+        setErr((e as Error).message || STALE_MSG); // 서버가 알려 준 까닭 그대로
+        await onStale?.({ kinds, date, note }); // 새 글을 화면에 불러온다(고른 일·메모는 그대로 · 폼이 옮겨 가면 함께)
       } else setErr((e as Error).message);
     }
   }
@@ -99,8 +117,8 @@ export interface RiskItem {
   date: string;
   at: string;
   rec?: MoodRecord; draft?: RiskDraft; ref?: Reflect; letter?: Letter;
-  text: string; // 위험 표현이 있던 글(지워졌으면 조치 기록에 남은 글)
-  nowText?: string; // 위험 표현이 고쳐 쓰기 전 글에 있었으면 지금 글(돌아보기)
+  text: string; // 위험 표현이 있던 글(지워졌으면 조치 기록에 남은 글 · 쪽지는 학생이 처음 쓴 글)
+  nowText?: string; // 위험 표현이 고쳐 쓰기 전 글에 있었으면 지금 글(돌아보기) · 선생님이 다듬어 전한 쪽지면 전한 글
   saw: string; // 조치 기록에 남길 「선생님이 본 글」(고치기 전 글이면 그렇다고 붙여서)
   first: boolean; // 아직 살펴보지 않음 → 「살펴보고 적기」가 알림을 닫는다
   checked: boolean;
@@ -137,9 +155,14 @@ export function riskItems({ records, actions, drafts = [], reflects = [], letter
       first: !!x.risk && !x.riskChecked, checked: !!x.riskChecked, seen: x.createdAt, acts: acts(id),
     });
   }
+  // 쪽지는 학생이 처음 쓴 글(위험 표현이 있던 글)을 앞에 — 선생님이 다듬어 전했으면 전한 글은 따로
   for (const l of letters.filter((l) => l.risk)) {
     const id = `letter:${l.id}`;
-    out.push({ id, kind: "letter", no: l.from, date: kday(l.createdAt), at: l.createdAt, letter: l, text: l.text, saw: l.text, first: !l.riskChecked, checked: !!l.riskChecked, seen: l.createdAt, acts: acts(id) });
+    const src = l.original ?? l.text;
+    out.push({
+      id, kind: "letter", no: l.from, date: kday(l.createdAt), at: l.createdAt, letter: l, text: src, ...(l.original ? { nowText: l.text } : {}), saw: src,
+      first: !l.riskChecked, checked: !!l.riskChecked, seen: l.createdAt, acts: acts(id),
+    });
   }
   const have = new Set(out.map((x) => x.id));
   for (const id of new Set(actions.map((a) => a.recordId))) {
@@ -152,6 +175,8 @@ export function riskItems({ records, actions, drafts = [], reflects = [], letter
 }
 
 const LETTER_STATUS: Record<Letter["status"], string> = { wait: "허락을 기다려요", ok: "전했어요", no: "돌려보냈어요" };
+// 쪽지 조치 기록의 글 앞머리(「3번 → 4번: 」)는 빼고 견준다
+const bare = (t: string) => t.replace(/^\d+번 → \d+번: /, "");
 
 // 한 학생의 위험 표현과 조치: 위험 표현마다 한 일을 날짜순으로, 「조치 더 적기」로 이어 적는다
 // onStale: 「살펴봤어요」 때 그사이 학생이 고쳐 썼다고 서버가 알리면 새 글을 다시 불러온다
@@ -159,9 +184,12 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
   today: string; onChange: (items: RiskAction[]) => void | Promise<void>; onStale?: () => void | Promise<void>; print?: boolean; nameOf?: NameOf;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
+  const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 고른 것(폼이 옮겨 가도 잃지 않게)
   const [err, setErr] = useState("");
   const items = riskItems(src);
   if (!items.length) return <p className="text-sm text-soft">위험 표현이 들어온 적이 없어요.</p>;
+  const open = movedTo(adding, items.map((x) => x.id));
+  const close = () => { setAdding(null); setCarry(null); };
   const who = (no: number) => `${no}번${nameOf ? ` ${nameOf(no)}` : ""}`;
 
   async function remove(a: RiskAction) {
@@ -195,12 +223,13 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
               })()}
               {!rec && it.nowText !== undefined && (
                 <>
-                  <span className="block"><span className="font-bold text-alert">고쳐 쓰기 전 글 </span>“{it.text}”</span>
-                  <span className="block text-xs text-soft">지금 글: “{it.nowText}”</span>
+                  <span className="block"><span className="font-bold text-alert">{letter ? "처음 쓴 글 " : "고쳐 쓰기 전 글 "}</span>“{it.text}”</span>
+                  <span className="block text-xs text-soft">{letter ? "선생님이 다듬어 전한 글" : "지금 글"}: “{it.nowText}”</span>
                 </>
               )}
               {!rec && it.nowText === undefined && it.text && <span className="block">“{it.text}”</span>}
-              {!rec && !draft && !ref && !letter && it.kind !== "record" && <span className="block text-xs text-soft">글은 지금 없고 살펴볼 때 남긴 글이에요.</span>}
+              {letter?.toPractice && <span className="block text-xs text-soft">받을 학생이 명단에서 빠져(연습용 학생) 전할 수 없어요.</span>}
+              {!rec && !draft && !ref && !letter && (it.kind !== "record" || it.text) && <span className="block text-xs text-soft">글은 지금 없고 살펴볼 때 남긴 글이에요.</span>}
               {(rec || draft) && <span className="block text-xs text-soft">{hits?.length ? `걸린 말: ${hits.join(", ")}` : "AI가 위험 내용으로 판단"}</span>}
             </p>
             {draft?.earlier?.length ? (
@@ -216,8 +245,8 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
                   <li key={a.id} className="text-sm">
                     <span className="font-bold text-leaf">{label(a.date)}</span> {kindsText(a.kinds)}
                     {a.note && <span className="block text-soft">{a.note}</span>}
-                    {/* 살펴볼 때 본 글이 지금 글과 다르면(그 뒤에 고쳐 씀) 함께 보인다 */}
-                    {a.text && a.text !== it.saw && a.text !== it.text && <span className="block text-xs text-soft">살펴본 글: “{a.text}”</span>}
+                    {/* 살펴볼 때 남긴 글이 지금 보이는 글과 다르면(그 뒤에 고쳐 씀) 함께 보인다. 쪽지의 「3번 → 4번:」 앞머리는 빼고 견준다 */}
+                    {a.text && ![it.text, it.nowText, bare(it.saw)].includes(bare(a.text)) && <span className="block text-xs text-soft">살펴본 글: “{bare(a.text)}”</span>}
                     {!print && <button onClick={() => remove(a)} className="no-print ml-1 text-xs text-soft underline underline-offset-2">지우기</button>}
                   </li>
                 ))}
@@ -225,13 +254,15 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
             ) : (
               <p className="mt-2 text-sm font-bold text-alert">{it.checked ? "살펴봄(한 일은 적지 않음)" : "아직 살펴보지 않았어요"}</p>
             )}
-            {!print && (adding === id ? (
+            {!print && (open === id ? (
               <div className="no-print mt-2">
+                {/* 마치지 않은 글에서 옮겨 온 폼이면 고른 것을 그대로 가져온다 */}
                 <RiskActionForm recordId={id} kind={it.kind} today={today} first={it.first} seen={it.seen} text={it.saw}
-                  onCancel={() => setAdding(null)} onStale={onStale} onDone={async (x) => { setAdding(null); await onChange(x); }} />
+                  init={id !== adding && carry ? { ...carry, msg: MOVED_MSG } : null}
+                  onCancel={close} onStale={async (st) => { setCarry(st); await onStale?.(); }} onDone={async (x) => { close(); await onChange(x); }} />
               </div>
             ) : (
-              <button onClick={() => setAdding(id)} className="no-print btn-sub mt-2 min-h-9 px-3 text-sm"><Doodle name="memo" /> {it.first ? "살펴보고 적기" : "조치 더 적기"}</button>
+              <button onClick={() => { setAdding(id); setCarry(null); }} className="no-print btn-sub mt-2 min-h-9 px-3 text-sm"><Doodle name="memo" /> {it.first ? "살펴보고 적기" : "조치 더 적기"}</button>
             ))}
           </li>
         );

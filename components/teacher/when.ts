@@ -15,6 +15,13 @@ export function ktime(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : hm.format(d);
 }
 
+// 시각(ISO) → 한국 날짜·시각 「2026-11-05 09:04」(CSV 등). 비었거나 읽지 못하면 빈 글자
+export function kstamp(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${today(d)} ${hm.format(d)}`;
+}
+
 // 「먼저 살펴볼 학생」의 「살펴봤어요」: 이번 주(월요일부터) 한 번 누르면 그 주 내내 남는다.
 // 열쇠는 `${번호}_${그 주 월요일}`. 예전에는 `${번호}_${오늘-6일}`이라 날마다 풀렸으므로,
 // 열쇠 모양이 달라도 이번 주 월요일 뒤에 누른 표시(값 = 누른 시각)면 살펴본 것으로 본다.
