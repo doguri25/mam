@@ -42,6 +42,25 @@ const THINK_MS = 20_000; // 마음 친구(AI)가 이보다 오래 생각하면 �
 // 「더 해 보기」 작은 화면들: 와이파이가 끊기기 전에 미리 받아 둔다
 const HUB = ["/me/check", "/me/week", "/me/game", "/me/words", "/me/letters", "/me/buddy", "/me/calendar"];
 
+// 저장한(또는 기기에 담은) 기록: 몇 번째로 남겼는지(seq)와 함께 둔다
+type Saved = { seq: number; no: number; record: MoodRecord };
+// 학생 정보(me)를 물은 뒤에 남긴 기록은, 그 답이 늦게 와도 지우지 않게 다시 얹는다
+// (서버가 저장보다 먼저 답했는데 그 답이 저장 뒤에 오면 「아침: 아직이에요」로 돌아가던 것)
+function keepSaved(m: Me, late: Saved[]): Me {
+  const mine = late.filter((x) => x.no === m.no && x.record.date === m.today);
+  if (!mine.length) return m;
+  const records = [...m.records.filter((r) => !mine.some((x) => x.record.slot === r.slot)), ...mine.map((x) => x.record)];
+  // 마음 꽃은 서버처럼 그날 마지막 마음(하교 전이 있으면 하교 전) 색
+  const last = records.find((r) => r.slot === "pm") ?? records.find((r) => r.slot === "am");
+  const words = mine.map((x) => x.record.word).filter((x): x is string => !!x && !m.words.includes(x));
+  return {
+    ...m,
+    records,
+    words: words.length ? [...m.words, ...new Set(words)] : m.words,
+    flowers: last ? [...m.flowers.filter((f) => f.date !== m.today), { date: m.today, emotion: last.emotion }] : m.flowers,
+  };
+}
+
 // 읽어 주기 단추: 보이는 동그라미는 36px 그대로, 누르는 곳은 48px(위아래 여백을 줄여 줄 높이는 그대로)
 function SayBtn({ text, lang }: { text: string; lang: Lang }) {
   return (
@@ -76,7 +95,8 @@ export default function MePage() {
   const [loadTry, setLoadTry] = useState(0);
   const [leaving, setLeaving] = useState(false); // 「다음 친구 차례」를 눌러 나가는 중
   const [outFail, setOutFail] = useState<"" | "head" | "done">(""); // 「다음 친구 차례」를 못 함(와이파이 끊김): 누른 단추 곁에 안내
-  const [netWait, setNetWait] = useState<{ href: string; at: "hub" | "done" } | null>(null); // 끊긴 채 누른 작은 화면(연결되면 연다)
+  // 끊긴 채 누른 작은 화면(연결되면 연다). view: 누른 때의 화면(단계·시간·도구 상자…) → 화면이 바뀌면 잊는다
+  const [netWait, setNetWait] = useState<{ href: string; at: "hub" | "done"; view: string } | null>(null);
   const [reply, setReply] = useState(""); // 학생이 쓴 글에 위험한 말이 있어 서버가 보낸 고맙다는 말
   const lastNo = useRef<number | null>(null);
   const lastServer = useRef<{ slot: Slot; today: string } | null>(null); // 서버가 마지막으로 알려 준 시간(아침·하교 전)과 날짜
@@ -87,18 +107,23 @@ export default function MePage() {
   const stepNow = useRef<Step>("choose");
   const calmNow = useRef<"off" | "offer" | "open">("off");
   const busyNow = useRef<UIKey | "">("");
+  // 브라우저 뒤로 가기 = 화면 안 한 단계 앞으로: 감정 카드 질문 위치, 되묻기 앞 화면, 도구 상자 안 단계
+  const [pickNav, setPickNav] = useState<StepNav>(STEP_START);
+  const [askFrom, setAskFrom] = useState<"card" | "confirm">("card");
+  const [calmStep, setCalmStep] = useState<{ depth: number; back: () => void }>({ depth: 0, back: () => {} });
+  // 지금 보이는 화면: 이것이 바뀌면(단계·카드 질문·시간·도구 상자·생각/저장 중) 끊긴 채 누른 작은 화면은 잊는다
+  const view = `${step}|${pickNav.stage}|${pickNav.direct}|${slot}|${calm}|${calmStep.depth}|${busy}`;
+  const viewNow = useRef(view);
+  if (netWait && netWait.view !== view) setNetWait(null);
   useEffect(() => {
     stepNow.current = step;
     calmNow.current = calm;
     busyNow.current = busy;
     slotRef.current = slot;
+    viewNow.current = view;
   });
   const manual = useRef(false); // 학생이 아침·하교 전을 손수 바꿨나(그러면 시계를 따라 바꾸지 않는다)
   const think = useRef<AbortController | null>(null); // 마음 친구가 정리하는 중인 요청(뒤로 가기·나가기로 그만둘 수 있게)
-  // 브라우저 뒤로 가기 = 화면 안 한 단계 앞으로: 감정 카드 질문 위치, 되묻기 앞 화면, 도구 상자 안 단계
-  const [pickNav, setPickNav] = useState<StepNav>(STEP_START);
-  const [askFrom, setAskFrom] = useState<"card" | "confirm">("card");
-  const [calmStep, setCalmStep] = useState<{ depth: number; back: () => void }>({ depth: 0, back: () => {} });
   const onCalmStep = useCallback((depth: number, back: () => void) => setCalmStep({ depth, back }), []);
   const [backHint, setBackHint] = useState(false);
   const [readAloud, setReadAloud] = useLocal("mb_read");
@@ -162,9 +187,18 @@ export default function MePage() {
   const askP = useRef<Promise<void> | null>(null); // 지금 묻고 있는 것(저장이 그 답을 잠깐 기다릴 수 있게)
   const asked = useRef({ key: "", n: 0, at: 0 }); // 시계만 보고 다시 물은 경계(기기 시간)와 횟수
   const forcedAt = useRef(0); // 기다리지 않고 물은 때(깨어남·카드로·말로)
+  // 이 화면에서 남긴 기록(저장·기기에 담기·도구 느낌)과 그 차례 수: 먼저 물은 me 답이 늦게 와도 지우지 않게(keepSaved)
+  const saved = useRef<{ seq: number; list: Saved[] }>({ seq: 0, list: [] });
+  const remember = useCallback((no: number, record: MoodRecord) => {
+    const s = saved.current;
+    s.seq++;
+    // 같은 날·같은 시간 칸은 마지막 것만, 다른 날 것은 버린다(이 목록은 많아야 두 개)
+    s.list = [...s.list.filter((x) => x.no === no && x.record.date === record.date && x.record.slot !== record.slot), { seq: s.seq, no, record }];
+  }, []);
   const ask = useCallback(() => {
     if (asking.current) return;
     asking.current = true;
+    const since = saved.current.seq; // 이보다 뒤에 남긴 기록은 이 답에 없을 수 있다
     askP.current = api<Me>("student", "me").then(
       (m) => {
         asking.current = false;
@@ -185,7 +219,8 @@ export default function MePage() {
         // 기기 시계가 서버와 다르면 이 답을 그 경계의 첫 물음으로 센다(아래 recheck가 몇 번만 더 묻게)
         const key = `${slotNow()}|${kToday()}`;
         if (key !== `${m.slot}|${m.today}` && asked.current.key !== key) asked.current = { key, n: 1, at: Date.now() };
-        setMe(m);
+        // 이 답을 기다리는 사이 저장을 마쳤으면 그 기록은 그대로 둔다(서버가 저장보다 먼저 답했을 수 있다)
+        setMe(keepSaved(m, saved.current.list.filter((x) => x.seq > since)));
       },
       (e) => {
         asking.current = false;
@@ -306,11 +341,13 @@ export default function MePage() {
       window.removeEventListener("online", all);
     };
   }, [router]);
-  // 끊긴 채 누른 작은 화면은 연결되자마자 연다(그 사이 다른 것을 시작하면 잊는다)
+  // 끊긴 채 누른 작은 화면은 연결되자마자 연다. 그 사이 다른 것을 누르거나 화면이 바뀌면(단계·저장·시간·도구 상자·나가기) 잊는다:
+  // 위 view가 바뀌면 바로 비우고, 이 화면에서 단추·칸을 누르거나 글을 쓰면 forgetWait가 비운다. 열기 직전에도 같은 화면인지 본다.
   useEffect(() => {
     if (!netWait) return;
     const online = () => {
       setNetWait(null);
+      if (viewNow.current !== netWait.view) return;
       leftMe();
       router.push(netWait.href);
     };
@@ -484,6 +521,7 @@ export default function MePage() {
     answerSpeech.stop();
     busyNow.current = "saving"; // 바로 아래에서 기다리는 사이 온 시간 바뀜을 follow가 화면에 섞지 않게
     setBusy("saving");
+    setNetWait(null); // 끊긴 채 눌러 둔 작은 화면은 저장하면 잊는다(저장한 뒤 갑자기 열리지 않게)
     // 깨어난 태블릿 등에서 시간을 다시 묻는 중이면 그 답을 잠깐(3초까지) 기다린다 → 지난 시간 칸에 저장하지 않게
     if (asking.current && askP.current) await Promise.race([askP.current, new Promise((r) => setTimeout(r, 3_000))]);
     // 서버가 이미 넘어갔다고 알려 준 시간이면 그 시간으로 저장한다(고른 것은 그대로, 학생이 손수 고른 시간은 그대로)
@@ -513,6 +551,7 @@ export default function MePage() {
         setOffline(true);
       }
       const today = me!.today;
+      remember(me!.no, record); // 저장 전에 물은 me 답이 늦게 와도 이 기록을 지우지 않게
       // 위험한 마음(되묻기 없이 저장했거나, 되묻기 칸 등에 쓴 글에 위험한 말): 응원·꾸미개 축하 대신 고맙다는 말과 도구 상자
       const heavy = q.skip || !!said;
       const hard = ["sad", "angry", "fear"].includes(groupOf(record.emotion));
@@ -563,6 +602,7 @@ export default function MePage() {
     if (!me!.records.some((r) => r.slot === slot)) return;
     try {
       const { record } = await api<{ record: MoodRecord }>("student", "calm", { slot, tool, felt });
+      remember(me!.no, record);
       setMe((m) => (m ? { ...m, records: [...m.records.filter((r) => r.slot !== slot), record] } : m));
     } catch {
       // 느낌을 못 남겨도 학생 화면은 그대로 둔다
@@ -574,12 +614,17 @@ export default function MePage() {
   function go(e: { preventDefault: () => void }, href: string, at: "hub" | "done") {
     if (navigator.onLine === false) {
       e.preventDefault();
-      setNetWait({ href, at });
+      setNetWait({ href, at, view });
       return;
     }
     setNetWait(null);
     leftMe();
   }
+  // 기다리는 동안 이 화면에서 다른 단추·칸을 누르거나 글을 쓰면 기다리던 작은 화면은 잊는다(빈 곳을 누르거나 넘겨 보는 것은 그대로).
+  // 칸을 다시 누르면 이 뒤에 go가 다시 기다린다.
+  const forgetWait = (e: { target: EventTarget | null }) => {
+    if (netWait && e.target instanceof Element && e.target.closest("button, a, input, select, textarea")) setNetWait(null);
+  };
   const openCalm = () => {
     setNetWait(null);
     setCalm("open");
@@ -630,7 +675,7 @@ export default function MePage() {
   const tileClass = "chip relative flex min-h-24 flex-col items-center justify-center gap-1 p-2 text-center text-sm font-bold leading-tight hover:border-leaf";
 
   return (
-    <main data-back-root="me" className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5" lang={lang}>
+    <main data-back-root="me" className="mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5" lang={lang} onClickCapture={forgetWait} onChangeCapture={forgetWait}>
       {me.demo && (
         <p className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-2 text-sm">
           <span><Doodle name="flask" /> 체험용 반이에요(가짜 학생·기록).</span> <Link href="/try" className="font-bold underline">체험 안내로</Link>
@@ -746,9 +791,9 @@ export default function MePage() {
                 <button
                   onClick={speech.listening ? speech.stop : speech.start}
                   className={`mx-auto grid size-28 place-items-center rounded-full text-5xl text-white shadow-lg ${speech.listening ? "animate-pulse bg-alert" : "bg-leaf-soft ring-4 ring-leaf"}`}
-                  aria-label={speech.listening ? "■" : tt("voice")}
+                  aria-label={speech.listening ? tt("micStop") : tt("voice")}
                 >
-                  {speech.listening ? "■" : <Doodle name="mic" size={72} />}
+                  {speech.listening ? <span aria-hidden>■</span> : <Doodle name="mic" size={72} />}
                 </button>
               )}
               <p className="text-center text-sm text-soft">{speech.listening ? tt("listening") : speech.supported ? tt("micHint") : tt("typeHint")}</p>
@@ -785,8 +830,8 @@ export default function MePage() {
               <div className="flex gap-2">
                 <input value={answer} onChange={(e) => setAnswer(e.target.value.slice(0, 120))} className="field" placeholder={tt("ownAnswer")} />
                 {answerSpeech.supported && (
-                  <button onClick={answerSpeech.listening ? answerSpeech.stop : answerSpeech.start} className="btn-sub shrink-0" aria-label={tt("voice")}>
-                    {answerSpeech.listening ? "■" : <Doodle name="mic" size={26} />}
+                  <button onClick={answerSpeech.listening ? answerSpeech.stop : answerSpeech.start} className="btn-sub shrink-0" aria-label={answerSpeech.listening ? tt("micStop") : tt("voice")}>
+                    {answerSpeech.listening ? <span aria-hidden>■</span> : <Doodle name="mic" size={26} />}
                   </button>
                 )}
               </div>

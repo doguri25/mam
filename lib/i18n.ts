@@ -151,6 +151,7 @@ const UI = {
   pick3: { ko: "세 가지를 골라 주세요", en: "Please pick all three", zh: "请选三项", vi: "Hãy chọn đủ ba mục", ja: "みっつえらんでね" },
   sayOne: { ko: "하고 싶은 말을 한 문장으로 해 봐요", en: "Say what you want in one sentence", zh: "用一句话说说你的心情", vi: "Hãy nói điều em muốn trong một câu", ja: "いいたいことをひとことでいってみよう" },
   listening: { ko: "듣고 있어요… 다 말하면 ■를 눌러요.", en: "Listening… press ■ when you're done.", zh: "正在听…说完请按 ■。", vi: "Đang nghe… nói xong bấm ■.", ja: "きいているよ… おわったら ■ をおしてね。" },
+  micStop: { ko: "그만 듣기", en: "Stop listening", zh: "停止听", vi: "Dừng nghe", ja: "きくのを やめる" },
   micHint: { ko: "마이크를 누르고 말하거나, 아래에 적어요.", en: "Press the mic and talk, or type below.", zh: "按麦克风说话，或在下面写。", vi: "Bấm micro để nói, hoặc viết bên dưới.", ja: "マイクをおしてはなすか、したにかいてね。" },
   typeHint: { ko: "아래에 적어 주세요.", en: "Please type below.", zh: "请在下面写。", vi: "Hãy viết bên dưới.", ja: "したにかいてね。" },
   example: { ko: "예) 체육 시간에 내 차례를 친구가 가져갔어요", en: "e.g. A friend took my turn in P.E.", zh: "例：体育课上朋友抢了我的顺序", vi: "VD: Bạn lấy lượt của em trong giờ thể dục", ja: "れい：たいいくでともだちにじゅんばんをとられた" },
