@@ -1085,5 +1085,7 @@ test("남에게 죽으라는 말의 평범한 쓰임: 「chết đi rồi」(이
   for (const s of ["Con mèo chết đi rồi", "ông em chết đi rồi", "Con cá chết đi rồi", "Go Diego go!"]) assert.deepEqual(matchRisk(s, []), [], s);
   assert.deepEqual(matchRisk("mày chết đi", []), ["chết đi"]);
   assert.deepEqual(matchRisk("just go die already", []), ["go die"]);
+  assert.deepEqual(matchRisk("just go dieeee", []), ["go die"]);
+  assert.deepEqual(matchRisk("mày chết đi rồi tao vui", []), ["chết đi"]);
   assert.deepEqual(matchRisk("Con buồn muốn chết đi rồi", []), ["muốn chết"]);
 });

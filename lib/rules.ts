@@ -101,9 +101,9 @@ const INNOCENT = new RegExp([
 // 영어 낱말로 견줄 때 가리는 평범한 말: 「I want to diet」의 diet가 「want to die」로, 「kick me the ball」(공을 차 줘)이 「kick me」로,
 // 「In the end it all worked out」(끝내는 다 잘됐다)이 「end it all」로, 「We ran 5 kms」(킬로미터)가 「kms」로 걸리지 않게
 // 「chết đi được」「chết đi sống lại」(죽을 만큼: 「nhớ mẹ chết đi được」「đau chết đi sống lại」)이 「chết đi」(죽어 버려)로 걸리지 않게
-// 「chết đi rồi」(이미 죽었다: 「Con mèo chết đi rồi」)도 (đi만 가린다: 「Con buồn muốn chết đi được」의 「muốn chết」은 그대로 찾는다),
+// 「chết đi rồi」(이미 죽었다: 「Con mèo chết đi rồi」 — 「mày chết đi rồi…」처럼 너에게 하는 말은 빼고)도 (đi만 가린다: 「Con buồn muốn chết đi được」의 「muốn chết」은 그대로 찾는다),
 // 「I cut my wristband」(손목 띠)·「whip me up a sandwich」·「Go Diego go!」도
-const LOOSE_INNOCENT = / d(?=iet)| m(?=e the (?:ball|puck) )|(?<= the) e(?=nd it all )|(?<= \d+) k(?=ms )|(?<= ch[eếêé]t) [dđ](?=i (?:[dđ][uư][oơợ]c|s[oốô]ng l[aạ]i|r[oồô]i) )|(?<= my) w(?=rist ?bands? )|(?<= whip) m(?=e up )|(?<= go) d(?=ie[a-z])/g;
+const LOOSE_INNOCENT = / d(?=iet)| m(?=e the (?:ball|puck) )|(?<= the) e(?=nd it all )|(?<= \d+) k(?=ms )|(?<= ch[eếêé]t) [dđ](?=i (?:[dđ][uư][oơợ]c|s[oốô]ng l[aạ]i) )|(?<= ch[eếêé]t)(?<!m[aà]y ch[eếêé]t) [dđ](?=i r[oồô]i )|(?<= my) w(?=rist ?bands? )|(?<= whip) m(?=e up )|(?<= go) d(?=iego)/g;
 // 「Nước đá con thích lắm」(얼음을 좋아해요)의 nước đá(얼음)가 「đá con」(아이를 차)으로 걸리지 않게 두 낱말을 하나로 붙인다.
 // 빈칸만 사이에 있을 때만: 「Bố tức vì con làm đổ nước, đá con một cái」처럼 쉼표로 끊긴 「nước, đá con」은 그대로 찾는다.
 const VI_ICE = /(?<=(?<![\p{L}\p{M}\p{N}])n(?:ước|uoc|ươc|uớc))[ \t]+(?=[dđ][aá](?![\p{L}\p{M}\p{N}]))/gu;
