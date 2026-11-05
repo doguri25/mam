@@ -436,7 +436,8 @@ async function handle(req: NextRequest) {
       };
       // 조치 기록을 먼저 남기고(목록을 읽고 고쳐 쓰기를 한 번에 — 두 기기에서 같은 순간 적어도 둘 다 남음) 그다음 알림을 닫는다.
       // 기록을 남기지 못하면 알림도 닫지 않는다. 닫다가 실패하면 기록은 남고 알림은 열려 있어, 다시 누르면 같은 기록(opId)을 고쳐 쓰고 닫는다.
-      await addRiskAction(act);
+      // 마치지 않은 글에 적는데 그사이 학생이 그 글로 기록을 마쳐 조치 기록이 옮겨 갔으면 이것도 그 마음 기록으로(addRiskAction이 한 번에)
+      await addRiskAction(act, { draftAt: d?.at });
       if (first) {
         const closed = await closeAlert(kind, key, seen, now);
         if (closed !== "ok") {

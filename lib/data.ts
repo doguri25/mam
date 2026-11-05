@@ -7,7 +7,8 @@ import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type Letter, type MoodRecord, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type CalmUse, type Letter, type MoodRecord, type PrevVersion, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { riskSrcOf } from "../components/teacher/alerts.ts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 
 export interface Settings {
   className: string;
@@ -358,9 +359,105 @@ export const recordsOf = (no: number) => db().find<MoodRecord>("records", "no", 
 export const recordsFrom = (date: string) => db().find<MoodRecord>("records", "date", ">=", date);
 export const recordsChangedAfter = (ms: number) => db().find<MoodRecord>("records", "updatedAt", ">", ms);
 
-export async function putRecord(r: MoodRecord) {
-  await db().set("records", r.id, { ...r, updatedAt: Date.now() });
-  await touch("records");
+// ── 학생 기록 저장: 같은 칸(아침·하교 전)에 이미 있는 기록과 합친다 ──
+// 적힌 시각을 밀리초로(읽지 못하면 0 = 가장 앞). 글자가 아니라 때로 견준다(「+09:00」로 적힌 시각과 「Z」 시각이 섞여도)
+export const timeOf = (x: string | undefined) => Date.parse(x ?? "") || 0;
+
+// 앞 기록은 PREV_MAX개까지. 넘치면 위험하지 않은 오래된 것부터 뺀다(위험한 글이 다시 남기기로 밀려나 사라지지 않게, 위험한 글은 두 배까지)
+export function trimPrev(list: PrevVersion[]): PrevVersion[] {
+  const out = [...list];
+  while (out.length > PREV_MAX) {
+    const i = out.findIndex((p) => !p.risk);
+    if (i < 0) break;
+    out.splice(i, 1);
+  }
+  return out.slice(-PREV_MAX * 2);
+}
+
+// 앞 기록으로 넘길 때 남길 것(말투 숫자·목소리 특징은 빼고, 그 기록 자체의 위험 여부만)
+export function toPrev(r: MoodRecord): PrevVersion {
+  // Firestore는 undefined 값을 받지 않으므로 없는 칸은 아예 넣지 않는다
+  return {
+    method: r.method, emotion: r.emotion, intensity: r.intensity, reason: r.reason, ...(r.word ? { word: r.word } : {}),
+    summary: r.summary ?? "", ...(r.summaryKo ? { summaryKo: r.summaryKo } : {}), question: r.question ?? "", answer: r.answer ?? "",
+    risk: r.riskSelf ?? r.risk, riskHits: r.riskSelf === false ? [] : r.riskHits ?? [], ...(r.lang ? { lang: r.lang } : {}), createdAt: r.createdAt,
+  };
+}
+
+// 같은 기록이 두 번 왔나: 저장은 됐는데 답만 잃은 화면이 같은 기록을 담아 두었다가 다시 보내거나(새 madeAt),
+// 담아 둔 것을 보내다 답을 잃어 또 보낼 때(같은 madeAt). 학생이 고르고 쓴 것이 모두 같고 그 무렵(DUP_MS 안 — 기기 시계가 조금 달라도) 만든 것이면 같은 기록.
+// (같은 글을 그 무렵 다시 남긴 것이어도 잃는 것이 없다 — 글은 이미 저장돼 있고, 다시 정리하며 새로 남긴 마치지 않은 글 알림은 그대로 남는다)
+export const DUP_MS = 10 * 60_000;
+type Content = Pick<MoodRecord, "method" | "emotion" | "intensity" | "reason" | "summary" | "answer" | "word" | "lang" | "createdAt">;
+export const sameSave = (a: Content, b: Content) =>
+  a.method === b.method && a.emotion === b.emotion && a.intensity === b.intensity && a.reason === b.reason
+  && (a.summary ?? "") === (b.summary ?? "") && (a.answer ?? "") === (b.answer ?? "") && (a.word ?? "") === (b.word ?? "") && (a.lang || "ko") === (b.lang || "ko")
+  && Math.abs(timeOf(a.createdAt) - timeOf(b.createdAt)) <= DUP_MS;
+
+export interface RecordSave {
+  rec: MoodRecord; // 새로 온 기록(위험 표시는 그 글 자체의 것)
+  own: boolean; // 이 글에 위험 표현이 있다
+  alertNew: boolean; // 선생님이 아직 보지 않은 위험한 글이 있다(알림을 새로 연다)
+  seenChecked?: string; // 선생님이 이미 살펴본 마치지 않은 글을 이어받으면 그 살펴본 시각
+  queued: boolean; // 끊겼을 때 담아 둔 기록(만든 때 madeAt을 앎)
+}
+// 지금 저장된 기록(cur)에 새 기록을 합친 것. null = 같은 기록이 이미 있다(그대로 둔다 — 앞 기록·살펴볼 판(riskAt)·휴대폰 알림을 다시 만들지 않게).
+// · 같은 칸에 다시 남기면 새 기록으로 바꾸되 앞 기록은 prev에 모은다. 아직 살펴보지 않은 위험 표시·마음 다스리기 기록은 새 기록에도 남긴다.
+//   열린 알림 위에 또 위험한 글을 남기면 알림이 앞서 열린 글도 함께 가리키게 한다(riskSrc — 알림 글·조치 기록에 두 글이 모두 남게).
+// · 끊겼을 때 담아 둔 기록이 이미 저장된 기록보다 먼저 만든 것이면 덮어쓰지 않고 앞 기록으로만 끼워 넣는다.
+// 읽고 고쳐 쓰기를 한 번에 하므로(saveMoodRecord) 겹치면 다시 불린다 → cur만 보고 정한다(나중에 끝난 저장이 앞 저장을 몰래 덮어 위험한 글을 잃지 않게).
+export function mergeRecord(cur: MoodRecord | null, s: RecordSave, now = new Date()): MoodRecord | null {
+  const { rec, own, alertNew } = s;
+  const createdAt = rec.createdAt;
+  if (cur && sameSave(cur, rec)) return null;
+  const base: MoodRecord = own ? { ...rec, riskAt: createdAt, ...(s.seenChecked ? { riskChecked: s.seenChecked } : {}) } : rec;
+  if (!cur) return base;
+  if (s.queued && timeOf(cur.createdAt) > timeOf(createdAt)) {
+    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로).
+    // 같은 것이 이미 앞 기록에 있으면(같은 기록이 두 번 옴) 그대로 둔다.
+    // 다시 연 알림과 그 조치 기록이 이미 살펴본 지금 글이 아니라 새로 온 그 글을 보이게 판(riskSrc)을 적는다.
+    // 알림이 아직 열려 있었으면(살펴보기 전) 앞서 열린 글도 함께 가리킨다.
+    if (cur.prev?.some((p) => sameSave(p, rec))) return null;
+    const prev = trimPrev([...(cur.prev ?? []), toPrev(rec)].sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt)));
+    const open = cur.risk && !cur.riskChecked;
+    return alertNew
+      ? {
+          ...cur, prev, risk: true, riskChecked: null, riskHits: [...new Set([...cur.riskHits, ...rec.riskHits])], riskAt: now.toISOString(),
+          riskSrc: [...new Set([...(open ? riskSrcOf(cur) : []), createdAt])],
+        }
+      : { ...cur, prev };
+  }
+  const carry = cur.risk && !cur.riskChecked; // 아직 살펴보지 않은 위험 표시
+  return {
+    ...base,
+    prev: trimPrev([...(cur.prev ?? []), toPrev(cur)]),
+    ...(cur.calm?.length ? { calm: cur.calm } : {}),
+    // 새 글이 위험하지 않으면(또는 이미 살펴본 글이면) 위험 내용은 그대로(선생님이 보던 판·글 그대로) — 새 글이 위험하면 위에서 riskAt을 새로 적었다
+    ...(carry ? {
+      risk: true, riskChecked: null, riskHits: [...new Set([...rec.riskHits, ...cur.riskHits])],
+      ...(alertNew
+        ? { riskSrc: [...new Set([...riskSrcOf(cur), createdAt])] }
+        : { riskAt: cur.riskAt ?? cur.createdAt, ...(own || cur.riskSrc ? { riskSrc: riskSrcOf(cur) } : {}) }),
+    } : {}),
+  };
+}
+// 학생 기록 저장(읽고 고쳐 쓰기를 한 번에). same = 같은 기록이 이미 있어 쓰지 않음(record는 저장돼 있던 그대로)
+export async function saveMoodRecord(s: RecordSave): Promise<{ record: MoodRecord; same: boolean }> {
+  const now = new Date();
+  let same = false;
+  const out = await db().update<MoodRecord>("records", s.rec.id, (cur) => {
+    const next = mergeRecord(cur, s, now);
+    same = next === null;
+    return next ? { ...next, updatedAt: Date.now() } : undefined;
+  });
+  if (!same) await touch("records");
+  return { record: out!, same };
+}
+// 마음 다스리기를 써 본 느낌을 그 기록에 붙인다(한 번에 — 그사이 끼어든 저장의 위험한 글을 덮지 않게). 기록이 없으면 null
+export async function addCalm(id: string, use: CalmUse): Promise<MoodRecord | null> {
+  const out = await db().update<MoodRecord>("records", id, (cur) => (cur ? { ...cur, calm: [...(cur.calm ?? []), use].slice(-10), updatedAt: Date.now() } : undefined));
+  if (out) await touch("records");
+  return out;
 }
 
 // 변경 표시: 교사 화면은 이 문서 하나만 자주 읽고, 바뀌었을 때만 기록을 더 읽는다
@@ -502,7 +599,23 @@ export async function editRiskActions(fn: (items: RiskAction[]) => RiskAction[])
   });
   await touch("other");
 }
-export const addRiskAction = (act: RiskAction) => editRiskActions((items) => [...items.filter((x) => x.id !== act.id), act]);
+// draftAt: 마치지 않은 글(draft:…)에 적을 때 선생님이 본 그 글의 판(at). 그사이 학생이 그 글로 기록을 마쳐 그 글의 조치 기록이
+// 마음 기록으로 옮겨 갔으면(moveRiskActions — via가 그 이름) 새 조치 기록도 같은 곳으로 적는다(한 번에 — 옮긴 뒤에 끼어든 것이
+// 「마치지 않은 기록」으로 따로 남지 않게). 같은 칸에 새로 쓴 글(판이 더 나중)은 옮겨 간 앞 글의 조치 기록보다 나중이라 옮기지 않는다.
+export const moveTarget = (items: RiskAction[], recordId: string, draftAt?: string) =>
+  draftAt && recordId.startsWith("draft:")
+    ? items.find((x) => x.via === recordId && x.recordId !== recordId && timeOf(x.createdAt) >= timeOf(draftAt))
+    : undefined;
+export const addRiskAction = (act: RiskAction, opt: { draftAt?: string } = {}) => editRiskActions((items) => {
+  const to = moveTarget(items, act.recordId, opt.draftAt);
+  let a = act;
+  if (to) {
+    const { kind: _k, ...rest } = act;
+    void _k;
+    a = { ...rest, recordId: to.recordId, recordDate: to.recordDate, via: act.recordId };
+  }
+  return [...items.filter((x) => x.id !== a.id), a];
+});
 export const deleteRiskAction = (id: string) => editRiskActions((items) => items.filter((x) => x.id !== id));
 
 // 마치지 않은 위험 표현(학생이 정리하기에서 위험한 말을 쓰고 기록을 마치지 않은 것). 문서 하나에 모아 둔다.
