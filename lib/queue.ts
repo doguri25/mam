@@ -32,6 +32,13 @@ export const forgetToken = () => {
 };
 export const pendingCount = () => read<Item[]>(PENDING, []).length;
 
+// 담아 둔 기록을 서버에 보냈으면 알린다: 열려 있는 화면(달력 등)이 방금 간 기록을 다시 읽게
+const SENT = "mb-queue-sent";
+export function onQueueSent(f: () => void) {
+  window.addEventListener(SENT, f);
+  return () => window.removeEventListener(SENT, f);
+}
+
 // 정말 담아 두었으면 true(그 학생의 표가 없거나 기기에 적지 못하면 false → 화면이 「저장됐어요」라고 하지 않게)
 export function queueRecord(no: number, record: Record<string, unknown>) {
   const t = read<{ no: number; token: string } | null>(TOKEN, null);
@@ -68,5 +75,6 @@ async function send() {
   // 보내는 사이에 새로 담긴 기록은 남긴다
   const added = read<Item[]>(PENDING, []).filter((x) => !items.some((y) => y.at === x.at && y.token === x.token));
   write(PENDING, [...left, ...added]);
+  if (sent) window.dispatchEvent(new Event(SENT));
   return { sent, dropped };
 }
