@@ -4,21 +4,27 @@ import { CALM_KO, CALM_TOOLS, DEFAULT_RULES, RISK_CORE, groupOf, isHard, type Gr
 
 // 위험 표현 찾기. 놓치는 것보다 잘못 거는 편이 낫다(선생님이 고른 「넓게 찾기」). 다만 터무니없이 걸리지는 않게.
 // 견주기 전에 글과 말을 똑같이 고른다(norm): NFKC(반각 「ｼﾆﾀｲ」·전각 「ｋｉｌｌ」), 작은 글자, 둥근 따옴표 → ', 가타카나 → 히라가나,
-// 보이지 않는 글자(폭 없는 빈칸·방향 표시·태그 글자)는 지운다. 빈칸처럼 보이는 한글 채움 문자(U+3164)는 FILL에 적은 대로 다룬다.
+// 보이지 않는 글자(폭 없는 빈칸·방향 표시·태그 글자·제어 글자)는 지운다. 빈칸처럼 보이는 한글 채움 문자(U+3164)는 FILL에 적은 대로 다룬다.
 // · 한글·한자·가나 말
 //   - 세 글자 이상(「죽고 싶」): 글자 사이에 빈칸·문장부호·기호·이모지·ㅠㅜ·「ー」가 끼어도 찾는다(「죽고ㅠㅠ싶어」「죽💀고 싶어」「しにたーい」).
 //     끝 글자가 받침 없는 한글이면 받침이 붙은 꼴도 찾는다(「괴롭혀」→「괴롭혔어요」, 「다치게 하」→「다치게 함」).
-//   - 두 글자 말(「자해」「왕따」)은 말에 빈칸이 있던 자리만 빈칸을 건너고, 받침도 늘리지 않는다(「남자 해적」「왕딸기」가 걸리지 않게).
+//   - 두 글자 말(「자해」「왕따」)은 빈칸을 말에 빈칸이 있던 자리만 건너고 받침도 늘리지 않는다(「남자 해적」「놀자. 해 보자」「왕딸기」가 걸리지 않게).
+//     한국어 두 글자 말은 글자 사이의 문장부호·기호·ㅠㅜ는 건넌다(「자.살」「자*해」).
+//   - 평범한 말과 글자가 겹치면 그 말을 가리고 견준다(INNOCENT: 「わたしにたいせつ」「작은따옴표」「맛이 죽인다」).
+//   - 끝 글자 받침이 ㅆ이면 ㅅ으로 잘못 친 꼴도 찾는다(「때렸」→「때렷어」, 「괴롭혔」→「괴롭혓어」).
 // · 영어·베트남어처럼 빈칸으로 낱말을 나누는 말은 낱말 앞머리부터 견준다(「hit me」가 「white meat」에 걸리지 않게).
 //   '는 빼고 견주고(「don't」=「dont」=「don’t」), 「do not」은 「dont」, 「wanna」는 「want to」로 본다.
 //   성조가 붙은 말은 성조·모음 표시를 덜 친 낱말과도 견준다(「bi danh」「con muốn chet」). 다른 표시를 친 낱말은 다른 말이다(「bí danh」).
+//   한 글자씩 띄어 쓴 영어(「k i l l m y s e l f」)는 붙여서 한 번 더 견준다.
 // · 글자·숫자가 없는 말(「💀」「!!」)은 글에 그대로 들어 있을 때만 찾는다.
-// · 몇 말은 사이에 말이 끼어도 찾는다(STRETCH): 「被打」→「我被爸爸打了」, 「bị đánh」→「Con bị bố đánh」.
+// · 몇 말은 사이에 말이 끼어도 찾는다(STRETCH): 「被打」→「我被爸爸用皮带打了」, 「bị đánh」→「Em bị bạn cùng lớp đánh」, 「사는 게 싫」→「사는게 너무 싫어」.
 // 선생님 목록(words)에 RISK_CORE를 늘 더한다. 돌려주는 것은 걸린 말(선생님이 쓴 모양이 먼저, 같은 말·같은 자리에 걸린 말은 한 번만).
 const CJK = /[ᄀ-ᇿ぀-ヿ㄰-㆏㐀-鿿가-힯豈-﫿]/;
 const CJK_RUN = new RegExp(`${CJK.source}+`, "g");
-// 보이지 않는 글자: 폭 없는 빈칸·이음표, 방향 표시(LRM·RLM·ALM·양방향 꾸밈), 꾸밈 선택자, 태그 글자
-const INVISIBLE = /[\u00ad\u034f\u061c\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufe00-\ufe0f\ufeff\u{1bca0}-\u{1bca3}\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
+// 보이지 않는 글자: 폭 없는 빈칸·이음표, 방향 표시(LRM·RLM·ALM·양방향 꾸밈), 꾸밈 선택자, 태그 글자,
+// 제어·서식 글자(\p{Cc}·\p{Cf}: U+0001·U+0085·U+FFF9·U+1D173 들 — 사이에 끼워 넣어 「죽고 싶어」가 빠져나가지 않게).
+// 탭·줄바꿈 같은 빈칸 제어 글자(\t \n \v \f \r)는 지우지 않는다(낱말을 나누는 자리라서).
+const INVISIBLE = /[\0-\x08\x0e-\x1f\x7f-\x9f\p{Cf}\u034f\u17b4\u17b5\u180b-\u180f\u2060-\u206f\ufe00-\ufe0f\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
 // 빈칸처럼 보이는 글자(한글 채움 문자 U+3164·U+FFA0·U+115F·U+1160, 점자 빈칸 U+2800): 한글·한자·가나 말과 견줄 때는 지우고
 // (「죽\u3164고\u3164싶어」→「죽고싶어」), 낱말로 견줄 때는 빈칸으로 본다(「i\u3164dont\u3164want…」→「i dont want…」)
 const FILL = /[\u115f\u1160\u2800\u3164\uffa0]/g;
@@ -48,23 +54,48 @@ const esc = (c: string) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // 한글·한자·가나 말의 글자 사이에 끼어도 건너뛰는 것: 빈칸·문장부호·기호(이모지)·꾸밈 표시·ㅠㅜ, 일본어 늘임표와 작은 모음(「しにたーい」「しにたぁい」).
 // 세 글자 이상인 말은 이것을 말과 글에서 모두 빼고(tight) 그대로 찾는다: 되짚기가 없어 말·글이 짓궂어도(「ㅠㅠㅠ싫」, ㅠ 2,000개) 빠르다.
 const GAPS = /[\s\p{P}\p{S}\p{M}ㅠㅜーぁぃぅぇぉ]+/gu;
+const HANGUL = /[ㄱ-ㆎ가-힣]/;
 const openSyllable = (c: string) => c >= "가" && c <= "힣" && (c.charCodeAt(0) - 0xac00) % 28 === 0;
-// 성조 없이는 견주지 않는 말: 「tu tu」는 「từ từ(천천히)」로 흔히 쓴다
+// 성조를 하나도 치지 않으면 견주지 않는 말: 「tu tu」는 「từ từ(천천히)」로 흔히 쓴다(「tu tử」「tự tu」는 찾는다)
 const NO_BARE = new Set(["tu tu"]);
-// 위험 표현과 글자가 겹치는 평범한 말은 가리고 견준다:
-// 「わたしにたいして(나에게)」「わたしにたいせつ(나에게 소중한)」「ほしにたいようがみえた(별에 해가)」「いっしょにたいいく(같이 체육)」에 「しにたい」가,
-// 「いちじさつまいもほり(한 시 고구마 캐기)」에 「じさつ」가, 「마음은따뜻해」에 「은따」가 걸리지 않게.
-// 「たいよう(해)」는 뒤에 토씨가 올 때만 가린다: 「もうしにたいよう…(죽고 싶어…)」는 그대로 찾는다.
-const INNOCENT = /にたい(?:して|する|へん|せつ|よう(?=[がのはをにもとやへ]))|いっしょに(?=たい)|さつまいも|은따뜻/g;
+// 한국어 말 사이에 끼는 꾸밈말(「사는 게 너무 싫어」「살기 정말 싫어」)
+const KO_MORE = "너무|정말|진짜|완전|넘|증말|참|다|좀|그냥|막|진심|넘나|맨날|매일|항상|늘";
+// 위험 표현과 글자가 겹치는 평범한 말은 가리고 견준다. 빈칸·문장부호가 남은 글에서 가린 뒤에 빈칸·문장부호를 뺀다:
+// 다 뺀 뒤에 가리면 문장이 끊긴 자리를 넘어 「しにたい。せつない」「しにたいよう。もういやだ」가 「たいせつ」「たいよう+も」로 가려진다.
+// · 일본어: 「わたしにたいして(나에게)」「わたし に たいせつ(나에게 소중한)」「ほしにたいようがみえた(별에 해가)」「いっしょにたいいく(같이 체육)」
+//   「わたしにたいこを(북)」「たいやき」「たいかいの(대회)」에 「しにたい」가, 「いちじさつまいもほり(한 시 고구마 캐기)」에 「じさつ」가,
+//   「あついじめん(뜨거운 땅)」「むしあつい。じめじめ(눅눅)」에 「いじめ」가, 「りすかわいい(다람쥐 귀여워)」에 「リスカ」가 걸리지 않게.
+//   「たいよう(해)」「たいこ(북)」는 뒤에 토씨가 올 때만 가린다: 「もうしにたいよう…(죽고 싶어…)」는 그대로 찾는다.
+// · 한국어: 「마음은따뜻해」「작은따옴표」에 「은따」가, 「과자살래」「모자살거야」에 「자살」이, 「엄마는 내가 장난감 사는 거 싫어해요」(남이 싫어함)에
+//   「사는 거 싫」이, 「공을 발로 찼어요」「맨발로 차가운」「두 발로 착지」「발로 차는 연습」에 「발로 차」가, 「열매를 맞혀」「남매 맞춤」에
+//   「매를 맞」「매 맞」이, 「맛이 죽인다」에 「죽인다」가, 「차라리 죽을 먹을래」(먹는 죽)에 「차라리 죽」이 걸리지 않게.
+const INNOCENT = new RegExp([
+  "に\\s?たい(?:して|する|へん|せつ|よう(?=[がのはをにもとやへ])|こ(?=[をがはのもとや])|やき|いく|かい(?=[のでにがをはへ]))",
+  "いっしょに(?=\\s?たい)", "さつまいも", "じめん(?!な)", "じめじめ", "りす(?=かわ)",
+  "은따(?=뜻|옴)", "자살(?<=[과모]자살)(?=[래거게까러려])",
+  `사는(?<=내가\\s+[^\\s.!?]+\\s+사는)\\s?[거게]\\s?(?:(?:${KO_MORE})\\s?)?싫(?=어하|어해|어했)`,
+  "발로(?<=(?:공을?\\s?|맨)발로)(?=\\s?[차-찿])", "발로(?=\\s?(?:차가[운워웠]|착지|차는\\s?연습))",
+  "매(?<=[열남자]매)(?=를?\\s?맞)", "매(?=를?\\s?맞[혀히춤춰추출췄])",
+  "죽인(?<=맛(?:이|은|도)?\\s?(?:(?:진짜|정말|완전|너무|대박)\\s?)?죽인)(?=다)", "죽(?=(?:을|이|도|은|만)?\\s?먹)",
+].join("|"), "gu");
+// 영어 낱말로 견줄 때 가리는 평범한 말: 「I want to diet」의 diet가 「want to die」로, 「kick me the ball」(공을 차 줘)이 「kick me」로 걸리지 않게
+const LOOSE_INNOCENT = / d(?=iet)| m(?=e the (?:ball|puck) )/g;
+// 낱말 하나로만 찾는 말(앞머리만 같은 더 긴 낱말에는 걸지 않음)
+const WHOLE = new Set(["kys"]);
+// 한 글자씩 띄어 쓴 영어 낱말(「k i l l m y s e l f」): 붙여서 한 번 더 견준다
+const SPELLED = /(?<= )[a-z](?: [a-z]){2,}(?= )/g;
+// 문장·마디가 끊기는 자리(「bị…đánh」을 이 자리 너머까지 찾지 않게). 「...」「…」 말줄임은 끊긴 자리로 보지 않는다.
+const BREAK = /[!?;,。！？、，\n]|(?<!\.)\.(?!\.)/;
 
-// 낱말로 나눈 글(빈칸으로 낱말을 나누는 말과 견줄 때): 낱말, 성조를 뗀 낱말, loose에서 낱말 앞 빈칸의 자리
-interface Words { toks: string[]; bare: string[]; at: number[] }
+// 낱말로 나눈 글(빈칸으로 낱말을 나누는 말과 견줄 때): 낱말, 성조를 뗀 낱말, loose에서 낱말 앞 빈칸의 자리, 앞에서 문장이 끊긴 낱말 번호
+interface Words { toks: string[]; bare: string[]; at: number[]; cut: Set<number> }
 // plain: 고른 글(한글·한자·가나 두 글자 말), tight: plain에서 GAPS를 뺀 글(세 글자 이상 말), loose·bareLoose·words: 낱말로 견주는 말, flat: 기호 말
 interface Texts { plain: string; tight: string; loose: string; bareLoose: string; words: () => Words; flat: string }
 // 걸리면 글의 어디에 걸렸는지(같은 자리에 걸린 다른 말을 거르려고), 아니면 null
 type Find = (t: Texts) => string | null;
 
-function wordsOf(loose: string): Words {
+// open: 빈칸·문장부호가 남은 글. 주면 문장이 끊긴 자리(cut)도 적는다. 문장마다 나눈 낱말 수가 글 전체와 다르면(「do. not」) 모르는 것으로.
+function wordsOf(loose: string, open?: string): Words {
   const toks = loose.trim() ? loose.trim().split(" ") : [];
   const at: number[] = [];
   let o = 0;
@@ -72,7 +103,18 @@ function wordsOf(loose: string): Words {
     at.push(o);
     o += x.length + 1;
   }
-  return { toks, bare: toks.map((x) => (/[^\x00-\x7f]/.test(x) ? bare(x) : x)), at };
+  const cut = new Set<number>();
+  if (open) {
+    let n = 0;
+    for (const part of open.split(BREAK)) {
+      const k = spaced(part).trim();
+      if (!k) continue;
+      if (n) cut.add(n);
+      n += k.split(" ").length;
+    }
+    if (n !== toks.length) cut.clear();
+  }
+  return { toks, bare: toks.map((x) => (/[^\x00-\x7f]/.test(x) ? bare(x) : x)), at, cut };
 }
 
 // 글 낱말 x가 목록 낱말 w와 같은 말인가: 같거나, 글자마다 w의 성조·모음 표시 가운데 일부만 쳤으면 같다(「chet」「chêt」→「chết」).
@@ -92,63 +134,116 @@ function fits(x: string, w: string, prefix: boolean) {
   });
 }
 
-// 낱말 P(성조를 뗀 꼴 B)가 글에 이어서 나오나. gap: 첫 낱말과 둘째 낱말 사이에 끼어도 되는 낱말 수
-function wordsFind(P: string[], B: string[], gap = 0): Find {
+// 낱말 P(성조를 뗀 꼴 B)가 글에 이어서 나오나. marked: 성조를 하나도 치지 않은 꼴은 빼고(「tu tu」)
+function wordsFind(P: string[], B: string[], marked = false): Find {
   const last = P.length - 1;
   const lead = ` ${B.join(" ")}`;
   return (t) => {
     // 성조를 뗀 글로 먼저 빨리 거른다
-    if (gap ? !B.every((b) => t.bareLoose.includes(` ${b}`)) : !t.bareLoose.includes(lead)) return null;
+    if (!t.bareLoose.includes(lead)) return null;
     const { toks, bare: bt, at } = t.words();
     const ok = (s: number, k: number) =>
       k === last ? bt[s].startsWith(B[k]) && fits(toks[s], P[k], true) : bt[s] === B[k] && fits(toks[s], P[k], false);
     for (let i = 0; i + last < toks.length; i++) {
-      if (!ok(i, 0)) continue;
-      let j = i;
-      for (let k = 1; k <= last && j >= 0; k++) {
-        const from = j + 1;
-        const to = Math.min(k === 1 ? from + gap : from, toks.length - 1);
-        j = -1;
-        for (let s = from; s <= to && j < 0; s++) if (ok(s, k)) j = s;
-      }
-      if (j >= 0) return `l${at[i]}:${at[j] + 1 + P[last].length - at[i]}`;
+      let k = 0;
+      while (k <= last && ok(i + k, k)) k++;
+      if (k <= last) continue;
+      if (marked && toks.slice(i, i + last + 1).every((x, n) => x === bt[i + n])) continue;
+      return `l${at[i]}:${at[i + last] + 1 + P[last].length - at[i]}`;
     }
     return null;
   };
 }
 
+// 「bị … đánh」: bị와 đánh 사이 네 낱말까지(「Em bị bạn cùng lớp đánh」), 문장이 끊긴 자리는 넘지 않고(「Con bị ốm. Đánh răng…」),
+// đánh 뒤에 붙어 다른 뜻이 되는 말(이 닦기·악기·배드민턴·공·표시·평가·깨우기·철자)은 뺀다.
+const VI_NOT_HIT = new Set(["răng", "đàn", "cầu", "bóng", "dấu", "giá", "thức", "vần"]);
+// 성조 없이 써도 다른 뜻이 없는 것만 성조 없는 꼴도 뺀다(「dau」는 「đau(아파)」, 「roi」는 「rồi」일 수 있어 빼지 않는다)
+const VI_NOT_HIT_BARE = new Set(["rang", "dan", "cau", "bong", "thuc", "gia"]);
+function viBeaten(gap: number): Find {
+  const len = "đánh".length + 1;
+  return (t) => {
+    if (!t.bareLoose.includes(" bi ") || !t.bareLoose.includes(" danh")) return null;
+    const { toks, bare: bt, at, cut } = t.words();
+    for (let i = 0; i < toks.length; i++) {
+      if (bt[i] !== "bi" || !fits(toks[i], "bị", false)) continue;
+      for (let j = i + 1; j <= i + 1 + gap && j < toks.length && !cut.has(j); j++) {
+        if (!bt[j].startsWith("danh") || !fits(toks[j], "đánh", true)) continue;
+        const next = cut.has(j + 1) ? "" : (toks[j + 1] ?? "");
+        if (VI_NOT_HIT.has(next) || VI_NOT_HIT_BARE.has(next)) continue;
+        return `l${at[i]}:${at[j] + len - at[i]}`;
+      }
+    }
+    return null;
+  };
+}
+
+// 고른 글(plain: 두 글자 말과 같은 자리 표시 c, tight: 세 글자 이상 말과 같은 자리 표시 g)에서 정규식으로 찾는 말
+const reFind = (re: RegExp, on: "plain" | "tight"): Find => (t) => {
+  const m = re.exec(t[on]);
+  return m ? `${on === "plain" ? "c" : "g"}${m.index}:${m[0].length}` : null;
+};
+// 「被…打」 사이에 들어가도 되는 글자: 문장·마디가 끊기는 문장부호는 빼고
+const ZH_IN = "[^。！？!?；;，,、.\\n]";
+// 「打」 뒤에 붙어 때린 것이 아닌 말: 청소·전화·공놀이·경기·주사·열기·생각·인사·게임·꾸미기·천둥·지다/이기다·카드·글자·인쇄·물·밥·짐·차·일·할인·묻기·재채기·하품·졸기·북·눈싸움
+const ZH_NOT_HIT = "扫|掃|电话|電話|篮球|籃球|羽毛球|乒乓球|网球|網球|排球|棒球|比赛|比賽|球|针|針|疫苗|开|開|算|招呼|游戏|遊戲|扮|雷|败|敗|赢|贏|卡|字|印|水|饭|飯|包|车|車|工|折|听|聽|喷嚏|噴嚏|哈欠|瞌睡|鼓|雪仗";
+// 한국어 「싫」을 아이들이 흔히 치는 꼴
+const KO_HATE = "싫|시러|실어|실타";
+
 // 사이에 말이 끼어도 찾는 말(선생님 목록에 같은 말을 써도 이렇게 찾는다)
 const STRETCH = new Map<string, Find>([
-  // 「我被爸爸打了」「我被他们狠狠打」: 被와 打 사이 네 글자까지
-  ["被打", (t) => {
-    const m = /被[^\p{P}]{0,4}?打/u.exec(t.plain);
-    return m ? `c${m.index}:${m[0].length}` : null;
-  }],
-  // 「Con bị bố đánh」「em bi ban danh」: bị와 đánh 사이 두 낱말까지
-  ["bị đánh", wordsFind(["bị", "đánh"], ["bi", "danh"], 2)],
+  // 「我被爸爸打了」「我被爸爸用皮带打了」「我被高年级的同学打了」: 被와 打 사이 여덟 글자까지(「我被叫去打扫教室」「我被邀请去打羽毛球」는 빼고)
+  ["被打", reFind(new RegExp(`被${ZH_IN}{0,8}?打(?!${ZH_NOT_HIT})`, "u"), "plain")],
+  ["被揍", reFind(new RegExp(`被${ZH_IN}{0,8}?揍`, "u"), "plain")],
+  // 「Con bị bố đánh」「Con bị bố lấy roi đánh」「em bi ban danh」
+  ["bị đánh", viBeaten(4)],
+  // 「살기가 싫어」「살기 너무 싫어」「사는게 너무 싫어」「사는 게 시러」: 토씨·꾸밈말이 끼거나 「싫」을 다르게 쳐도.
+  // 바로 붙은 「살기 시러」「살기 실어」는 핵심 목록의 제 말로 찾는다(걸린 말을 그대로 보여 주려고).
+  ["살기싫", reFind(new RegExp(`살기싫|살기(?:[가는도](?:${KO_MORE})?|(?:${KO_MORE}))(?:${KO_HATE})`, "u"), "tight")],
+  ["사는게싫", reFind(new RegExp(`사는(?:게|것이)(?:${KO_MORE})?(?:${KO_HATE})`, "u"), "tight")],
+  ["사는거싫", reFind(new RegExp(`사는(?:거|건)(?:${KO_MORE})?(?:${KO_HATE})`, "u"), "tight")],
+  // 「ぼくをなぐった」「おとうさんがぼくをたたく」「ママがわたしをける」: 나를 때리는 말(「たいこをたたく」「ボールをける」「わたしをなぐさめた」는 빼고)
+  ["ぼくをたたく", reFind(/(?:ぼく|わたし|おれ|あたし|僕|私|俺)を(?:たたい(?=[たて])|たたく|叩[いくか]|なぐっ(?=[たて])|なぐる|殴|けっ(?=[たて])|ける|蹴)/u, "tight")],
 ]);
 
+// 받침 ㅆ을 ㅅ으로 잘못 친 글자(「렸」→「렷」), 아니면 ""
+const typoOf = (c: string) => (c >= "가" && c <= "힣" && (c.charCodeAt(0) - 0xac00) % 28 === 20 ? String.fromCharCode(c.charCodeAt(0) - 1) : "");
+// 두 글자 말의 글자 사이에서 건너는 것: 빈칸이 없던 자리는 문장부호·기호·ㅠㅜ만(SKIP), 빈칸이 있던 자리는 빈칸까지(SKIP_SP)
+const SKIP = "[\\p{P}\\p{S}\\p{M}ㅠㅜーぁぃぅぇぉ]*";
+const SKIP_SP = "[\\s\\p{P}\\p{S}\\p{M}ㅠㅜーぁぃぅぇぉ]*";
+
 function cjkFind(w: string): Find {
-  // 건너뛸 수 있는 글자를 뺀 말이 tight에 있나. 끝 글자가 받침 없는 한글이면 받침이 붙은 글자도 된다.
+  // 건너뛸 수 있는 글자를 뺀 말이 tight에 있나. 끝 글자가 받침 없는 한글이면 받침이 붙은 글자도, 받침이 ㅆ이면 ㅅ도 된다.
   const core = [...w.replace(GAPS, "")];
   if (core.length >= 3) {
     const last = core.pop()!;
     const head = core.join("");
     const top = openSyllable(last) ? String.fromCharCode(last.charCodeAt(0) + 27) : last;
+    const typo = typoOf(last);
     return (t) => {
       for (let i = t.tight.indexOf(head); i >= 0; i = t.tight.indexOf(head, i + 1)) {
         const c = String.fromCodePoint(t.tight.codePointAt(i + head.length) ?? 0);
-        if (c >= last && c <= top) return `g${i}:${head.length + c.length}`;
+        if ((c >= last && c <= top) || c === typo) return `g${i}:${head.length + c.length}`;
       }
       return null;
     };
   }
-  // 글자가 셋보다 적게 남으면 쓴 그대로 찾는다(말에 빈칸이 있던 자리만 빈칸을 건너)
-  const re = new RegExp(w.split(/[\s\p{P}]+/u).filter(Boolean).map((p) => [...p].map(esc).join("")).join("\\s*"), "u");
-  return (t) => {
-    const m = re.exec(t.plain);
-    return m ? `c${m.index}:${m[0].length}` : null;
-  };
+  let src: string;
+  if (core.length === 2 && HANGUL.test(core.join(""))) {
+    // 두 글자 한국어: 바로 붙었거나(말에 빈칸이 있었으면 빈칸만 끼고), 낱말 첫머리에서 문장부호·기호·ㅠㅜ가 낀 것(「자.살」「자*해」「자ㅠ해」).
+    // 빈칸은 말에 빈칸이 있던 자리만 건너고(「남자 해적」「놀자. 해 보자」는 빼고), 앞 낱말의 끝 글자에서 시작하면 문장부호를 건너지 않는다
+    // (「가자,해바라기」「남자,해적」「열매. 맞아」가 걸리지 않게).
+    // 중국어·일본어 두 글자 말(「去死」「打我」)은 문장부호를 건너지 않는다: 쉼표·마침표가 마디를 나눠 「去，死」「打，我」가 엉뚱하게 이어진다.
+    const [a, b] = core;
+    const space = /\s/.test(w.slice(w.indexOf(a) + a.length, w.lastIndexOf(b)));
+    const typo = typoOf(b);
+    const last = typo ? `[${b}${typo}]` : esc(b);
+    src = `${esc(a)}${space ? "\\s*" : ""}${last}|(?<![ㄱ-ㆎ가-힣])${esc(a)}${space ? SKIP_SP : SKIP}${last}`;
+  } else {
+    // 글자가 하나 이하로 남으면(「ㅠㅠ」「💀죽」) 쓴 그대로 찾는다(말에 빈칸이 있던 자리만 빈칸을 건너)
+    src = w.split(/[\s\p{P}]+/u).filter(Boolean).map((p) => [...p].map(esc).join("")).join("\\s*");
+  }
+  return reFind(new RegExp(src, "u"), "plain");
 }
 
 function compile(raw: string, key: string): Find | null {
@@ -165,19 +260,20 @@ function compile(raw: string, key: string): Find | null {
   }
   if (CJK.test(w)) return cjkFind(w);
   const p = spaced(w).trimEnd();
+  const whole = WHOLE.has(key) ? `${p} ` : p;
   const loose: Find = (t) => {
-    const i = t.loose.indexOf(p);
+    const i = t.loose.indexOf(whole);
     return i < 0 ? null : `l${i}:${p.length}`;
   };
   const P = p.trim().split(" ");
   const B = P.map(bare);
-  if (B.every((b, k) => b === P[k]) || NO_BARE.has(B.join(" "))) return loose;
-  const near = wordsFind(P, B);
+  if (B.every((b, k) => b === P[k])) return loose;
+  const near = wordsFind(P, B, NO_BARE.has(B.join(" ")));
   return (t) => loose(t) ?? near(t);
 }
 
-// 목록마다 한 번만 만들어 둔다(기록을 저장할 때마다 부르므로)
-const compiled = new Map<string, { word: string; find: Find }[]>();
+// 목록마다 한 번만 만들어 둔다(기록을 저장할 때마다 부르므로). latin: 낱말로 견주는 말(띄어 쓴 영어를 붙여 한 번 더 견줄 말)
+const compiled = new Map<string, { word: string; find: Find; latin: boolean }[]>();
 function matchersFor(words: string[]) {
   const id = JSON.stringify(words); // 낱말 안의 글자로 열쇠를 꾸며 다른 반 목록과 같은 열쇠를 만들 수 없게
   let list = compiled.get(id);
@@ -190,7 +286,8 @@ function matchersFor(words: string[]) {
     if (!key || seen.has(key)) continue;
     seen.add(key);
     const find = compile(word, key);
-    if (find) list.push({ word, find });
+    const w = normWord(word);
+    if (find) list.push({ word, find, latin: /[\p{L}\p{N}]/u.test(w) && !CJK.test(w) });
   }
   if (compiled.size >= 32) compiled.delete(compiled.keys().next().value!);
   compiled.set(id, list);
@@ -200,26 +297,38 @@ function matchersFor(words: string[]) {
 export function matchRisk(text: string, words: string[]) {
   const n = norm(text);
   const open = n.replace(FILL, " ");
-  const shut = n.replace(FILL, "");
-  const blank = (s: string) => s.replace(INNOCENT, (m) => "\u0001".repeat(m.length));
-  const loose = spaced(open);
+  // 평범한 말은 빈칸·문장부호가 남은 글에서 가린 뒤(plain) 빈칸·문장부호를 뺀다(tight)
+  const plain = n.replace(FILL, "").replace(INNOCENT, (m) => "\u0001".repeat(m.length));
+  const loose = spaced(open).replace(LOOSE_INNOCENT, " \u0001");
   let ws: Words | undefined;
   const t: Texts = {
-    plain: blank(shut),
-    tight: blank(shut.replace(GAPS, "")),
+    plain,
+    tight: plain.replace(GAPS, ""),
     loose,
     bareLoose: bare(loose),
-    words: () => (ws ??= wordsOf(loose)),
+    words: () => (ws ??= wordsOf(loose, open)),
     flat: open.replace(/\s+/g, ""),
   };
-  const at = new Set<string>();
+  const list = matchersFor(words);
   const out: string[] = [];
-  for (const { word, find } of matchersFor(words)) {
-    const where = find(t);
-    if (where && !at.has(where)) {
-      at.add(where);
-      out.push(word);
+  // again: 띄어 쓴 영어를 붙인 글로 두 번째 견주기(낱말로 견주는 말 가운데 아직 걸리지 않은 말만)
+  const run = (x: Texts, again: boolean) => {
+    const at = new Set<string>();
+    for (const { word, find, latin } of list) {
+      if (again && (!latin || out.includes(word))) continue;
+      const where = find(x);
+      if (where && !at.has(where)) {
+        at.add(where);
+        out.push(word);
+      }
     }
+  };
+  run(t, false);
+  // 한 글자씩 띄어 쓴 영어(「k i l l m y s e l f」「k y s」)는 붙여서 낱말 말만 한 번 더 견준다
+  const glued = loose.replace(SPELLED, (m) => m.replace(/ /g, ""));
+  if (glued !== loose) {
+    let gw: Words | undefined;
+    run({ ...t, loose: glued, bareLoose: bare(glued), words: () => (gw ??= wordsOf(glued)) }, true);
   }
   return out;
 }

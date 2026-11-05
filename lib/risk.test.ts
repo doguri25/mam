@@ -141,13 +141,22 @@ test("한국어: 남을 해치려는 말·집에 가기 싫은 말·맞은 말·
   for (const text of ["숙제가 없어졌으면 좋겠어", "태어나지 않았으면"]) assert.deepEqual(matchRisk(text, []), [], text);
 });
 
-test("중국어: 때린 사람이 끼어도(被…打, 네 글자까지)·죽음·집에 가기 싫은 말", () => {
+test("중국어: 때린 사람이 끼어도(被…打, 여덟 글자까지)·죽음·집에 가기 싫은 말", () => {
   check([
     ["爸爸打了我", ["打了我"]],
     ["他们打了我", ["打了我"]],
     ["我被爸爸打了", ["被打"]],
     ["我被他们狠狠打了", ["被打"]],
     ["我被打了", ["被打"]],
+    ["我被班里的男生打了", ["被打"]],
+    ["我被爸爸用皮带打了", ["被打"]],
+    ["我被妈妈用衣架打了", ["被打"]],
+    ["我被高年级的同学打了", ["被打"]],
+    ["我又挨打了", ["挨打"]],
+    ["我挨揍了", ["挨揍"]],
+    ["爸爸揍我", ["揍我"]],
+    ["我被爸爸揍了", ["被揍"]],
+    ["我想跳楼", ["想跳楼"]],
     ["我想去死", ["去死"]],
     ["你去死吧", ["去死"]],
     ["死了算了", ["死了算了"]],
@@ -155,24 +164,50 @@ test("중국어: 때린 사람이 끼어도(被…打, 네 글자까지)·죽음
     ["我不要回家", ["不要回家"]],
     ["我想杀了他", ["想杀"]],
   ]);
-  assert.deepEqual(matchRisk("我被老师批评了，然后打扫教室", DEFAULT_RISK_WORDS), []); // 被와 打 사이가 네 글자보다 멀다
+  // 문장·마디가 끊기거나, 「打」 뒤가 청소·공놀이·전화·주사·지다처럼 다른 뜻이면 찾지 않는다
+  check([
+    ["我被老师批评了，然后打扫教室", []],
+    ["我被叫去打扫教室", []],
+    ["我被邀请去打羽毛球", []],
+    ["我被选上了打篮球", []],
+    ["我被妈妈叫去打电话", []],
+    ["我被带去打针了", []],
+    ["我们被三班打败了", []],
+    ["我被表扬了。打完球回家", []],
+  ]);
 });
 
-test("베트남어: bị와 đánh 사이 두 낱말까지, 성조를 일부만 쳐도 찾는다", () => {
+test("베트남어: bị와 đánh 사이 네 낱말까지, 문장을 넘지 않고, 성조를 일부만 쳐도 찾는다", () => {
   check([
     ["Con bị bố đánh", ["bị đánh"]],
     ["Em bị bạn đánh", ["bị đánh"]],
     ["con bi bo danh", ["bị đánh"]],
     ["Con bị các bạn đánh", ["bị đánh"]],
+    ["Con bị bố mẹ hay đánh", ["bị đánh"]],
+    ["Em bị bạn cùng lớp đánh", ["bị đánh"]],
+    ["Con bị bố lấy roi đánh", ["bị đánh"]],
+    ["Em bị mấy bạn lớp trên đánh", ["bị đánh"]],
+    ["Con bị bố đánh đau lắm", ["bị đánh"]], // 「đau(아파)」는 「dấu」가 아니다
+    ["con bi bo danh roi", ["bị đánh"]], // 「roi」는 「rồi(벌써)」일 수 있다
+    ["Bố đánh đòn con", ["đánh đòn"]],
     ["con muốn chet", ["muốn chết"]],
     ["con muon chết", ["muốn chết"]],
     ["Con muốn chêt", ["muốn chết"]],
+    ["con mún chết", ["mún chết"]],
+    ["Con chán sống", ["chán sống"]],
+    ["con muốn tu tử", ["tự tử"]], // 「tu tu」는 빼도 성조를 하나라도 쳤으면 찾는다
     ["con khong muon ve nhà", ["không muốn về nhà"]],
   ]);
   check([
-    ["Con bị bố mẹ hay đánh", []], // 세 낱말 넘게 떨어지면 찾지 않는다
+    ["Con bị cảm nên hôm nay mẹ không đánh", []], // 네 낱말 넘게 떨어지면 찾지 않는다
+    ["Hôm nay con bị ốm. Đánh răng xong con đi ngủ", []], // 문장이 끊긴 자리는 넘지 않는다
+    ["Em bị đau bụng, đánh răng rồi đi ngủ", []],
+    ["Con bị mẹ đánh thức lúc sáu giờ", []], // 깨우기·이 닦기·악기는 때린 말이 아니다
+    ["con bi me danh rang cho", []],
+    ["Em bị cô bắt đánh đàn", []],
     ["Con bí đánh", []], // 다른 성조를 친 「bí」는 「bị」가 아니다
     ["con từ tự", []],
+    ["me bao con lam tu tu", []],
   ]);
 });
 
@@ -223,6 +258,15 @@ test("보이지 않는 글자·한글 채움 문자가 끼어도 찾는다", () 
   assert.deepEqual(matchRisk(["i", "dont", "want", "to", "go", "home"].join(c(0x3164)), DEFAULT_RISK_WORDS), ["don't want to go home"]);
   assert.deepEqual(matchRisk(`ki${c(0x200e)}ll my${c(0x200b)}self`, DEFAULT_RISK_WORDS), ["kill myself"]);
   assert.deepEqual(matchRisk(`자${c(0x3164)}해`, DEFAULT_RISK_WORDS), ["자해"]);
+  // 제어·서식 글자(\p{Cc}·\p{Cf})도 지운다
+  for (const gap of [0x01, 0x08, 0x1f, 0x7f, 0x85, 0x9f, 0x0600, 0xfff9, 0xfffb, 0x1d173, 0x1d17a]) {
+    assert.deepEqual(matchRisk(`죽${c(gap)}고 싶어`, []), ["죽고 싶"], gap.toString(16));
+  }
+  assert.deepEqual(matchRisk(`con bị bố đ${c(1)}ánh`, []), ["bị đánh"]);
+  assert.deepEqual(matchRisk(`ki${c(0x85)}ll myself`, []), ["kill myself"]);
+  // 탭·줄바꿈은 지우지 않고 낱말을 나누는 빈칸으로 둔다
+  assert.deepEqual(matchRisk("my dad\thit\nme", []), ["hit me"]);
+  assert.deepEqual(matchRisk("죽고\n싶어", []), ["죽고 싶"]);
 });
 
 test("일본어 평범한 말이 「しにたい」에 걸리지 않는다(にたいよう+토씨, いっしょにたい…)", () => {
@@ -232,7 +276,197 @@ test("일본어 평범한 말이 「しにたい」에 걸리지 않는다(に�
     ["いっしょにたいいくをした", []],
     ["ともだちといっしょにたいこをたたいた", []],
     ["いっしょにしにたい", ["しにたい"]],
+    // 「たいこ(북)」「たいやき」「たいいく(체육)」「たいかい(대회)」, 낱말마다 띄어 쓴 「わたしに たいせつな」도
+    ["おかあさんがわたしにたいこをかってくれた", []],
+    ["おばあちゃんがわたしにたいやきをくれた", []],
+    ["わたしにたいいくのせんせいがほめてくれた", []],
+    ["わたしにたいかいのしょうじょうがとどいた", []],
+    ["わたしに たいせつな ともだち", []],
+    ["いっしょに たいいくを した", []],
   ]);
+});
+
+test("일본어: 평범한 말을 가릴 때 문장이 끊긴 자리를 넘지 않는다(다음 문장 첫 글자로 「しにたい」를 가리지 않게)", () => {
+  for (const text of [
+    "しにたいよう。もういやだ", "しにたいよう、がっこういきたくない", "しにたい。せつない", "しにたい。へんなきもち",
+    "しにたい。するとなみだがでる", "シニタイヨウ。モウヤダ", "しにたいよう もう いやだ", "しにたいよう！",
+  ]) assert.deepEqual(matchRisk(text, []), ["しにたい"], text);
+  for (const text of ["死にたいよう。もうむり", "死にたい、せつない"]) assert.deepEqual(matchRisk(text, []), ["死にたい"], text);
+  // 「いじめ」도 문장이 끊긴 자리·평범한 낱말(じめん 땅, じめじめ 눅눅)에 걸리지 않는다
+  check([
+    ["きょうはむしあつい。じめじめする", []],
+    ["さむい。じめんがこおってた", []],
+    ["あついじめんをはだしであるいた", []],
+    ["かたいじめんにころんだ", []],
+    ["いじめられた", ["いじめ"]],
+    ["いじめんなよ", ["いじめ"]],
+  ]);
+});
+
+test("일본어: 나를 때리는 말(능동)·살고 싶지 않은 말·リスカ", () => {
+  check([
+    ["おとうさんがぼくをたたく", ["ぼくをたたく"]],
+    ["ママがわたしをける", ["ぼくをたたく"]],
+    ["おにいちゃんがおれをけった", ["ぼくをたたく"]],
+    ["わたしを叩いた", ["ぼくをたたく"]],
+    ["おにいちゃんがいもうとをなぐった", ["をなぐっ"]],
+    ["もう生きたくない", ["生きたくない"]],
+    ["リスカした", ["リスカ"]],
+    ["飛び降りたい", ["飛び降りたい"]],
+    ["とびおりたい", ["とびおりたい"]], // 「ブランコからとびおりたい」에도 걸려 뺄 수 있는 기본 목록에
+  ]);
+  assert.ok(matchRisk("パパがぼくをなぐった", []).includes("ぼくをたたく"));
+  check([
+    ["たいこをたたいた", []],
+    ["ボールをける", []],
+    ["ともだちをなぐさめた", []],
+    ["せんせいがわたしをたたえてくれた", []],
+    ["おねえちゃんがわたしをけっこんしきによんでくれた", []],
+    ["みんなぐっすりねた", []],
+    ["りすかわいかった", []],
+    ["がっこういきたくない", []],
+  ]);
+});
+
+test("영어: 맞는 말(beats me·hurts me·kick me…)·흔한 맞춤법·띄어 쓴 글자도 찾는다", () => {
+  check([
+    ["my dad beats me", ["beats me"]],
+    ["dad is beating me", ["beating me"]],
+    ["my dad hurts me", ["hurts me"]],
+    ["they kick me", ["kick me"]],
+    ["they punch me", ["punch me"]],
+    ["she slap me", ["slap me"]],
+    ["he chokes me", ["chokes me"]],
+    ["they push me", ["push me"]],
+    ["kids are bulling me", ["bulling"]],
+    ["they bulied me", ["bulied"]],
+    ["i feel sucidal", ["sucid"]],
+    ["suiside", ["suisid"]],
+    ["i wana die", ["wana die"]],
+    ["i wont to die", ["wont to die"]],
+    ["I wish I was never born", ["wish i was never born"]],
+    ["I wish I wasn't born", ["wish i wasn't born"]],
+    ["they told me to kill yourself", ["kill yourself"]],
+    ["kys", ["kys"]],
+    ["k i l l m y s e l f", ["killmyself"]],
+    ["w a n t t o d i e", ["wanttodie"]],
+    ["I want to jump off the roof", ["jump off"]],
+  ]);
+  check([
+    ["I want to diet", []],
+    ["My mom is on a diet", []],
+    ["kysa is my cat", []], // kys는 낱말 하나일 때만
+    ["kick me the ball please", []], // 공을 차 달라는 말
+    ["I learned a b c today", []],
+    ["My dad was pushing me on the swing", []], // 기본 목록에서 「pushing me」를 뺀 반
+    ["I don't want to go back home yet, the party is fun", []],
+  ], DEFAULT_RISK_WORDS.filter((w) => !["pushing me", "don't want to go back home"].includes(w)));
+});
+
+test("한국어: 토씨·꾸밈말이 끼거나 맞춤법이 달라도 스스로 해치려는 말을 찾는다(늘 살피는 말)", () => {
+  const rows: [string, string[]][] = [
+    ["살기가 싫어", ["살기 싫"]],
+    ["살기가 너무 싫어요", ["살기 싫"]],
+    ["살기 정말 싫어", ["살기 싫"]],
+    ["사는게 너무 싫어", ["사는 게 싫"]],
+    ["사는 게 시러", ["사는 게 싫"]],
+    ["사는 거 진짜 싫어", ["사는 거 싫"]],
+    ["사라져 버리고 싶어", ["사라져 버리고 싶"]],
+    ["없어져 버리고 싶어", ["없어져 버리고 싶"]],
+    ["뒤져버리고 싶어", ["뒤져 버리고 싶"]],
+    ["사라지구 시퍼", ["사라지구 시퍼"]],
+    ["없어지구 싶어", ["없어지구 싶"]],
+    ["사라지고 십어", ["사라지고 십"]],
+    ["죽고시프다", ["죽고 시프"]],
+    ["주그고 싶어", ["주그고 싶"]],
+    ["죽꼬 싶어", ["죽꼬 싶"]],
+    ["주거버리고 싶어", ["주거버"]],
+    ["내가 죽었으면 좋겠어", ["내가 죽었으면 좋겠"]],
+    ["내가 사라지면 좋겠어", ["내가 사라지면 좋겠"]],
+    ["차라리 죽는 게 나아", ["차라리 죽", "죽는 게 나아"]],
+    ["죽는 게 나을 것 같아", ["죽는 게 나을"]],
+    ["옥상에서 뛰어내리고 싶어", ["옥상에서 뛰어내리고 싶"]],
+    ["손목을 긋고 싶어", ["손목을 긋"]],
+  ];
+  for (const [text, want] of rows) assert.deepEqual(matchRisk(text, []), want, text);
+  // 평범한 말에도 걸리는 것은 뺄 수 있는 기본 목록에(5판)
+  check([
+    ["모기가 죽었으면 좋겠어", ["죽었으면 좋겠"]],
+    ["다이빙대에서 뛰어내리고 싶어", ["뛰어내리고 싶"]],
+    ["아빠한테 두들겨 맞았어", ["두들겨 맞"]],
+    ["형한테 얻어맞았어", ["얻어맞"]],
+    ["아빠한테 마자써", ["한테 마자"]],
+    ["형한테 마졌어", ["한테 마져"]],
+  ]);
+  for (const text of ["모기가 죽었으면 좋겠어", "다이빙대에서 뛰어내리고 싶어"]) assert.deepEqual(matchRisk(text, []), [], text);
+  // 꾸밈말 목록에 없는 말이 끼면 잇지 않는다
+  check([["살기 위해 싫은 음식도 먹어요", []], ["우리가 사는 곳이 싫지 않아요", []]]);
+});
+
+test("한국어: 받침 ㅆ을 ㅅ으로 친 꼴, 두 글자 말 사이의 문장부호·기호", () => {
+  check([
+    ["아빠가 때렷어", ["때렸"]],
+    ["엄마가 날 때렷다", ["때렸"]],
+    ["괴롭혓어", ["괴롭혀"]],
+    ["자.살 하고 싶어", ["자살"]],
+    ["자*해 했어", ["자해"]],
+    ["자ㅠㅠ해", ["자해"]],
+    ["왕~따 당했어", ["왕따"]],
+  ]);
+  // 빈칸은 말에 빈칸이 있던 자리만 건넌다
+  check([
+    ["남자 해적이 나왔어요", []],
+    ["우리 놀자. 해 보자!", []],
+    ["가자. 살 거 있어", []],
+    ["과자살래", []],
+    ["모자살거야", []],
+    ["과자 사러 가자", []],
+    // 앞 낱말의 끝 글자(「가자」「남자」「열매」)에서는 문장부호를 건너지 않는다
+    ["우리 가자,해바라기 보러", []],
+    ["남자,해적,여자", []],
+    ["이건 열매. 맞아?", []],
+  ]);
+  // 중국어 두 글자 말은 쉼표·마침표를 건너지 않는다(마디가 나뉜다)
+  check([["我们去，死守球门", []], ["他打，我哭了", []]]);
+});
+
+test("한국어: 평범한 수업 말이 기본 목록에 걸리지 않는다(작은따옴표·발로 차기·열매·맛이 죽인다·남이 싫어함)", () => {
+  check([
+    ["국어 시간에 큰따옴표와 작은따옴표를 배웠어요", []],
+    ["태권도에서 발로 차는 연습을 했어요", []],
+    ["축구공을 발로 찼어요", []],
+    ["공을 발로 찼어요", []],
+    ["맨발로 차가운 모래를 밟았어요", []],
+    ["두 발로 착지했어요", []],
+    ["열매를 맞혀 보는 퀴즈를 했어요", []],
+    ["열매 맞히기 놀이를 했어요", []],
+    ["우리 남매 맞춤 티셔츠를 입었어요", []],
+    ["떡볶이 맛이 죽인다", []],
+    ["맛이 진짜 죽인다", []],
+    ["엄마는 내가 장난감 사는 거 싫어해요", []],
+    ["엄마는 내가 과자 사는 거 너무 싫어해요", []],
+    ["배가 아파서 차라리 죽을 먹을래요", []],
+  ]);
+  // 같은 말이 실제로 때리거나 해치는 뜻이면 그대로 찾는다
+  check([
+    ["친구가 나를 공처럼 발로 찼어", ["발로 차"]],
+    ["형이 발로 차요", ["발로 차"]],
+    ["엄마한테 매를 맞았어", ["매를 맞"]],
+    ["너 죽인다", ["죽인다"]],
+    ["반에서 은따 당해요", ["은따"]],
+    ["나는 사는 거 싫어", ["사는 거 싫"]],
+    ["엄마는 내가 사는 거 싫어해", ["사는 거 싫"]], // 「내가 ○○ 사는」처럼 산 물건이 있을 때만 남의 말로 본다
+  ]);
+});
+
+test("번역한 한국어 정리는 늘 살피는 말로만 살핀다(학생 화면 analyze: 「I hit a home run」→「홈런을 때렸어요」)", () => {
+  // analyze는 한국어가 아닌 글의 AI 한국어 정리(koHits)를 matchRisk(정리, [])로 본다: 선생님 목록의 평범한 말에는 걸리지 않고
+  assert.deepEqual(matchRisk("야구에서 홈런을 때렸어요", []), []);
+  assert.deepEqual(matchRisk("엄마가 나에게 맞는 신발을 사 줬어요", []), []);
+  assert.deepEqual(matchRisk("친구랑 공을 발로 차며 축구했어요", []), []);
+  // 스스로 해치려는 말은 여전히 찾는다
+  assert.deepEqual(matchRisk("죽고 싶다고 했어요", []), ["죽고 싶"]);
+  assert.deepEqual(matchRisk("살기가 싫다고 했어요", []), ["살기 싫"]);
 });
 
 // 위험 표현 찾기는 학생 글을 저장할 때마다 서버에서 돈다. 글이나 선생님 말이 짓궂어도 오래 붙잡히면 안 된다.
@@ -340,7 +574,7 @@ test("넓게 찾기로 받아들인 것: 위험하지 않을 수도 있지만 �
   ]);
 });
 
-test("두 글자 말은 빈칸·문장부호를 건너지 않고 받침도 늘리지 않는다", () => {
+test("두 글자 말은 말에 없던 빈칸을 건너지 않고 받침도 늘리지 않는다", () => {
   assert.deepEqual(matchRisk("왕딸기", ["왕따"]), []);
   assert.deepEqual(matchRisk("왕따 당했어", ["왕따"]), ["왕따"]);
   assert.deepEqual(matchRisk("남자, 해적", ["자해"]), []);
@@ -384,7 +618,7 @@ test("기록을 저장할 때마다 불러도 빠르다", () => {
 const addsOf = (v: number) => RISK_WORDS_BY_V[v].flatMap((g) => g.add);
 
 test("기본 목록 판: 판마다 더한 말은 기본 목록에도 있고, 저장한 판 뒤에 더한 말만 돌려준다", () => {
-  assert.equal(RISK_WORDS_V, 4);
+  assert.equal(RISK_WORDS_V, 5);
   for (const v of Object.keys(RISK_WORDS_BY_V).map(Number)) {
     for (const g of RISK_WORDS_BY_V[v]) {
       for (const w of g.add) assert.ok(DEFAULT_RISK_WORDS.includes(w), w);
@@ -393,16 +627,24 @@ test("기본 목록 판: 판마다 더한 말은 기본 목록에도 있고, 저
     }
   }
   assert.equal(new Set(DEFAULT_RISK_WORDS).size, DEFAULT_RISK_WORDS.length);
-  assert.deepEqual(riskWordsAfter(3), addsOf(4));
-  assert.deepEqual(riskWordsAfter(2), [...addsOf(3), ...addsOf(4)]);
-  assert.deepEqual(riskWordsAfter(1), [...addsOf(2), ...addsOf(3), ...addsOf(4)]);
+  assert.deepEqual(riskWordsAfter(4), addsOf(5));
+  assert.deepEqual(riskWordsAfter(3), [...addsOf(4), ...addsOf(5)]);
+  assert.deepEqual(riskWordsAfter(2), [...addsOf(3), ...addsOf(4), ...addsOf(5)]);
+  assert.deepEqual(riskWordsAfter(1), [...addsOf(2), ...addsOf(3), ...addsOf(4), ...addsOf(5)]);
   assert.deepEqual(riskWordsAfter(RISK_WORDS_V), []);
+  // 기본 목록으로 옮긴 말은 늘 살피는 말에 없다(선생님이 빼면 정말 빠지게)
+  for (const w of addsOf(5)) assert.ok(!RISK_CORE.includes(w), w);
 });
 
 test("기본 목록 판: 선생님이 지운 줄기의 다른 꼴은 다시 넣지 않는다(줄기 없는 말은 늘 넣는다)", () => {
-  const v3 = DEFAULT_RISK_WORDS.filter((w) => !addsOf(4).includes(w));
-  // 고치지 않은 v3 목록은 v4 말을 모두 받는다
-  assert.deepEqual(riskWordsAfter(3, v3), addsOf(4));
+  const v3 = DEFAULT_RISK_WORDS.filter((w) => !addsOf(4).includes(w) && !addsOf(5).includes(w));
+  // 고치지 않은 v3 목록은 v4·v5 말을 모두 받는다
+  assert.deepEqual(riskWordsAfter(3, v3), [...addsOf(4), ...addsOf(5)]);
+  // 「한테 맞」을 지운 v4 반은 「한테 마자」「한테 마져」를 받지 않고, 줄기 없는 v5 말은 받는다
+  const v4 = DEFAULT_RISK_WORDS.filter((w) => !addsOf(5).includes(w) && w !== "한테 맞");
+  const got5 = riskWordsAfter(4, v4);
+  assert.ok(!got5.includes("한테 마자") && !got5.includes("한테 마져"));
+  for (const w of ["죽었으면 좋겠", "두들겨 맞", "don't want to go home", "pushing me", "不想回家", "không muốn về nhà", "にかえりたくない"]) assert.ok(got5.includes(w), w);
   // 「죽여」「죽일」「집에 가기 싫」「집에 가기 시러」「죽을래」를 지운 반
   const trimmed = v3.filter((w) => !["죽여", "죽일", "집에 가기 싫", "집에 가기 시러", "죽을래"].includes(w));
   const got = riskWordsAfter(3, trimmed);
@@ -427,19 +669,19 @@ test("설정 판 올리기: 뒤 판에 더한 말을 받되, 지운 줄기의 �
     // 때린·괴롭히·다치게 해·집에 가기 시러·죽이고 싶·뒤질래처럼 지운 줄기의 꼴은 들어오지 않는다
     assert.deepEqual(s.riskWords, [
       ...v2List, "따돌", "은따", "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
-      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말",
+      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말", ...addsOf(5),
     ]);
-    assert.equal(s.riskWordsV, 4);
+    assert.equal(s.riskWordsV, 5);
     // 선생님이 설정을 저장하면 판도 같이 남아, 그 뒤에 지운 말은 다시 들어오지 않는다
     await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "발로 차") });
     assert.ok(!(await getSettings()).riskWords.includes("발로 차"));
   });
   await inSpace("crisk3", async () => {
-    const v3List = DEFAULT_RISK_WORDS.filter((w) => !addsOf(4).includes(w));
+    const v3List = DEFAULT_RISK_WORDS.filter((w) => !addsOf(4).includes(w) && !addsOf(5).includes(w));
     await db().set("meta", "settings", { riskWords: v3List, riskWordsV: 3 });
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, [...v3List, ...addsOf(4)]);
-    assert.equal(s.riskWordsV, 4);
+    assert.deepEqual(s.riskWords, [...v3List, ...addsOf(4), ...addsOf(5)]);
+    assert.equal(s.riskWordsV, 5);
   });
   await inSpace("crisk1", async () => {
     await db().set("meta", "settings", { riskWords: ["죽고 싶", "왕따", "때렸"] }); // 판이 없던 예전 저장
@@ -448,14 +690,46 @@ test("설정 판 올리기: 뒤 판에 더한 말을 받되, 지운 줄기의 �
       "죽고 싶", "왕따", "때렸", "자살", "살기 싫", "때리", "한테 맞", "에게 맞", "죽여", "죽일", "때린", "때릴", "때림", "따돌",
       "죽이고 싶", "죽인다", "은따", "떄리", "떄려", "떄렸",
       "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
-      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말",
+      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말", ...addsOf(5),
     ]);
-    assert.equal(s.riskWordsV, 4);
+    assert.equal(s.riskWordsV, 5);
   });
   await inSpace("crisk0", async () => {
     const s = await getSettings(); // 설정을 한 번도 저장하지 않은 반
     assert.deepEqual(s.riskWords, DEFAULT_RISK_WORDS);
-    assert.equal(s.riskWordsV, 4);
+    assert.equal(s.riskWordsV, 5);
+  });
+});
+
+test("평범한 말에도 걸리는 다른 나라 말(집에 가기 싫은 말·pushing me)은 늘 살피는 말이 아니라 뺄 수 있는 기본 목록에 있다", () => {
+  for (const text of [
+    "我不要回家，我还想玩", "公园太好玩了，不想回家", "My dad was pushing me on the swing", "I don't want to go back home yet, the party is fun",
+    "Con chơi vui quá, không muốn về nhà", "こうえんがたのしくて うちに かえりたくない", "まだ家に帰りたくない",
+  ]) {
+    assert.deepEqual(matchRisk(text, []), [], text);
+    assert.equal(matchRisk(text, DEFAULT_RISK_WORDS).length, 1, text);
+  }
+});
+
+test("설정 판 올리기(5판): 늘 살피던 다른 나라 말이 저장한 목록에 한 번 들어와 계속 찾고, 선생님이 빼면 더는 찾지 않는다", async () => {
+  const { inSpace, db } = await import("./db.ts");
+  const { getSettings, saveSettings } = await import("./data.ts");
+  await inSpace("crisk4", async () => {
+    const v4List = DEFAULT_RISK_WORDS.filter((w) => !addsOf(5).includes(w));
+    await db().set("meta", "settings", { riskWords: v4List, riskWordsV: 4 });
+    const s = await getSettings();
+    assert.deepEqual(s.riskWords, [...v4List, ...addsOf(5)]);
+    assert.equal(s.riskWordsV, 5);
+    // 옮기기 전(늘 살피는 말)처럼 그대로 걸린다
+    const swing = "My dad was pushing me on the swing";
+    assert.deepEqual(matchRisk(swing, s.riskWords), ["pushing me"]);
+    assert.deepEqual(matchRisk("公园太好玩了，不想回家", s.riskWords), ["不想回家"]);
+    // 선생님이 빼고 저장하면 다시 들어오지 않고, 늘 살피는 말에도 없어 걸리지 않는다
+    await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "pushing me" && w !== "不想回家") });
+    const after = await getSettings();
+    assert.ok(!after.riskWords.includes("pushing me") && !after.riskWords.includes("不想回家"));
+    assert.deepEqual(matchRisk(swing, after.riskWords), []);
+    assert.deepEqual(matchRisk("公园太好玩了，不想回家", after.riskWords), []);
   });
 });
 

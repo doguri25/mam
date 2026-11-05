@@ -111,6 +111,10 @@ export const DEFAULT_RISK_WORDS = [
   "죽이고 싶", "죽인다", "집 가기 싫", "집에 들어가기 싫", "집 들어가기 싫", "집에 가고 싶지 않", "집에 안 가고 싶", "집에 가기 실",
   "뒤질래", "디질래", "은따", "떄리", "떄려", "떄렸", "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
   "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말",
+  "죽었으면 좋겠", "뛰어내리고 싶", "두들겨 맞", "얻어맞", "한테 마자", "한테 마져",
+  "don't want to go home", "don't want to go back home", "push me", "pushed me", "pushes me", "pushing me", "jump off",
+  "不想回家", "不要回家", "không muốn về nhà",
+  "に帰りたくない", "にかえりたくない", "うちかえりたくない", "うち帰りたくない", "いえかえりたくない", "家帰りたくない", "とびおりたい",
 ];
 // 예전 기본 목록에 나중에 더한 말(판마다) — 선생님이 목록을 고친 적이 있어도 그 판 뒤에 더한 말만 한 번 더해 준다(riskWordsV).
 // add는 더할 말, from은 그 말의 줄기(먼저 있던 말). from이 있으면 선생님 목록에 줄기가 하나라도 남아 있을 때만 더한다:
@@ -140,6 +144,22 @@ export const RISK_WORDS_BY_V: Record<number, { add: string[]; from?: string[] }[
     // 「숙제가 없어졌으면 좋겠어」처럼 흔한 말에도 걸리므로 늘 살피는 말이 아니라 선생님이 뺄 수 있는 기본 목록에
     { add: ["없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말"] },
   ],
+  5: [
+    // 「모기가 죽었으면 좋겠어」「다이빙대에서 뛰어내리고 싶어」「공에 얻어맞았어」처럼 평범한 말에도 걸려 뺄 수 있는 기본 목록에
+    // (「내가 죽었으면 좋겠」「옥상에서 뛰어내리고 싶」은 늘 살피는 말에 있다)
+    { add: ["죽었으면 좋겠", "뛰어내리고 싶", "두들겨 맞", "얻어맞"] },
+    { add: ["한테 마자", "한테 마져"], from: ["한테 맞"] }, // 「아빠한테 마자써」
+    // 늘 살피는 말에 있던 다른 나라 말 가운데 평범한 말에도 걸리는 것: 「I don't want to go home yet, the party is fun」
+    // 「My dad was pushing me on the swing」「公园太好玩了，不想回家」「Con chơi vui quá, không muốn về nhà」「たのしくて うちに かえりたくない」.
+    // 한국어 「집에 가기 싫」처럼 선생님이 뺄 수 있게 옮긴다. 목록을 저장한 반에는 한 번 더해 주므로 지금처럼 찾다가, 빼면 다시 들어오지 않는다.
+    {
+      add: [
+        "don't want to go home", "don't want to go back home", "push me", "pushed me", "pushes me", "pushing me", "jump off",
+        "不想回家", "不要回家", "không muốn về nhà",
+        "に帰りたくない", "にかえりたくない", "うちかえりたくない", "うち帰りたくない", "いえかえりたくない", "家帰りたくない", "とびおりたい",
+      ],
+    },
+  ],
 };
 export const RISK_WORDS_V = Math.max(...Object.keys(RISK_WORDS_BY_V).map(Number));
 // 판 v에서 저장한 목록(saved)에 더해 줄 말: v보다 뒤 판에 더한 말 가운데 목록에 없고, 줄기가 남아 있는 것(앞 판에서 더한 말도 줄기로 친다).
@@ -164,29 +184,39 @@ export function riskWordsAfter(v: number, saved?: string[]) {
 
 // 선생님이 목록에서 지워도 늘 살피는 말: 스스로 해치려는 마음과, 한국어가 아닌 말로 쓴 위험 표현
 // (학생 화면은 영어·중국어·베트남어·일본어로도 쓸 수 있다). 아이들이 흔히 쓰는 맞춤법(「죽구 싶」「시퍼」「시러」「실타」)도 넣는다.
-// 성조 없이 친 베트남어(「muon chet」)와 가타카나(「シニタイ」), 「dont」「do not」「wanna」, 「被…打」「bị … đánh」는 matchRisk가 알아서 견준다.
+// 성조 없이 친 베트남어(「muon chet」)와 가타카나(「シニタイ」), 「dont」「do not」「wanna」, 「被…打」「bị … đánh」,
+// 「살기가 싫어」「사는게 너무 싫어」, 「ぼくをたたく」는 matchRisk가 알아서 견준다.
+// 평범한 말에도 걸리는 말(「집에 가기 싫」「don't want to go home」「pushing me」)은 여기가 아니라 선생님이 뺄 수 있는 기본 목록에 둔다.
 export const RISK_CORE = [
   "죽고 싶", "사라지고 싶", "없어지고 싶", "자해", "자살", "살기 싫", "죽어버",
   "죽구 싶", "죽고 시퍼", "죽구 시퍼", "죽고 십", "사라지고 시퍼", "없어지고 시퍼", "살기 시러", "살고 싶지 않", "ㅈㄱㅅㅇ",
   "살고 싶지가 않", "살기 실", "사는 게 싫", "사는 거 싫", "뒤지고 싶", "디지고 싶",
+  "죽구 십", "죽고 시프", "죽구 시프", "주그고 싶", "죽꼬 싶", "주거버", "사라지고 십", "없어지고 십",
+  "사라지구 싶", "사라지구 시퍼", "없어지구 싶", "없어지구 시퍼", "사라져 버리고 싶", "없어져 버리고 싶", "뒤져 버리고 싶",
+  "차라리 죽", "죽는 게 나아", "죽는 게 낫", "죽는 게 나을", "내가 죽었으면 좋겠", "난 죽었으면 좋겠", "나는 죽었으면 좋겠",
+  "내가 없어졌으면 좋겠", "내가 사라졌으면 좋겠", "내가 없어지면 좋겠", "내가 사라지면 좋겠", "옥상에서 뛰어내리고 싶", "손목을 긋",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   "disappear forever", "want to disappear", "don't want to live",
   "want to be dead", "wish i was dead", "wish i were dead", "hate my life", "end my life", "don't want to be alive",
   "want die", "wish i could disappear", "hate myself", "killmyself", "selfharm", "cut my self", "hurt my self",
-  "bully", "bullied", "bullies", "beat me", "hit me", "hits me", "hitting me", "hurt me", "hurting me", "don't want to go home",
-  "don't want to go back home",
-  "punched me", "punches me", "punching me", "kicked me", "kicks me", "kicking me", "slapped me", "slaps me", "slapping me",
-  "pushed me", "pushes me", "pushing me", "choked me", "make fun of me", "makes fun of me", "made fun of me", "making fun of me",
-  "想死", "不想活", "活不下去", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "不想回家", "想消失",
-  "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "不要回家", "想杀", "恨自己", "恨我自己",
-  "muốn chết", "không muốn sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh con", "đánh em", "đánh tôi", "đánh mình",
-  "không muốn về nhà", "muốn biến mất", "ghét bản thân",
+  "wana die", "wont to die", "wanttodie", "sucid", "suisid", "wish i was never born", "wish i were never born", "wish i had never been born",
+  "wish i wasn't born", "kill yourself", "kill your self", "kill urself", "kys",
+  "bully", "bullied", "bullies", "bulling", "bulied", "bulies", "beat me", "beats me", "beating me", "hit me", "hits me", "hitting me",
+  "hurt me", "hurts me", "hurting me",
+  "punch me", "punched me", "punches me", "punching me", "kick me", "kicked me", "kicks me", "kicking me",
+  "slap me", "slapped me", "slaps me", "slapping me", "choke me", "choked me", "chokes me", "choking me",
+  "make fun of me", "makes fun of me", "made fun of me", "making fun of me",
+  "想死", "不想活", "活不下去", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "想消失",
+  "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "活著沒意思", "想杀", "恨自己", "恨我自己",
+  "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我",
+  "muốn chết", "mún chết", "không muốn sống", "chán sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh đòn",
+  "đánh con", "đánh em", "đánh tôi", "đánh mình", "muốn biến mất", "ghét bản thân",
   "死にたい", "しにたい", "しんじゃいたい", "消えたい", "きえたい", "いなくなりたい", "自殺", "じさつ", "自傷", "いじめ",
-  "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "に帰りたくない", "にかえりたくない", "なかまはずれ", "仲間外れ",
+  "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "なかまはずれ", "仲間外れ",
   "死にたく", "しにたくな", "死んじゃいたい", "しんでしまいたい", "死んでしまいたい", "きえてしまいたい", "消えてしまいたい", "生きていたくない", "いきていたくない",
-  "消えてなくなりたい", "きえてなくなりたい",
+  "消えてなくなりたい", "きえてなくなりたい", "生きたくない", "リスカ", "飛び降りたい",
   "ぶたれ", "ころしたい", "殺したい", "ころしてやる", "殺してやる", "しねって", "死ね",
-  "うちかえりたくない", "うち帰りたくない", "いえかえりたくない", "家帰りたくない",
+  "ぼくをたたく", "をなぐっ", "をなぐる", "殴っ", "殴る",
 ];
 
 export function emotionOf(name: string) {
