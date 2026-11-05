@@ -20,29 +20,51 @@ const saved = (summary: string, answer = "", over: Partial<Parameters<typeof D.s
 
 test("살펴본 마치지 않은 글과 같은 글로 마친 기록은 이어받고, 새로 위험한 글이 있으면 다시 알린다", () => {
   const X = "학교 가기 싫어 죽고 싶어";
+  const AT = Date.parse("2026-11-05T00:12:00.000Z"); // 그 글을 남기고 12분 뒤에 마침
   const am = draft("1_2026-11-05_am", X);
-  assert.equal(D.seenDraft(saved(X), [am], "1_2026-11-05_am"), am);
-  // 정오를 넘겨 다른 칸에 저장해도 같은 날 다른 칸의 살펴본 글로
-  assert.equal(D.seenDraft(saved(X), [am], "1_2026-11-05_pm"), am);
+  assert.equal(D.seenDraft(saved(X), [am], "1_2026-11-05_am", AT), am);
+  // 정리하는 사이 정오를 넘겨 하교 전 칸에 저장해도 그 아침 글로
+  assert.equal(D.seenDraft(saved(X), [am], "1_2026-11-05_pm", AT), am);
   // 살펴보지 않은 글이면 이어받지 않는다(지금처럼 알림)
-  assert.equal(D.seenDraft(saved(X), [{ ...am, checked: null }], "1_2026-11-05_am"), null);
+  assert.equal(D.seenDraft(saved(X), [{ ...am, checked: null }], "1_2026-11-05_am", AT), null);
   // 되묻기 답에 새로 위험한 말 → 다시 알림
-  assert.equal(D.seenDraft(saved(X, "집에서 맞아", { hits: ["죽고 싶", "맞아"], answerHits: ["맞아"] }), [am], "1_2026-11-05_am"), null);
+  assert.equal(D.seenDraft(saved(X, "집에서 맞아", { hits: ["죽고 싶", "맞아"], answerHits: ["맞아"] }), [am], "1_2026-11-05_am", AT), null);
   // 살펴본 글보다 더 쓴 글(살펴본 글이 기록의 일부일 뿐) → 다시 알림
-  assert.equal(D.seenDraft(saved(`${X} 아빠가 때려`), [am], "1_2026-11-05_am"), null);
+  assert.equal(D.seenDraft(saved(`${X} 아빠가 때려`), [am], "1_2026-11-05_am", AT), null);
   // 두 칸을 이어 붙여야 걸리는 말(어느 칸에도 없던 말) → 다시 알림
-  assert.equal(D.seenDraft(saved(X, "", { hits: ["죽고 싶", "싶어 사라"] }), [am], "1_2026-11-05_am"), null);
+  assert.equal(D.seenDraft(saved(X, "", { hits: ["죽고 싶", "싶어 사라"] }), [am], "1_2026-11-05_am", AT), null);
   // 글 없이 AI만 위험하다고 본 카드 기록 → 이어받지 않음
-  assert.equal(D.seenDraft(saved("", "", { hits: [], summaryHits: [], aiRisk: true }), [am], "1_2026-11-05_am"), null);
-  // 앞서 쓴 글(earlier)에 있던 글도 선생님이 본 글
+  assert.equal(D.seenDraft(saved("", "", { hits: [], summaryHits: [], aiRisk: true }), [am], "1_2026-11-05_am", AT), null);
+  // 그 글을 모두 담지 않은 기록(앞서 쓴 글만 담음)은 그 글을 마친 것이 아니다 → 다시 알림
   const two = draft("1_2026-11-05_am", "사라지고 싶어", { earlier: [{ text: X, hits: ["죽고 싶"], at: "2026-11-04T23:59:00.000Z" }] });
-  assert.equal(D.seenDraft(saved(X), [two], "1_2026-11-05_am"), two);
+  assert.equal(D.seenDraft(saved(X), [two], "1_2026-11-05_am", AT), null);
   // 같은 칸 것을 먼저
   const pm = draft("1_2026-11-05_pm", X, { slot: "pm" });
-  assert.equal(D.seenDraft(saved(X), [am, pm], "1_2026-11-05_pm"), pm);
+  assert.equal(D.seenDraft(saved(X), [am, pm], "1_2026-11-05_pm", AT), pm);
   // 지워도 되나: 그 글의 글이 모두 기록에 담겼을 때만
   assert.equal(D.draftKept(am, X, ""), true);
   assert.equal(D.draftKept(two, X, ""), false);
+});
+
+test("이어받기는 그 글을 마친 기록만: 같은 칸에 살펴보지 않은 새 글이 있거나, 몇 시간 뒤 따로 쓴 글이면 다시 알린다", () => {
+  const am = draft("1_2026-11-05_am", "친구들이 놀려서 죽고 싶어");
+  const later = Date.parse("2026-11-05T05:00:00.000Z"); // 다섯 시간 뒤(오후)
+  // 오후에 새로 남긴 마치지 않은 글(살펴보지 않음)이 있으면 아침에 살펴본 글이 덮지 않는다
+  const pm = draft("1_2026-11-05_pm", "죽고 싶어", { slot: "pm", checked: null, at: "2026-11-05T04:59:00.000Z" });
+  assert.equal(D.seenDraft(saved("죽고 싶어"), [am, pm], "1_2026-11-05_pm", later), null);
+  // 같은 글이라도 오후에 새로 쓴 것이면(아침 글과 이어지지 않음) 다시 알림
+  const amSame = draft("1_2026-11-05_am", "죽고 싶어");
+  assert.equal(D.seenDraft(saved("죽고 싶어"), [amSame], "1_2026-11-05_pm", later), null);
+  // 카드로 남긴 오후 기록의 되묻기 답 「죽고 싶어」(아침 글의 일부) → 그 글을 마친 것이 아님
+  assert.equal(D.seenDraft(saved("", "죽고 싶어", { summaryHits: [], answerHits: ["죽고 싶"] }), [am], "1_2026-11-05_pm", Date.parse("2026-11-05T00:12:00.000Z")), null);
+  // 같은 칸이라도 한참 뒤에 마친 기록은 다시 알림
+  assert.equal(D.seenDraft(saved("죽고 싶어"), [amSame], "1_2026-11-05_am", Date.parse("2026-11-05T02:00:00.000Z")), null);
+  // 하교 전 글은 아침 기록으로 이어지지 않는다(시간은 거꾸로 가지 않음)
+  const pmChecked = draft("1_2026-11-05_pm", "죽고 싶어", { slot: "pm" });
+  assert.equal(D.seenDraft(saved("죽고 싶어"), [pmChecked], "1_2026-11-05_am", Date.parse("2026-11-05T00:12:00.000Z")), null);
+  // 그 무렵인지: 앞뒤 30분 안
+  assert.equal(D.recentDraft(amSame, Date.parse("2026-11-05T00:29:00.000Z")), true);
+  assert.equal(D.recentDraft(amSame, Date.parse("2026-11-05T00:31:00.000Z")), false);
 });
 
 test("살펴본 마치지 않은 글의 조치 기록을 마친 마음 기록으로 옮긴다(이름은 via에, 무엇을 살펴봤나는 마음 기록으로)", async () => {

@@ -89,10 +89,12 @@ const INNOCENT = new RegExp([
   "발로(?<=(?:공을?\\s?|맨)발로)(?=\\s?[차-찿])", "발로(?=\\s?(?:차가[운워웠]|착지|차는\\s?연습))",
   "매(?<=[열남자]매)(?=를?\\s?맞)", "매(?=를?\\s?맞[혀히춤춰추출췄])",
   "죽인(?<=맛(?:이|은|도)?\\s?(?:(?:진짜|정말|완전|너무|대박)\\s?)?죽인)(?=다)", "죽(?=(?:을|이|도|은|만)?\\s?먹)",
+  "踢了?我(?=[的の]?\\s?(?:足?球|毽))", // 「他踢我的球」(내 공을 찼다)
 ].join("|"), "gu");
 // 영어 낱말로 견줄 때 가리는 평범한 말: 「I want to diet」의 diet가 「want to die」로, 「kick me the ball」(공을 차 줘)이 「kick me」로,
 // 「In the end it all worked out」(끝내는 다 잘됐다)이 「end it all」로, 「We ran 5 kms」(킬로미터)가 「kms」로 걸리지 않게
-const LOOSE_INNOCENT = / d(?=iet)| m(?=e the (?:ball|puck) )|(?<= the) e(?=nd it all )|(?<= \d+) k(?=ms )/g;
+// 「Nước đá con thích lắm」(얼음을 좋아해요)의 nước đá(얼음)가 「đá con」(아이를 차)으로 걸리지 않게
+const LOOSE_INNOCENT = / d(?=iet)| m(?=e the (?:ball|puck) )|(?<= the) e(?=nd it all )|(?<= \d+) k(?=ms )|(?<= n(?:ước|uoc|ươc|uớc)) [dđ](?=[aá] )/g;
 // 낱말 하나로만 찾는 말(앞머리만 같은 더 긴 낱말에는 걸지 않음)
 const WHOLE = new Set(["kys", "kms"]);
 // 한 글자씩 띄어 쓴 영어 낱말(「k i l l m y s e l f」): 붙여서 한 번 더 견준다
@@ -317,6 +319,11 @@ const MARK_C = "(?:(?!~)[\\p{S}\\p{M}*\\-_/\\\\#&@%ㅠㅜ])";
 const MARK = `${MARK_C}*`;
 const DOT = "[.·ㆍ~〜]";
 const DOT_AFTER = "(?=[^가-힣]|$|[하한할함합했당시충])";
+// 쉼표·느낌표·물음표·말줄임은 문장을 여는 「자,」일 때가 많아, 둘째 글자 뒤가 그 말을 하려는 꼴(「하고·할·했·한다·당했·시도·충동」)이거나
+// 글이 끝날 때만 건넌다: 「자,살하고싶다」「자!살 하고 싶어」「자...살 할 거야」「자?살」「왕,따 당했어」는 찾고,
+// 「자,해 보자」「자,살펴보자」「자,해야지」「자,해버리자」는 뺀다.
+const CLAUSE = "[,!?.]{1,8}"; // 겹친 되풀이 없이 길이를 묶는다(「자,,,,,,…」가 오래 걸리지 않게)
+const CLAUSE_AFTER = "(?=\\s*(?:하고|하구|할|했|한다|한대|하려|하는|하면|하기|당했|당하|당해|당한|시도|충동)|[\\s.!?~]*$)";
 
 function cjkFind(w: string, key: string): Find {
   // 건너뛸 수 있는 글자를 뺀 말이 tight에 있나. 끝 글자가 받침 없는 한글이면 받침이 붙은 글자도, 받침이 ㅆ이면 ㅅ도 된다.
@@ -357,7 +364,7 @@ function cjkFind(w: string, key: string): Find {
     const lead = `(?<![ㄱ-ㆎ가-힣])${esc(a)}`;
     src = space
       ? `${esc(a)}\\s*${last}|${lead}(?:\\s|${MARK_C})*${last}`
-      : `${esc(a)}${last}|${lead}${MARK}(?:${last}|${DOT}${MARK}${last}${DOT_AFTER})`;
+      : `${esc(a)}${last}|${lead}${MARK}(?:${last}|${DOT}${MARK}${last}${DOT_AFTER}|${CLAUSE}${MARK}${last}${CLAUSE_AFTER})`;
   } else {
     // 글자가 하나 이하로 남으면(「ㅠㅠ」「💀죽」) 쓴 그대로 찾는다(말에 빈칸이 있던 자리만 빈칸을 건너)
     src = w.split(/[\s\p{P}]+/u).filter(Boolean).map((p) => [...p].map(esc).join("")).join("\\s*");

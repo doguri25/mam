@@ -5,7 +5,7 @@ import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysi
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
-import { addRiskDraftSummary, draftKept, dropRiskDraft, getRiskDrafts, moveRiskActions, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
+import { addRiskDraftSummary, draftKept, dropRiskDraft, getRiskDrafts, moveRiskActions, putRiskDraft, recentDraft, saveLook, seenDraft } from "@/lib/data";
 import { riskSrcOf } from "@/components/teacher/alerts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -419,7 +419,7 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
       seen = seenDraft({
         summary, answer, hits, aiRisk: r.aiRisk === true,
         summaryHits: [...new Set([...matchRisk(summary, settings.riskWords), ...koHits])], answerHits: matchRisk(answer, settings.riskWords),
-      }, drafts, id);
+      }, drafts, id, timeOf(createdAt));
     } catch (e) {
       console.error("살펴본 마치지 않은 글 찾기 실패(그대로 알림)", e); // 못 찾으면 지금처럼 알린다
     }
@@ -488,7 +488,12 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   try {
     const done = (d: RiskDraft) => draftKept(d, summary, answer) && (!d.checked || (d.id === moveFrom?.id && d.at === moveFrom.at));
     // 정리하는 사이 정오를 넘기면 글은 아침 칸으로 먼저 남고 기록은 하교 전 칸에 저장된다 → 같은 날 다른 칸의 같은 글도 함께 본다
-    if (own) for (const sl of [saved.slot, saved.slot === "am" ? "pm" : "am"]) await dropRiskDraft(`${s.no}_${date}_${sl}`, done);
+    // (그 무렵 쓴 글만 — 몇 시간 앞서 따로 남긴 아침 글은 그 칸의 알림으로 그대로 둔다)
+    if (own) {
+      await dropRiskDraft(`${s.no}_${date}_${saved.slot}`, done);
+      const other = `${s.no}_${date}_${saved.slot === "am" ? "pm" : "am"}`;
+      await dropRiskDraft(other, (d) => recentDraft(d, timeOf(createdAt)) && done(d));
+    }
   } catch (e) {
     console.error("마치지 않은 위험 표현 정리 실패", e);
   }
