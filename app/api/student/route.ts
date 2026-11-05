@@ -5,7 +5,8 @@ import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysi
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
 import { aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, putRecord, rawKey, recordsFrom, recordsOf, touch, type Settings } from "@/lib/data";
-import { addRiskDraftSummary, dropRiskDraft, putRiskDraft, saveLook } from "@/lib/data";
+import { addRiskDraftSummary, draftKept, dropRiskDraft, getRiskDrafts, moveRiskActions, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
+import { riskSrcOf } from "@/components/teacher/alerts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -127,7 +128,7 @@ async function handle(req: NextRequest, body: Body) {
         flowers: [...month].map(([d, emotion]) => ({ date: d, emotion })),
         look: looks[s.no] ?? DEFAULT_LOOK,
         words: wordsOf(mine), // 마음 친구 성장: 써 본 서로 다른 감정 단어
-        unread: inbox.filter((l) => l.status === "ok" && !l.readAt).length,
+        unread: inbox.filter((l) => l.status === "ok" && !l.readAt && !l.toPractice).length, // 받은 쪽지(letters)와 같은 것만 센다
         reflected: !!ref,
         selfCheck: round ? { id: round.id, title: round.title, done: answered } : null, // 선생님이 연 마음 점검 회차
         demo: isDemo(),
@@ -219,9 +220,10 @@ async function handle(req: NextRequest, body: Body) {
       });
     }
     // 읽음 표시만 한 번에 고친다(읽고 통째로 다시 쓰면 그 사이 선생님이 살펴본 표시·고친 글을 덮는다). 없는 쪽지는 만들지 않는다.
+    // 연습 학생에게 가던 쪽지는 같은 번호의 새 학생이 읽은 것으로 적지 않는다
     if (body.action === "readLetter") {
       const at = new Date().toISOString();
-      await db().update<Letter>("letters", String(body.id), (l) => (l && l.to === s.no && !l.readAt ? { ...l, readAt: at } : undefined));
+      await db().update<Letter>("letters", String(body.id), (l) => (l && l.to === s.no && !l.readAt && !l.toPractice ? { ...l, readAt: at } : undefined));
       return NextResponse.json({ ok: true });
     }
 
@@ -408,6 +410,21 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   const voice = r.method === "voice" ? cleanFeatures(r.voice) : null;
   const id = `${s.no}_${date}_${r.slot}`;
   const createdAt = new Date(opt.madeAt ?? Date.now()).toISOString();
+  // 선생님이 이미 「살펴봤어요」한 마치지 않은 글과 같은 글로 기록을 마쳤나(새로 위험한 글이 없을 때만 — lib/data.ts seenDraft).
+  // 그렇다면 살펴본 것으로 이어받는다: 위험 표시·걸린 말은 그대로(누적 기록·리포트·CSV에 살펴본 위험 표현으로 남음), 알림·휴대폰 알림은 다시 내지 않는다.
+  let seen: RiskDraft | null = null;
+  if (own) {
+    try {
+      const drafts = (await getRiskDrafts()).filter((d) => d.no === s.no && d.date === date);
+      seen = seenDraft({
+        summary, answer, hits, aiRisk: r.aiRisk === true,
+        summaryHits: [...new Set([...matchRisk(summary, settings.riskWords), ...koHits])], answerHits: matchRisk(answer, settings.riskWords),
+      }, drafts, id);
+    } catch (e) {
+      console.error("살펴본 마치지 않은 글 찾기 실패(그대로 알림)", e); // 못 찾으면 지금처럼 알린다
+    }
+  }
+  const alertNew = own && !seen; // 선생님이 아직 보지 않은 위험한 글이 이 기록에 있다
   const rec: MoodRecord = {
     id, no: s.no, date, slot: r.slot, method: r.method,
     emotion: r.emotion, intensity: r.intensity, reason: r.reason, summary,
@@ -424,13 +441,19 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     ...(isDemo() || s.demo ? { demo: true } : {}),
   };
   const old = await db().get<MoodRecord>("records", id);
-  let saved: MoodRecord = own ? { ...rec, riskAt: createdAt } : rec;
+  let saved: MoodRecord = own ? { ...rec, riskAt: createdAt, ...(seen ? { riskChecked: seen.checked } : {}) } : rec;
   // 시각은 글자가 아니라 때로 견준다(체험 반 기록처럼 「+09:00」로 적힌 시각과 「Z」 시각이 섞여도)
   if (old && opt.madeAt && timeOf(old.createdAt) > timeOf(createdAt)) {
-    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로)
+    // 늦게 도착한 앞 기록: 지금 기록은 그대로, 앞 기록 자리에만 끼워 넣는다(위험한 글이면 다시 살펴보게 riskAt을 새로).
+    // 다시 연 알림과 그 조치 기록이 이미 살펴본 지금 글이 아니라 새로 온 그 글을 보이게 판(riskSrc)을 적는다.
+    // 알림이 아직 열려 있었으면(살펴보기 전) 앞서 열린 글도 함께 가리킨다.
     const prev = trimPrev([...(old.prev ?? []), toPrev(rec)].sort((a, b) => timeOf(a.createdAt) - timeOf(b.createdAt)));
-    saved = own
-      ? { ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])], riskAt: new Date().toISOString() }
+    const open = old.risk && !old.riskChecked;
+    saved = alertNew
+      ? {
+          ...old, prev, risk: true, riskChecked: null, riskHits: [...new Set([...old.riskHits, ...hits])], riskAt: new Date().toISOString(),
+          riskSrc: [...new Set([...(open ? riskSrcOf(old) : []), createdAt])],
+        }
       : { ...old, prev };
   } else if (old) {
     const carry = old.risk && !old.riskChecked; // 아직 살펴보지 않은 위험 표시
@@ -438,23 +461,38 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
       ...saved,
       prev: trimPrev([...(old.prev ?? []), toPrev(old)]),
       ...(old.calm?.length ? { calm: old.calm } : {}),
-      // 새 글이 위험하지 않으면 위험 내용은 그대로(선생님이 보던 버전 그대로) — 새 글이 위험하면 위에서 riskAt을 새로 적었다
-      ...(carry ? { risk: true, riskHits: [...new Set([...hits, ...old.riskHits])], ...(own ? {} : { riskAt: old.riskAt ?? old.createdAt }) } : {}),
+      // 새 글이 위험하지 않으면(또는 이미 살펴본 글이면) 위험 내용은 그대로(선생님이 보던 버전·글 그대로) — 새 글이 위험하면 위에서 riskAt을 새로 적었다
+      ...(carry ? {
+        risk: true, riskChecked: null, riskHits: [...new Set([...hits, ...old.riskHits])],
+        ...(alertNew
+          ? (old.riskSrc ? { riskSrc: [...old.riskSrc, createdAt] } : {})
+          : { riskAt: old.riskAt ?? old.createdAt, ...(own || old.riskSrc ? { riskSrc: riskSrcOf(old) } : {}) }),
+      } : {}),
     };
   }
   await putRecord(saved);
+  // 살펴본 마치지 않은 글을 이어받았으면 그 글에 남긴 조치 기록을 이 기록으로 옮긴다(그 글이 모두 이 기록에 담겼을 때만 — 그래야 지워도 글을 잃지 않음).
+  // 담기지 않은 앞서 쓴 글이 있으면 그 글(살펴본 것)과 조치 기록은 그대로 둔다.
+  const moveFrom = seen && draftKept(seen, summary, answer) ? seen : null;
+  if (moveFrom) {
+    try {
+      await moveRiskActions(`draft:${moveFrom.id}`, saved.id, saved.date);
+    } catch (e) {
+      console.error("살펴본 마치지 않은 글의 조치 기록 옮기기 실패", e); // 옮기지 못해도 조치 기록은 그 이름으로 남는다
+    }
+  }
   // 마치지 않은 위험 표현: 이번에 저장한 글이 바로 그 글(위험 표시까지)이면 기록에 담긴 것이니 지운다.
   // 다른 글이나 카드만 저장했으면 그대로 둔다(선생님 알림에 「기록을 마치지 않고 나감」으로 남아, 알림만 가고 글이 사라지지 않게).
   // 견주기는 지우는 그 순간의 글로 한다(그사이 새로 쓴 위험한 글이 함께 지워지지 않게).
+  // 살펴본 글은 이어받은 바로 그 판(at)일 때만 지운다(그사이 학생이 새로 쓴 글은 살펴보지 않은 알림으로 남게) → 같은 일이 한 번만 보인다.
   try {
-    const kept = (t: string) => !!t && (summary.includes(t) || answer.includes(t));
-    const done = (d: RiskDraft) => !d.checked && [d.text, ...(d.earlier ?? []).map((e) => e.text)].every(kept);
+    const done = (d: RiskDraft) => draftKept(d, summary, answer) && (!d.checked || (d.id === moveFrom?.id && d.at === moveFrom.at));
     // 정리하는 사이 정오를 넘기면 글은 아침 칸으로 먼저 남고 기록은 하교 전 칸에 저장된다 → 같은 날 다른 칸의 같은 글도 함께 본다
     if (own) for (const sl of [saved.slot, saved.slot === "am" ? "pm" : "am"]) await dropRiskDraft(`${s.no}_${date}_${sl}`, done);
   } catch (e) {
     console.error("마치지 않은 위험 표현 정리 실패", e);
   }
-  if (own) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
+  if (alertNew) alertTeacher(saved.no, "기록", `risk-${saved.id}`);
   // 학생이 쓴 글(되묻기 답·말한 문장)에 위험한 말이 있었으면 화면이 응원·축하 대신 고맙다는 말을 보이게 그 말만 보낸다(위험 표시·걸린 말은 보내지 않음)
   return NextResponse.json({ record: publicRecord(saved), ...(hits.length ? { reply: RISK_REPLY[lang] } : {}) });
 }
@@ -490,5 +528,5 @@ function validCard(c: { emotion?: unknown; intensity?: unknown; reason?: unknown
 
 // 학생 화면에는 위험 표시와 말투 판단을 보내지 않는다
 function publicRecord(r: MoodRecord) {
-  return { ...r, prev: undefined, riskSelf: undefined, riskAt: undefined, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
+  return { ...r, prev: undefined, riskSelf: undefined, riskAt: undefined, riskSrc: undefined, risk: undefined, riskHits: undefined, riskChecked: undefined, tone: undefined, toneWhy: undefined, toneBy: undefined, voice: undefined };
 }
