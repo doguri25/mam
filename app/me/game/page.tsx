@@ -69,7 +69,7 @@ export default function GamePage() {
             </p>
             <h2 className="font-display text-3xl leading-snug sm:text-4xl">
               {q.text[lang]}
-              <button onClick={() => speak(q.text[lang], true, lang)} className="ml-2 inline-grid size-11 place-items-center rounded-full bg-leaf-soft align-middle" aria-label={tt("sayIt")}><Doodle name="speaker" size={26} /></button>
+              <button onClick={() => speak(q.text[lang], true, lang)} className="-my-0.5 ml-1.5 inline-grid size-12 place-items-center rounded-full align-middle" aria-label={tt("sayIt")}><span className="grid size-11 place-items-center rounded-full bg-leaf-soft"><Doodle name="speaker" size={26} /></span></button>
             </h2>
             <div className="grid gap-3 sm:grid-cols-3">
               {q.options.map((o) => {

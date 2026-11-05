@@ -15,10 +15,11 @@ import { backToMe, useBackSteps } from "@/lib/back";
 
 type Open = { round: { id: string; title: string } | null; answers: number[] | null };
 
+// 읽어 주기 단추: 보이는 동그라미는 40px 그대로, 누르는 곳은 48px(위아래 여백을 줄여 줄 높이는 그대로)
 function SayBtn({ text, lang }: { text: string; lang: Lang }) {
   return (
-    <button type="button" onClick={() => speak(text, true, lang)} className="ml-2 inline-grid size-10 place-items-center rounded-full bg-leaf-soft align-middle" aria-label={t(lang, "sayIt")}>
-      <Doodle name="speaker" size={24} />
+    <button type="button" onClick={() => speak(text, true, lang)} className="-my-1 ml-1 inline-grid size-12 place-items-center rounded-full align-middle" aria-label={t(lang, "sayIt")}>
+      <span className="grid size-10 place-items-center rounded-full bg-leaf-soft"><Doodle name="speaker" size={24} /></span>
     </button>
   );
 }
@@ -30,6 +31,7 @@ export default function CheckPage() {
   const [answers, setAnswers] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [changed, setChanged] = useState(false); // 답하는 사이 선생님이 새 회차를 열었다(처음 화면에 안내)
   const [cheer, setCheer] = useState(0);
   const lock = useRef(false); // 두 번 눌러 다음 문장까지 같은 답으로 넘어가지 않게 잠깐 잠근다
 
@@ -72,6 +74,20 @@ export default function CheckPage() {
       setCheer((n) => n + 1);
       speak(tt("checkThanks"), false, lang);
     } catch (e) {
+      if ((e as { status?: number }).status === 409) {
+        // 답하는 사이 회차가 바뀌었거나 닫혔다: 새 회차를 다시 읽어 처음 화면으로(앞 회차 답을 새 회차에 넣지 않는다)
+        try {
+          const fresh = await api<Open>("student", "selfCheck");
+          setOpen(fresh);
+          setAnswers([]);
+          setChanged(!!fresh.round);
+          setStep(-1);
+          setBusy(false);
+          return;
+        } catch {
+          // 다시 읽지 못하면 아래처럼 안내만
+        }
+      }
       setErr(errText(lang, (e as Error).message));
     }
     setBusy(false);
@@ -83,6 +99,7 @@ export default function CheckPage() {
       <StudentFrame title={`${title} · ${open.round.title}`} lang={lang} root="check">
         <div className="card flex flex-col items-center gap-4 py-6 text-center">
           <BuddyLazy look={me.look} emotion={done ? "뿌듯해요" : "반가워요"} cheer={cheer} size={200} className="size-44 sm:size-[200px]" scene />
+          {changed && !done && <p role="status" className="max-w-xl rounded-2xl bg-[#fff8e1] px-4 py-2">{tt("checkChanged")}</p>}
           <p className="max-w-xl font-display text-2xl leading-snug">
             {step >= SELF_ITEMS.length ? tt("checkThanks") : done ? tt("checkDone") : tt("checkIntro")}
             <SayBtn lang={lang} text={step >= SELF_ITEMS.length ? tt("checkThanks") : done ? tt("checkDone") : tt("checkIntro")} />
@@ -94,7 +111,7 @@ export default function CheckPage() {
                 <Link href="/me" onClick={backToMe} className="btn-main px-8">{tt("buddyBack")}</Link>
               </>
             ) : (
-              <button onClick={() => { setAnswers([]); setStep(0); }} className="btn-main px-10 text-xl">{tt("checkStart")}</button>
+              <button onClick={() => { setAnswers([]); setChanged(false); setStep(0); }} className="btn-main px-10 text-xl">{tt("checkStart")}</button>
             )}
           </div>
         </div>

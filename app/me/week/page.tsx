@@ -57,7 +57,7 @@ export default function WeekPage() {
                   <p className="text-sm font-bold text-soft">{WEEKDAYS[lang][new Date(`${d}T00:00:00Z`).getUTCDay()]} {Number(d.slice(8))}</p>
                   {recs.length ? recs.map((r) => (
                     <span key={r.id} className="flex flex-col items-center">
-                      <EmotionArt name={r.word || r.emotion} size={48} />
+                      <EmotionArt lang={lang} name={r.word || r.emotion} size={48} />
                       <span className="text-center text-xs leading-tight">{w(lang, r.word || r.emotion)}</span>
                     </span>
                   )) : <span className="py-4 text-line">·</span>}

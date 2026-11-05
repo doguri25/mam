@@ -24,7 +24,7 @@ export default function WordsPage() {
     return (
       <div className={`rounded-2xl border-2 p-3 ${dict.mine.includes(word) ? "border-leaf bg-leaf-soft/50" : "border-line bg-card"}`}>
         <p className="flex flex-wrap items-center gap-x-2">
-          <EmotionArt name={word} size={44} />
+          <EmotionArt lang={lang} name={word} size={44} />
           <b className="text-xl">{w(lang, word)}</b>
           {lang !== "ko" && <span className="text-sm text-soft">{word}</span>}
           {dict.vocab.includes(word) && <span title={tt("dictClass")}><Doodle name="star" size={20} /></span>}
@@ -45,7 +45,7 @@ export default function WordsPage() {
         {Object.entries(SUB_WORDS).map(([emotion, words]) => (
           <section key={emotion} className="card space-y-2">
             <h2 className="flex items-center gap-2 font-display text-2xl" style={{ color: EMOTION_COLOR[emotion] }}>
-              <EmotionArt name={emotion} size={40} /> {w(lang, emotion)}
+              <EmotionArt lang={lang} name={emotion} size={40} /> {w(lang, emotion)}
             </h2>
             <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3">
               {words.map((x) => <Word key={x} word={x} />)}

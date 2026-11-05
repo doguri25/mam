@@ -4,6 +4,7 @@ import Doodle, { type DoodleName } from "./Doodle";
 import BuddyFace from "./BuddyFace";
 import { parentOf } from "./buddy/expr";
 import { INK, mix, paints } from "./buddy/paint";
+import { w, type Lang } from "@/lib/i18n";
 import { DEFAULT_LOOK, GROUPS, groupOf } from "@/lib/shared";
 
 export const EMOTION_COLOR: Record<string, string> = {
@@ -22,8 +23,9 @@ export function cardColor(name: string) {
 const colorOf = cardColor;
 
 // 감정 그림카드: 그 감정 색을 입은 마음 친구가 그 표정을 짓는다(이름은 큰 감정이든 더 꼭 맞는 말이든)
-export function EmotionArt({ name, size = 56, className }: { name: string; size?: number; className?: string }) {
-  return <BuddyFace look={{ ...DEFAULT_LOOK, color: colorOf(name) }} emotion={name} size={size} className={className} aura={false} label={name} />;
+// lang: 읽어 주기(그림 이름)를 학생이 고른 언어로. 없으면 한국어(선생님 화면)
+export function EmotionArt({ name, size = 56, className, lang }: { name: string; size?: number; className?: string; lang?: Lang }) {
+  return <BuddyFace look={{ ...DEFAULT_LOOK, color: colorOf(name) }} emotion={name} size={size} className={className} aura={false} label={lang ? w(lang, name) : name} />;
 }
 
 const REASONS: Record<string, { bg: string; icon: DoodleName }> = {
@@ -34,10 +36,10 @@ const REASONS: Record<string, { bg: string; icon: DoodleName }> = {
   그냥: { bg: "#eef1f4", icon: "cloudDots" },
 };
 
-export function ReasonArt({ name, size = 44 }: { name: string; size?: number }) {
+export function ReasonArt({ name, size = 44, lang }: { name: string; size?: number; lang?: Lang }) {
   const r = REASONS[name] ?? REASONS["그냥"];
   return (
-    <span role="img" aria-label={name} className="grid shrink-0 place-items-center" style={{ width: size, height: size, borderRadius: size * 0.28, background: r.bg }}>
+    <span role="img" aria-label={lang ? w(lang, name) : name} className="grid shrink-0 place-items-center" style={{ width: size, height: size, borderRadius: size * 0.28, background: r.bg }}>
       <Doodle name={r.icon} size={Math.round(size * 0.74)} className="block" />
     </span>
   );
