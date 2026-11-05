@@ -78,22 +78,47 @@ export default function TeacherPage() {
   const stamp = useRef<Stamp | null>(null);
   const day = useRef(""); // 불러온 「오늘」(한국 날짜)
   const dayTried = useRef(""); // 날짜가 바뀌어 다시 불러온 날(기기 시계가 틀려도 한 번만)
+  // 응답 순서 지키기: 다시 읽기(load)·변경 확인(poll)은 시작할 때 번호표(seq)를 받고, 지금 화면보다 나중에 시작한 것의 응답만 쓴다.
+  // 느린 앞 응답이 늦게 와서 방금 닫은 알림을 되살리거나(stamp도 뒤로 감) 잠근 화면을 다시 열지 않게.
+  // epoch: 잠근 때의 번호 — 그 전에 떠난 요청의 응답(401 포함)은 잠금을 푼 뒤에도 쓰지 않는다(다른 학급으로 들어와도 섞이지 않게).
+  const seq = useRef(0);
+  const applied = useRef(0);
+  const epoch = useRef(0);
+  const locked = useRef(false);
+  const rawRef = useRef<OverviewRaw | null>(null); // 마지막으로 화면에 쓴 것(바뀐 기록을 합칠 때 그 자리에서 바로 쓰려고)
+  const fresh = useCallback((my: number) => !locked.current && my > epoch.current && my > applied.current, []);
 
-  // 잠그기·비밀번호가 풀렸을 때: 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
-  const lockOut = useCallback(() => {
-    writeCache(null);
+  // 잠그기·「학생 화면」을 누른 그때: 늦게 오는 응답을 모두 버리고, 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
+  const freeze = useCallback(() => {
+    locked.current = true;
+    epoch.current = seq.current;
     stamp.current = null;
+    writeCache(null);
+  }, []);
+  // 잠그기·비밀번호가 풀렸을 때: 위 + 위험 표현 글이 든 화면 데이터도 버리고 비밀번호 화면으로
+  const lockOut = useCallback(() => {
+    freeze();
+    rawRef.current = null;
+    setRaw(null);
     setNeedLogin(true);
+  }, [freeze]);
+  const show = useCallback((o: OverviewRaw) => {
+    rawRef.current = o;
+    setRaw(o);
+    setVersion((v) => v + 1);
   }, []);
 
   // 처음·설정이 바뀌었을 때: 전부(최근 34일 기록)
   const load = useCallback(async () => {
+    const my = ++seq.current;
     try {
       const c = readCache();
       const o = await api<OverviewRaw>("teacher", "overview", c ? { since: c.at - 5000, prefix: c.prefix, wipe: c.wipe } : {});
+      if (!fresh(my)) return; // 그사이 잠갔거나 더 나중에 시작한 응답을 이미 썼다
       // 체험 표로는 정식 선생님 화면을 열지 않는다. 체험은 /try의 「선생님으로 둘러보기」(/teacher?try)로만 들어온다.
       if (o.trial && !new URLSearchParams(location.search).has("try")) {
-        await api("try", "end");
+        freeze();
+        await api("try", "end").catch(() => {}); // 끝내기가 실패해도 체험 화면은 열지 않는다
         lockOut();
         return;
       }
@@ -104,56 +129,65 @@ export default function TeacherPage() {
         o.records = [...byId.values()].filter((r) => r.date >= from);
         o.demo ||= o.records.some((r) => r.demo);
       }
+      applied.current = my;
       keep(o.records, o.stamp, o.dataPrefix);
       stamp.current = o.stamp;
       day.current = o.today;
-      setRaw(o);
-      setVersion((v) => v + 1);
+      show(o);
       setNeedLogin(false);
     } catch (e) {
+      if (locked.current || my <= epoch.current) return; // 잠근 뒤에 온 실패는 볼 것 없음
       if ((e as { status?: number }).status === 401) lockOut();
       else dayTried.current = ""; // 날짜가 바뀌어 불렀는데 실패했으면 다음 확인 때 다시
     }
-  }, [lockOut]);
+  }, [fresh, show, freeze, lockOut]);
+  // 비밀번호로 다시 들어왔을 때만 잠금을 푼다(잠금 전에 떠난 응답은 epoch로 계속 버림)
+  const unlock = useCallback(() => {
+    locked.current = false;
+    return load();
+  }, [load]);
 
   // 20초마다 변경 표시(문서 1개)만 읽고, 기록만 바뀌었으면 바뀐 기록만 받아 합친다 → Firestore 읽기를 크게 줄임.
   // other(쪽지·돌아보기·명단 등)나 wipe(지움·연습 데이터)가 바뀌었으면 통째로 다시 읽는다. 바뀐 기록을 받는 사이에
   // other·wipe가 바뀌었어도(받은 stamp에 담겨 옴) 통째로 다시 읽는다 — 그 값을 그대로 적어 두면 다음 확인이 바뀐 것을 못 본다.
   // 기록만 합칠 때는 records 칸만 앞으로 옮기고 other·wipe는 이 기기가 실제로 읽은 판 그대로 둔다(저장해 둔 기록도 그 판으로).
+  // 번호표: 변경 확인도 시작할 때 받는다 → 그 뒤에 시작한 다시 읽기를 이미 썼으면 이 결과를 버리고, 이 결과를 쓴 뒤 늦게 온 앞 다시 읽기도 버린다.
   const poll = useCallback(async () => {
-    if (document.visibilityState !== "visible" || !stamp.current) return;
+    if (document.visibilityState !== "visible" || !stamp.current || locked.current) return;
     // 자정이 지나 한국 날짜가 바뀌었으면 「오늘」·이번 주를 새로 받는다
     const now = kToday();
     if (now !== day.current && now !== dayTried.current) {
       dayTried.current = now;
       return load();
     }
+    const my = ++seq.current;
     try {
       const s = await api<Stamp>("teacher", "stamp");
       const prev = stamp.current;
-      if (!prev) return;
+      if (!prev || !fresh(my)) return;
       const moved = (x: Stamp) => x.other !== prev.other || (x.wipe ?? 0) !== (prev.wipe ?? 0);
       if (moved(s)) return load();
       if (s.records === prev.records) return;
       const { records, stamp: next } = await api<{ records: MoodRecord[]; stamp: Stamp }>("teacher", "changes", { since: prev.records - 5000 });
-      if (stamp.current !== prev) return; // 그사이 통째로 다시 읽었으면(잠금·다른 다시 읽기) 이 결과는 버린다
+      // 그사이 통째로 다시 읽었거나(더 나중 번호표) 잠갔으면 이 결과는 버린다
+      const o = rawRef.current;
+      if (stamp.current !== prev || !fresh(my) || !o) return;
       if (moved(next)) return load();
       const safe: Stamp = { ...prev, records: next.records };
+      const byId = new Map(o.records.map((r) => [r.id, r]));
+      for (const r of records) byId.set(r.id, r);
+      const from = addDays(o.today, -34);
+      const merged = [...byId.values()].filter((r) => r.date >= from);
+      // 저장·화면 바꾸기는 여기서 한 번에(setState 갱신 함수 안에서 저장하면, 그 함수가 도는 때엔 이미 잠갔을 수 있다)
+      applied.current = my;
       stamp.current = safe;
-      setRaw((o) => {
-        if (!o) return o;
-        const byId = new Map(o.records.map((r) => [r.id, r]));
-        for (const r of records) byId.set(r.id, r);
-        const from = addDays(o.today, -34);
-        const merged = [...byId.values()].filter((r) => r.date >= from);
-        keep(merged, safe, o.dataPrefix);
-        return { ...o, records: merged };
-      });
-      setVersion((v) => v + 1);
+      keep(merged, safe, o.dataPrefix);
+      show({ ...o, records: merged });
     } catch (e) {
+      if (locked.current || my <= epoch.current) return;
       if ((e as { status?: number }).status === 401) lockOut();
     }
-  }, [load, lockOut]);
+  }, [fresh, show, load, lockOut]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load는 fetch가 끝난 뒤에만 setState한다
@@ -162,7 +196,7 @@ export default function TeacherPage() {
     return () => clearInterval(t);
   }, [load, poll]);
 
-  if (needLogin) return <Login onDone={load} />;
+  if (needLogin) return <Login onDone={unlock} />;
   if (!raw) return <main className="grid min-h-dvh place-items-center text-soft">불러오는 중…</main>;
   const data: Overview = {
     ...raw,
@@ -186,7 +220,9 @@ export default function TeacherPage() {
     await api("teacher", "logout", off ? { endpoint: sub.endpoint } : {}).catch(() => {});
     if (off) await sub.unsubscribe().catch(() => false);
   };
+  // 누른 그때 먼저 굳힌다(freeze): 알림을 끌지 묻거나 로그아웃을 기다리는 사이 도착한 다시 읽기 응답이 화면·기기 저장을 되살리지 않게
   const lock = async () => {
+    freeze();
     await signOut("잠가요");
     lockOut();
   };
@@ -194,6 +230,7 @@ export default function TeacherPage() {
   // 학생과 함께 쓰는 태블릿이면 「N번 학생…」 위험 표현 알림이 학생 눈에 띌 수 있어 잠그기처럼 알림을 끌지 묻는다.
   const toStudent = async () => {
     if (!data.trial) {
+      freeze(); // 넘어가는 사이 늦게 온 응답이 기기에 기록을 다시 저장하지 않게
       await signOut("학생 화면으로 가요", "\n학생들이 함께 쓰는 기기라면 「⚠️ ○번 학생…」 위험 표현 알림이 학생 화면 위에 뜰 수 있어요.");
       writeCache(null);
     }
