@@ -348,6 +348,7 @@ const UI = {
   loadFail: { ko: "인터넷 연결을 확인해 주세요.", en: "Please check the internet connection.", zh: "请检查网络连接。", vi: "Em hãy kiểm tra kết nối mạng.", ja: "インターネットの つながりを たしかめてね。" },
   retry: { ko: "다시 해 보기", en: "Try again", zh: "再试一次", vi: "Thử lại", ja: "もういちど" },
   waitNet: { ko: "인터넷이 연결되기를 기다리고 있어요…", en: "Waiting for the internet to connect…", zh: "正在等待网络连接…", vi: "Đang chờ kết nối mạng…", ja: "インターネットに つながるのを まっているよ…" },
+  sendWait: { ko: "담아 둔 기록을 보내고 있어요…", en: "Sending your saved records…", zh: "正在发送暂存的记录…", vi: "Đang gửi các bản ghi đã lưu…", ja: "ほぞんしていた きろくを おくっているよ…" },
   prevMonth: { ko: "지난달", en: "Previous month", zh: "上个月", vi: "Tháng trước", ja: "まえの つき" },
   nextMonth: { ko: "다음 달", en: "Next month", zh: "下个月", vi: "Tháng sau", ja: "つぎの つき" },
   slowThink: { ko: "마음 친구가 생각이 길어졌어. 카드로 골라 줄래?", en: "I'm taking too long to think. Can you pick with cards?", zh: "心情朋友想得太久了，用卡片选好吗？", vi: "Bạn cảm xúc nghĩ lâu quá. Em chọn bằng thẻ nhé?", ja: "かんがえるのに じかんが かかっちゃった。カードで えらんでくれる？" },

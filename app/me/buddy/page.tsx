@@ -7,7 +7,7 @@ import { backToMe, returnToMe } from "@/lib/back";
 import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
-import { Loading, useStudentLang } from "@/components/StudentFrame";
+import { Loading, useQueueFlush, useStudentLang } from "@/components/StudentFrame";
 import { api } from "@/lib/api";
 import { errText, t, type UIKey } from "@/lib/i18n";
 import {
@@ -44,6 +44,7 @@ export default function BuddyPage() {
   const [err, setErr] = useState("");
   const [tab, setTab] = useState<Tab>("shape");
   const [lang] = useStudentLang(me);
+  const sent = useQueueFlush(); // 담아 둔 기록은 이 화면에서도 보낸다
   const tt = (k: UIKey, vars?: Record<string, string | number>) => t(lang, k, vars);
 
   const leave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -72,6 +73,16 @@ export default function BuddyPage() {
       setErr("");
     };
   }, [router]);
+
+  // 이 기기에 담아 둔 기록이 서버에 가면(어느 화면이 보냈든) 학생 정보만 다시 읽는다: 새 감정 단어로 열린 꾸미개·오늘 표정. 고르던 모습(look)은 그대로
+  useEffect(() => {
+    if (!sent) return;
+    let alive = true;
+    api<Me>("student", "me").then((m) => { if (alive) setMe(m); }, () => {});
+    return () => {
+      alive = false;
+    };
+  }, [sent]);
 
   if (!me || !look) return <Loading lang={me ? lang : undefined} />;
   // 미리보기 표정: 오늘 마지막으로 남긴 마음(없으면 기쁨)
