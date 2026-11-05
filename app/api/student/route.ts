@@ -302,14 +302,29 @@ async function handle(req: NextRequest, body: Body) {
       const slot = body.slot === "am" || body.slot === "pm" ? body.slot : slotNow();
       // 쓴 문장에 위험한 말이 있으면 기록을 마치기 전에 바로 남기고 선생님께 알린다(학생이 중간에 나가도 놓치지 않게).
       // 그 칸을 저장하면 saveRecord가 이 글을 기록에 접어 넣는다. 남기다 실패해도 정리하기는 이어 간다(알림은 저장 때 다시).
-      let drafted = false;
+      let drafted: RiskDraft | null = null;
+      // 먼저 남긴 글에 한국어 정리를 덧붙인다. 그사이 같은 칸에 다른 글이 왔거나 정리가 이미 있으면 그대로 둔다.
+      const addDraftSummary = async (d: RiskDraft, summaryKo: string) => {
+        try {
+          const cur = (await getRiskDrafts()).find((x) => x.id === d.id && x.text === d.text);
+          if (cur && !cur.summaryKo) await putRiskDraft({ ...cur, summaryKo });
+        } catch (e) {
+          console.error("마치지 않은 위험 표현에 한국어 정리 덧붙이기 실패", e);
+        }
+      };
       const draft = async (summaryKo = "", hits = ruleHits) => {
-        if (!text || drafted) return;
-        drafted = true;
+        if (!text) return;
+        const ko = lang !== "ko" ? summaryKo.slice(0, 120) : "";
+        if (drafted) {
+          // 규칙에 걸려 AI보다 먼저 남긴 글: 선생님이 읽을 한국어 정리만 덧붙인다(알림은 다시 보내지 않고, 시각·살펴본 표시·앞 글은 그대로)
+          if (ko) await addDraftSummary(drafted, ko);
+          return;
+        }
         const d: RiskDraft = {
           id: `${s.no}_${today()}_${slot}`, no: s.no, date: today(), slot, text, hits, lang, at: new Date().toISOString(), checked: null,
-          ...(lang !== "ko" && summaryKo ? { summaryKo: summaryKo.slice(0, 120) } : {}), ...(isDemo() || s.demo ? { demo: true } : {}),
+          ...(ko ? { summaryKo: ko } : {}), ...(isDemo() || s.demo ? { demo: true } : {}),
         };
+        drafted = d;
         try {
           await putRiskDraft(d);
           alertTeacher(s.no, "기록", `risk-${d.id}`);
@@ -320,10 +335,12 @@ async function handle(req: NextRequest, body: Body) {
       // 규칙에 걸리면 AI를 기다리지 않고 먼저 남긴다(AI가 오래 걸리거나 실패해도 놓치지 않게)
       if (ruleRisk) await draft();
       // 위험한 마음이면 되묻지 않고 고맙다는 말만 남긴 채 바로 저장(skipAsk).
-      // 외국어 글은 AI가 쓴 한국어 정리도 규칙으로 살핀다(AI가 위험을 놓쳐도). 카드만 고른 경우(글 없음)는 AI 판단만으로 위험이라 하지 않는다.
+      // 외국어 글은 AI가 쓴 한국어 정리도 늘 살피는 말(RISK_CORE)로 살핀다(AI가 위험을 놓쳐도). 선생님 목록 전체로 보지 않는 까닭:
+      // 번역은 「I hit a home run」→「홈런을 때렸어요」처럼 평범한 말을 목록의 말로 바꿔 놓는다(원래 글은 위에서 목록 전체로 본다).
+      // 카드만 고른 경우(글 없음)는 AI 정리·판단만으로 위험이라 하지 않는다(선생님이 읽을 글도 남지 않으므로).
       const finish = async (r: Analysis, ai: boolean) => {
         const out = { ...r, ai, tone: tone?.tone ?? null, toneWhy: tone?.why ?? "", toneBy: tone?.by ?? null, voice: features };
-        const koHits = lang !== "ko" && r.summary ? matchRisk(r.summary, settings.riskWords) : [];
+        const koHits = lang !== "ko" && text && r.summary ? matchRisk(r.summary, []) : [];
         const risky = ruleRisk || koHits.length > 0 || (r.risk === true && !!text);
         if (!risky) return NextResponse.json({ ...out, risk: false });
         await draft(r.summary ?? "", ruleHits.length ? ruleHits : koHits);
