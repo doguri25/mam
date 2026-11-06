@@ -7,7 +7,7 @@ import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -18,7 +18,7 @@ import { isLang } from "@/lib/i18n";
 import { cleanCheck } from "@/lib/selcheck";
 import type { SelfRound } from "@/lib/selfcheck";
 import { cutoffOf, isRetention } from "@/lib/retention";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, ownBy, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
@@ -233,8 +233,9 @@ async function handle(req: NextRequest) {
       const ai = await aiConfig();
       if (!ai) return bad(isDemo() ? "오늘 체험용 AI 사용량을 다 썼어요." : "AI 키가 있어야 초안을 만들 수 있어요. 「설정」에서 넣어 주세요.");
       const date = today();
-      const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13)).sort((a, b) => a.id.localeCompare(b.id));
-      const signals = watchFlags(await recordsFrom(addDays(date, -13)), date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
+      // 이 번호를 새 학생에게 줬으면 그 앞(앞 학생) 기록은 넣지 않는다
+      const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13) && ownBy(s, r.createdAt)).sort((a, b) => a.id.localeCompare(b.id));
+      const signals = watchFlags(recs, date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
       const draft = await referralDraft(ai, {
         alias: s.alias, signals,
         records: recs.map((r) => ({
@@ -287,8 +288,22 @@ async function handle(req: NextRequest) {
       // 예전 명단을 그대로 저장하면 지운 연습 학생이 실제 학생으로 다시 들어간다. base가 없으면(예전 화면) 그대로 받는다.
       if (typeof body.base === "string" && body.base !== old.map((s) => `${s.no} ${s.alias}`).join("\n"))
         return NextResponse.json({ error: "그사이 명단이 바뀌었어요(연습 데이터 지우기·다른 기기). 지금 명단을 확인하고 다시 저장해 주세요.", code: "rosterChanged" }, { status: 409 });
-      const { students, skipped } = readRoster(String(body.text ?? ""), old);
-      if (!students.length) return bad("「번호 가명」 모양으로 한 줄에 한 명씩 적어 주세요.");
+      const text = String(body.text ?? "");
+      // 같은 번호를 다른 학생에게 주는지 묻는다: 가명이 바뀐 번호, 그리고 명단에 없다가 다시 넣었는데 그 번호로 남은 기록이 있는 번호.
+      // 새 학생이면 앞 학생과 나눈다(새 코드·학생 화면엔 그 뒤 것만·선생님 화면엔 「앞 학생」). 고르지 않았으면 409 whoIs로 목록을 돌려준다.
+      const first = readRoster(text, old);
+      if (!first.students.length) return bad("「번호 가명」 모양으로 한 줄에 한 명씩 적어 주세요.");
+      const left = await getLeft();
+      const ask: { no: number; before: string; now: string; kind: "renamed" | "back" }[] = first.renamed.map((x) => ({ ...x, kind: "renamed" }));
+      const back = await withDataFor(first.added.map((a) => a.no));
+      for (const a of first.added) if (back.has(a.no)) ask.push({ no: a.no, before: left[a.no]?.alias ?? "", now: a.now, kind: "back" });
+      const decide = body.decide && typeof body.decide === "object" && !Array.isArray(body.decide) ? (body.decide as Record<string, unknown>) : {};
+      const pick = (no: number) => (decide[no] === "new" || decide[no] === "same" ? decide[no] : null);
+      if (ask.some((a) => !pick(a.no)))
+        return NextResponse.json({ error: "같은 번호를 다른 학생에게 주는지 골라 주세요.", code: "whoIs", ask: ask.sort((a, b) => a.no - b.no) }, { status: 409 });
+      const fresh = new Set(ask.filter((a) => pick(a.no) === "new").map((a) => a.no));
+      const now = new Date().toISOString();
+      const { students, skipped } = readRoster(text, old, { fresh, left, now });
       // 연습용 가짜 학생을 실제 학생으로 바꾸거나 뺀 번호는, 그 번호에 남은 연습 흔적만 바로 지운다(다른 연습 학생 것은 그대로).
       // 바꾼 번호는 코드도 새로 준다(연습 때 나눠 준 코드로 실제 학생 화면에 들어오지 않게).
       const kept = new Set(students.filter((s) => s.demo).map((s) => s.no));
@@ -305,6 +320,12 @@ async function handle(req: NextRequest) {
         });
       }
       const saved = await saveRoster(list, list.some((s) => s.demo));
+      // 뺀 학생은 남겨 두고(다시 넣을 때 앞 학생으로 묻는다), 다시 넣은 번호는 지운다. 새 학생에게 준 번호는 앞 학생 것을 정리
+      const nowNos = new Set(saved.map((s) => s.no));
+      const nextLeft = Object.fromEntries(Object.entries(left).filter(([no]) => !nowNos.has(Number(no))));
+      for (const o of old) if (!o.demo && !nowNos.has(o.no)) nextLeft[o.no] = { alias: o.alias, at: now, ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}) };
+      if (JSON.stringify(nextLeft) !== JSON.stringify(left)) await saveLeft(nextLeft);
+      await startFresh([...fresh]);
       // 마지막 연습 학생까지 바뀌었으면 학생에 매이지 않은 연습 자료(자기진단·역량 진단 연습 회차, 활동지 예시)도 정리
       if (replaced.size && !saved.some((s) => s.demo)) await clearPractice();
       if (replaced.size) await touch("wipe"); // 다른 기기 선생님 화면도 지운 기록을 버리고 다시 읽게
@@ -367,7 +388,7 @@ async function handle(req: NextRequest) {
       const ai = await aiConfig();
       if (!ai) return bad("응원 초안은 AI 키가 있어야 만들 수 있어요. 「설정」에서 키를 넣어 주세요.");
       const date = today();
-      const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13));
+      const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13) && ownBy(s, r.createdAt)); // 앞 학생 기록은 빼고
       if (!recs.length) return bad("최근 2주 기록이 없어요.");
       const signals = watchFlags(recs, date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
       try {
@@ -498,17 +519,27 @@ async function handle(req: NextRequest) {
         db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no),
         db().find<Reflect>("reflects", "no", "==", no), db().all<SheetRun>("sheets"), getRiskActions(),
       ]);
-      const [rounds, selfs, drafts] = await Promise.all([getSelfRounds(), getSelfAnswers(), getRiskDrafts()]);
-      const sheets = runs.flatMap((r) => r.items.filter((x) => x.no === no).map((x) => ({ ...x, runId: r.id, date: today(new Date(r.createdAt)) })));
-      const byDate = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const [rounds, selfs, drafts, roster] = await Promise.all([getSelfRounds(), getSelfAnswers(), getRiskDrafts(), getRoster()]);
+      // 이 번호를 새 학생에게 줬으면(since) 지금 학생 것만 — 앞 학생 것은 위험 표현 알림·CSV 내보내기에 「앞 학생」으로 남는다
+      const st = roster.find((x) => x.no === no);
+      const own = (at?: string) => ownBy(st, at);
+      const sheets = runs.filter((r) => own(r.createdAt)).flatMap((r) => r.items.filter((x) => x.no === no).map((x) => ({ ...x, runId: r.id, date: today(new Date(r.createdAt)) })));
+      const byDate = <T extends { createdAt: string }>(xs: T[]) => xs.filter((x) => own(x.createdAt)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const mineRecs = records.filter((r) => own(r.createdAt));
+      const mineDrafts = drafts.filter((x) => x.no === no && own(x.at));
+      const mineRefs = byDate(reflects);
+      const mineSent = byDate(sent);
+      // 조치 기록은 가리키는 글이 지금 학생 것일 때만(글이 지워져 조치 기록만 남았으면 그 기록 날짜로)
+      const ids = new Set([...mineRecs.map((r) => r.id), ...mineDrafts.map((d) => `draft:${d.id}`), ...mineRefs.map((x) => `reflect:${x.id}`), ...mineSent.map((l) => `letter:${l.id}`)]);
+      const known = new Set([...records.map((r) => r.id), ...drafts.map((d) => `draft:${d.id}`), ...reflects.map((x) => `reflect:${x.id}`), ...sent.map((l) => `letter:${l.id}`)]);
       return NextResponse.json({
-        records: records.map(lean).sort((a, b) => a.id.localeCompare(b.id)),
+        records: mineRecs.map(lean).sort((a, b) => a.id.localeCompare(b.id)),
         // 연습 학생에게 가던 쪽지(toPractice)는 같은 번호를 새로 받은 실제 학생이 받은 쪽지가 아니다(보낸 학생의 sent·위험 알림에는 남음)
-        cheers: byDate(cheers), notes: byDate(notes), sent: byDate(sent), got: byDate(got.filter((l) => !l.toPractice)), reflects: byDate(reflects),
+        cheers: byDate(cheers), notes: byDate(notes), sent: mineSent, got: byDate(got.filter((l) => !l.toPractice)), reflects: mineRefs,
         sheets: sheets.sort((a, b) => b.date.localeCompare(a.date)),
-        riskActions: actions.filter((x) => x.no === no),
-        drafts: drafts.filter((x) => x.no === no), // 마치지 않은 위험 표현(살펴본 것 포함)
-        self: rounds.flatMap((r) => selfs.filter((a) => a.round === r.id && a.no === no).map((a) => ({ round: r.id, title: r.title, openedAt: r.openedAt, answers: a.answers }))),
+        riskActions: actions.filter((x) => x.no === no && (ids.has(x.recordId) || (!known.has(x.recordId) && own(x.recordDate || x.date)))),
+        drafts: mineDrafts, // 마치지 않은 위험 표현(살펴본 것 포함)
+        self: rounds.flatMap((r) => selfs.filter((a) => a.round === r.id && a.no === no && own(a.at)).map((a) => ({ round: r.id, title: r.title, openedAt: r.openedAt, answers: a.answers }))),
       });
     }
 
@@ -677,6 +708,7 @@ async function handle(req: NextRequest) {
         await db().del("meta", "selfRounds");
         await db().del("meta", "riskDrafts"); // 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
         await db().del("meta", "weekly");
+        await db().del("meta", "left"); // 명단에서 뺀 학생 기록도(남은 기록이 없으니 다시 넣어도 묻지 않는다)
         await saveRoster([]);
         await saveSettings({ ...settings, checks: {} });
         await touch("wipe");

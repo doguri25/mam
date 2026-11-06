@@ -91,6 +91,10 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
   const span = first ? Math.round((Date.parse(data.today) - Date.parse(first)) / 864e5) + 1 : 0;
   // 위험 표현: 마음 기록 · 마치지 않은 기록 · 한 주 돌아보기 · 보낸 쪽지
   const risks = { records: rs, actions: all.riskActions, drafts: all.drafts ?? [], reflects: all.reflects, letters: all.sent, words: data.settings.riskWords };
+  // 이 번호를 새 학생에게 준 때(서버는 그 뒤 것만 보낸다)
+  const st = data.students.find((x) => x.no === no);
+  const since = st?.since;
+  const former = st?.formers?.at(-1)?.alias ?? "";
 
   return (
     <div className="space-y-4">
@@ -99,6 +103,12 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
         <div className="min-w-[12rem] flex-1">
           <h2 className="font-display text-2xl">{no}번 {nameOf(no)} · 누적 기록</h2>
           <p className="text-sm text-soft">{first ? `${label(first)} ~ ${label(last!)} · ${days}일 기록` : "아직 마음 기록이 없어요."}</p>
+          {since && (
+            <p className="mt-1 text-sm text-soft">
+              {label(kday(since))}에 이 번호를 새 학생에게 줬어요. 그 앞의 기록은 앞 학생{former ? `(${former})` : ""} 것이라 여기에 넣지 않았어요.
+              살펴보지 않은 위험 표현은 「우리 반 마음 지도」에, 모든 기록은 「설정」의 CSV 내보내기에 「앞 학생」으로 남아 있어요.
+            </p>
+          )}
         </div>
         <button onClick={() => window.print()} className="no-print btn-sub"><Doodle name="printer" /> 인쇄·PDF 저장</button>
       </section>
@@ -259,7 +269,7 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
             [...all.sent.map((l) => ({ l, out: true })), ...all.got.map((l) => ({ l, out: false }))]
               .sort((a, b) => b.l.createdAt.localeCompare(a.l.createdAt)).slice(0, 10).map(({ l, out }) => (
                 <p key={l.id + out} className="border-t border-line pt-2 text-sm first:border-0 first:pt-0">
-                  <span className="text-xs text-soft">{kday(l.createdAt)} · {out ? `→ ${l.to}번 ${nameOf(l.to)}에게` : `← ${l.from}번 ${nameOf(l.from)}에게서`} · {{ wait: "확인 전", ok: "전함", no: "보내지 않음" }[l.status]}</span>
+                  <span className="text-xs text-soft">{kday(l.createdAt)} · {out ? `→ ${l.to}번 ${nameOf(l.to, l.createdAt)}에게` : `← ${l.from}번 ${nameOf(l.from, l.createdAt)}에게서`} · {{ wait: "확인 전", ok: "전함", no: "보내지 않음" }[l.status]}</span>
                   {l.risk && <span className="ml-1 rounded-full bg-alert px-1.5 text-xs text-white">걱정되는 말</span>}
                   <br />{l.text}
                   {/* 선생님이 다듬어 전한 쪽지: 학생이 처음 쓴 글(선생님만) */}

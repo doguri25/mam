@@ -1,13 +1,13 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
-import { addDays, today } from "./date.ts";
+import { addDays, monday, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelChecks, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type CalmUse, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 import { riskSrcOf } from "../components/teacher/alerts.ts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 
 export interface Settings {
@@ -238,11 +238,21 @@ export function parseRoster(text: string, old: Student[]): Student[] {
 // 명단 읽기. 읽지 못한 줄(모양이 다름·번호가 겹침·가명이 12자를 넘음)은 skipped로 돌려 선생님께 알린다.
 // 연습용 가짜 학생 줄을 그대로 두면 연습 표시·동의 날짜도 그대로, 가명을 바꿔 실제 학생으로 바꾸면 연습 표시와 동의 날짜를 뗀다.
 export const ROSTER_MAX = 60; // 한 반 학생 수 한도(학생마다 코드 문서가 생기므로)
-export function readRoster(text: string, old: Student[]): { students: Student[]; skipped: string[] } {
+// 번호를 새 학생에게 줄 때(choose): fresh에 든 번호는 앞 학생과 나눈다 — 새 코드(앞 학생은 예전 코드로 못 들어옴), 동의 표시 떼기,
+// since(그때부터 지금 학생 것)·formers(앞 학생 가명) 남기기. 명단에서 뺐다가 다시 넣은 번호는 left(뺄 때 남긴 학생)를 앞 학생으로 본다.
+// renamed: 연습 학생이 아닌데 가명이 바뀐 번호 · added: 명단에 없다가 새로 넣은 번호 — 같은 학생인지 새 학생인지 선생님께 묻는다
+export interface LeftStudent { alias: string; at: string; since?: string; formers?: Former[] }
+export const FORMERS_MAX = 5;
+export function readRoster(
+  text: string, old: Student[], choose: { fresh?: Set<number>; left?: Record<number, LeftStudent>; now?: string } = {},
+): { students: Student[]; skipped: string[]; renamed: { no: number; before: string; now: string }[]; added: { no: number; now: string }[] } {
   const taken = new Set(old.map((s) => s.code));
   const seen = new Set<number>();
   const out: Student[] = [];
   const skipped: string[] = [];
+  const renamed: { no: number; before: string; now: string }[] = [];
+  const added: { no: number; now: string }[] = [];
+  const now = choose.now ?? new Date().toISOString();
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
@@ -259,12 +269,68 @@ export function readRoster(text: string, old: Student[]): { students: Student[];
     seen.add(no);
     const alias = m[2].trim();
     const prev = old.find((s) => s.no === no);
+    if (prev && !prev.demo && prev.alias !== alias) renamed.push({ no, before: prev.alias, now: alias });
+    if (!prev) added.push({ no, now: alias });
+    const left = prev ? undefined : choose.left?.[no];
+    if (choose.fresh?.has(no) && (prev ? !prev.demo && prev.alias !== alias : true)) {
+      const before = prev ?? left;
+      const formers = [...(before?.formers ?? []), { alias: before?.alias ?? "", until: now }].slice(-FORMERS_MAX);
+      out.push({ no, alias, code: newCode(taken), since: now, formers });
+      taken.add(out.at(-1)!.code);
+      continue;
+    }
     const keepPractice = !!prev?.demo && prev.alias === alias;
     const consent = prev?.consent && (!prev.demo || keepPractice) ? prev.consent : undefined;
-    out.push({ no, alias, code: prev?.code ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}) });
+    // 같은 학생이면 이 번호의 앞 학생 기록(since·formers)을 이어받는다(뺐다가 다시 넣은 같은 학생도)
+    const hist = prev ?? left;
+    out.push({
+      no, alias, code: prev?.code ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}),
+      ...(hist?.since ? { since: hist.since, formers: hist.formers ?? [] } : {}),
+    });
     taken.add(out.at(-1)!.code);
   }
-  return { students: out, skipped };
+  return { students: out, skipped, renamed, added };
+}
+
+// 명단에서 뺀 학생(번호 → 가명·뺀 때). 그 번호를 다시 넣을 때 앞 학생으로 묻고 나누려고 남긴다.
+export async function getLeft(): Promise<Record<number, LeftStudent>> {
+  return (await db().get<{ items: Record<number, LeftStudent> }>("meta", "left"))?.items ?? {};
+}
+export async function saveLeft(items: Record<number, LeftStudent>) {
+  await db().set("meta", "left", { items });
+}
+// 번호를 새 학생에게 줬을 때 그 번호에 매인 앞 학생 것을 정리한다: 마음 친구 모습은 처음으로,
+// 이번 주 돌아보기는 다른 id로 옮긴다(같은 id에 새 학생이 쓰면 앞 학생 글·살펴보지 않은 위험 표시를 이어받으므로). 조치 기록도 따라 옮긴다.
+export async function startFresh(nos: number[]) {
+  if (!nos.length) return;
+  await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
+    if (!cur?.items || !nos.some((n) => n in cur.items)) return undefined;
+    const items = { ...cur.items };
+    for (const n of nos) delete items[n];
+    return { ...cur, items };
+  });
+  const ws = monday(today());
+  for (const no of nos) {
+    const id = `${no}_${ws}`;
+    const ref = await db().get<Reflect>("reflects", id);
+    if (!ref) continue;
+    const to = `${id}_p${Date.now().toString(36)}`; // p: 앞 학생(previous)
+    await db().set("reflects", to, { ...ref, id: to });
+    await db().del("reflects", id);
+    await moveRiskActions(`reflect:${id}`, `reflect:${to}`, today(new Date(ref.createdAt)));
+  }
+}
+
+// 이 번호들 가운데 그 번호로 남은 기록·쪽지·돌아보기가 있는 것(명단에 없던 번호를 다시 넣을 때 새 학생인지 물을지)
+// 여러 번호를 한꺼번에(세기만 해서 문서는 받지 않는다). 반에 남은 것이 하나도 없으면(새 반 첫 명단) 번호마다 묻지 않는다.
+export async function withDataFor(nos: number[]): Promise<Set<number>> {
+  if (!nos.length) return new Set();
+  const n = (col: "records" | "letters" | "reflects", field: string, op: "==" | ">=", v: number) => db().count(col, field, op, v);
+  const any = (await Promise.all([n("records", "no", ">=", 0), n("letters", "from", ">=", 0), n("reflects", "no", ">=", 0)])).some((x) => x > 0);
+  if (!any) return new Set();
+  const hits = await Promise.all(nos.map(async (no) =>
+    (await Promise.all([n("records", "no", "==", no), n("letters", "from", "==", no), n("letters", "to", "==", no), n("reflects", "no", "==", no)])).some((x) => x > 0)));
+  return new Set(nos.filter((_, i) => hits[i]));
 }
 
 // 체험 공간은 실제 반에 넣은 AI 키를 빌려 쓰되 하루 DEMO_AI_PER_DAY번까지만(키는 화면에 나가지 않는다)
@@ -946,6 +1012,7 @@ export async function seedPractice() {
   await saveSelfRounds([]);
   await saveRiskActions([]);
   await db().del("meta", "riskDrafts"); // 학생 번호에 매인 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
+  await db().del("meta", "left"); // 명단에서 뺀 학생 기록도(연습 명단으로 통째로 바뀜)
   const date = today();
   const taken = new Set<string>();
   // 보호자 동의서: 3명(4·12·19번)만 아직 받지 않은 반

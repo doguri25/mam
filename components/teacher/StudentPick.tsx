@@ -7,12 +7,13 @@ import Doodle from "../Doodle";
 import BuddyFace from "../BuddyFace";
 import ReflectBox from "./ReflectBox";
 import Timeline from "./Timeline";
+import { myRecords, myReflects } from "./own";
 import type { NameOf, Overview } from "./types";
 
 export function StudentStrip({ data, no, onPick, nameOf }: { data: Overview; no: number | null; onPick: (n: number) => void; nameOf: NameOf }) {
   const flagged = new Set(data.flags.map((f) => f.no));
   const order = [...data.students].sort((a, b) => Number(flagged.has(b.no)) - Number(flagged.has(a.no)) || a.no - b.no);
-  const last = (n: number) => data.records.filter((r) => r.no === n).sort((a, b) => a.id.localeCompare(b.id)).at(-1);
+  const last = (n: number) => myRecords(data, n).sort((a, b) => a.id.localeCompare(b.id)).at(-1);
   return (
     <div className="no-print card p-2">
       <p className="px-2 pb-1 text-xs text-soft">학생 고르기 · <Doodle name="dotYellow" /> 살펴볼 신호가 있는 학생이 앞에 와요</p>
@@ -38,7 +39,7 @@ export function StudentStrip({ data, no, onPick, nameOf }: { data: Overview; no:
 
 // 왼쪽 참고 칸: 살펴볼 신호 · 한 주 돌아보기 · 최근 2주 기록
 export function RefPanel({ data, no, nameOf }: { data: Overview; no: number; nameOf: NameOf }) {
-  const last = data.records.filter((r) => r.no === no).sort((a, b) => a.id.localeCompare(b.id)).at(-1);
+  const last = myRecords(data, no).sort((a, b) => a.id.localeCompare(b.id)).at(-1); // 지금 그 번호 학생 것만
   return (
     <section
       aria-label="최근 기록"
@@ -49,8 +50,8 @@ export function RefPanel({ data, no, nameOf }: { data: Overview; no: number; nam
         {no}번 {nameOf(no)} · 최근 2주
       </h2>
       {data.flags.find((f) => f.no === no)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
-      <ReflectBox reflects={data.reflects} no={no} words={data.settings.riskWords} />
-      <Timeline records={data.records.filter((r) => r.no === no)} today={data.today} />
+      <ReflectBox reflects={myReflects(data, no)} no={no} words={data.settings.riskWords} />
+      <Timeline records={myRecords(data, no)} today={data.today} />
     </section>
   );
 }

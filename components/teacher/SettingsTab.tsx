@@ -13,7 +13,7 @@ import { whileRosterChanges } from "./rosterBusy";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
 import { matchRisk } from "@/lib/rules";
-import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, type MoodRecord, type Provider, type RiskAction, type Rules, type VoiceMode } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, formerAt, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "@/lib/shared";
 
 const LANG_KO: Record<string, string> = { ko: "한국어", en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 
@@ -82,7 +82,7 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
 
   async function exportCsv() {
     let got: {
-      records: MoodRecord[]; students: { no: number; alias: string }[]; riskActions?: RiskAction[];
+      records: MoodRecord[]; students: Pick<Student, "no" | "alias" | "since" | "formers">[]; riskActions?: RiskAction[];
       riskDrafts?: Overview["riskDrafts"]; reflects?: Overview["reflects"]; letters?: Overview["letters"];
     };
     try {
@@ -93,7 +93,12 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
     const { records, students } = got;
     // 한 일(조치)은 내보낼 때 서버에서 받은 것(다른 기기에서 적은 것까지). 예전 서버면 화면에 있는 것
     const actions = got.riskActions ?? data.riskActions;
-    const alias = (no: number) => students.find((x) => x.no === no)?.alias ?? "";
+    // at: 쓴 때 — 그 뒤 이 번호를 새 학생에게 줬으면 앞 학생 가명(「앞 학생 ○○」)으로
+    const alias = (no: number, at?: string) => {
+      const st = students.find((x) => x.no === no);
+      const former = formerAt(st, at);
+      return former !== null ? (former ? `앞 학생 ${former}` : "앞 학생") : (st?.alias ?? "");
+    };
     // 엑셀·구글 시트가 = + - @ 탭·줄바꿈으로 시작하는 칸을 수식으로 읽지 않게 앞에 '를 붙인다
     const cell = (v: unknown) => {
       const t = String(v ?? "");
@@ -110,7 +115,7 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
       date: r.date, no: r.no, k: r.slot,
       cells: [
         // 위험 표현: 이 글(지금 글)의 걸린 말만. 지금 글은 순하고 고치기 전 글에만 있었으면 그렇다고(그 글과 걸린 말은 맨 끝 칸에)
-        r.date, slotKo(r.slot), r.no, alias(r.no), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "",
+        r.date, slotKo(r.slot), r.no, alias(r.no, r.createdAt), r.method === "voice" ? "말하기" : "카드", r.emotion, r.intensity, r.reason, r.summary, r.question, r.answer, r.tone ?? "",
         (r.riskSelf ?? r.risk) ? r.riskHits.join(" ") || "AI 판단" : r.risk ? "고치기 전 글에 있음" : "", kstamp(r.riskChecked), did(r.id),
         r.word ?? "", r.summaryKo ?? "", lang(r.lang), calm(r),
         // 같은 칸에 다시 남겨 지금 글에는 없지만, 고치기 전 글에 있던 위험 표현(때·글·그 글의 걸린 말). 글 사이는 「 ‖ 」(한 줄과 답 사이 「 / 」와 헷갈리지 않게)
@@ -119,9 +124,9 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
     }));
     // 마음 기록 밖의 위험 표현(마치지 않은 기록 · 한 주 돌아보기 · 공감 쪽지): 감정·까닭 칸은 비우고 글은 「한 줄」에
     const hitsOf = (t: string) => matchRisk(t, s.riskWords).join(" ") || "있음";
-    const other = (o: { id: string; date: string; slot?: string; no: number; method: string; line: string; risk: string; checked?: string | null; summaryKo?: string; lang?: string; earlier?: string }): Row => ({
+    const other = (o: { id: string; date: string; at?: string; slot?: string; no: number; method: string; line: string; risk: string; checked?: string | null; summaryKo?: string; lang?: string; earlier?: string }): Row => ({
       date: o.date, no: o.no, k: `z${o.method}`,
-      cells: [o.date, slotKo(o.slot), o.no, alias(o.no), o.method, "", "", "", o.line, "", "", "", o.risk, kstamp(o.checked), did(o.id), "", o.summaryKo ?? "", lang(o.lang), "", o.earlier ?? ""],
+      cells: [o.date, slotKo(o.slot), o.no, alias(o.no, o.at ?? o.date), o.method, "", "", "", o.line, "", "", "", o.risk, kstamp(o.checked), did(o.id), "", o.summaryKo ?? "", lang(o.lang), "", o.earlier ?? ""],
     });
     const extra: Row[] = [];
     const done = new Set<string>();
@@ -129,7 +134,7 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
     for (const d of got.riskDrafts ?? data.riskDrafts ?? []) {
       done.add(`draft:${d.id}`);
       extra.push(other({
-        id: `draft:${d.id}`, date: d.date, slot: d.slot, no: d.no, method: "마치지 않은 기록", line: d.text, risk: d.hits.join(" ") || "AI 판단", checked: d.checked,
+        id: `draft:${d.id}`, date: d.date, at: d.at, slot: d.slot, no: d.no, method: "마치지 않은 기록", line: d.text, risk: d.hits.join(" ") || "AI 판단", checked: d.checked,
         summaryKo: d.summaryKo, lang: d.lang, earlier: (d.earlier ?? []).map((e) => `${ktime(e.at)} “${e.text}” ${e.hits.join(" ") || "AI 판단"}`).join(PART_SEP),
       }));
     }
@@ -137,14 +142,14 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
       done.add(`reflect:${x.id}`);
       const src = reflectSource(x, s.riskWords);
       extra.push(other({
-        id: `reflect:${x.id}`, date: kday(x.createdAt), no: x.no, method: "돌아보기", line: x.text, risk: src.prev ? "" : hitsOf(x.text), checked: x.riskChecked, lang: x.lang,
+        id: `reflect:${x.id}`, date: kday(x.createdAt), at: x.createdAt, no: x.no, method: "돌아보기", line: x.text, risk: src.prev ? "" : hitsOf(x.text), checked: x.riskChecked, lang: x.lang,
         earlier: (x.prev ?? []).filter((p) => p.risk).map((p) => `${ktime(p.createdAt)} “${p.text}” ${hitsOf(p.text)}`).join(PART_SEP),
       }));
     }
     for (const l of (got.letters ?? data.letters).filter((l) => l.risk)) {
       done.add(`letter:${l.id}`);
       const status = { wait: "허락 기다림", ok: "전함", no: "돌려보냄" }[l.status];
-      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}${l.toPractice ? " · 받을 학생 없음" : ""}) ${l.text}${l.original ? ` (처음 쓴 글: ${l.original})` : ""}`, risk: hitsOf(l.original ?? l.text), checked: l.riskChecked, lang: l.lang }));
+      extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), at: l.createdAt, no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}${l.toPractice ? " · 받을 학생 없음" : ""}) ${l.text}${l.original ? ` (처음 쓴 글: ${l.original})` : ""}`, risk: hitsOf(l.original ?? l.text), checked: l.riskChecked, lang: l.lang }));
     }
     // 화면에 없는(오래됐거나 지워진) 것은 조치 기록에 남긴 글로
     const METHOD = { draft: "마치지 않은 기록", reflect: "돌아보기", letter: "쪽지" } as const;

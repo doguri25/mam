@@ -246,7 +246,7 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
   if (!items.length) return <p className="text-sm text-soft">위험 표현이 들어온 적이 없어요.</p>;
   const open = movedTo(adding, items.map((x) => x.id));
   const close = () => { setAdding(null); setCarry(null); };
-  const who = (no: number) => `${no}번${nameOf ? ` ${nameOf(no)}` : ""}`;
+  const who = (no: number, at?: string) => `${no}번${nameOf ? ` ${nameOf(no, at)}` : ""}`;
 
   async function remove(a: RiskAction) {
     if (!confirm(`${label(a.date)} 「${kindsText(a.kinds)}」 조치 기록을 지울까요? 되돌릴 수 없어요.`)) return;
@@ -272,7 +272,7 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
               <b>{label(it.date)}</b>{" "}
               {rec ? <>{rec.slot === "am" ? "아침" : "하교 전"} · {rec.emotion}</>
                 : draft ? <>{draft.slot === "am" ? "아침" : "하교 전"} · 마치지 않은 기록</>
-                : letter ? <>공감 쪽지 → {who(letter.to)} <span className="text-xs text-soft">· {LETTER_STATUS[letter.status]}</span></>
+                : letter ? <>공감 쪽지 → {who(letter.to, letter.createdAt)} <span className="text-xs text-soft">· {LETTER_STATUS[letter.status]}</span></>
                 : KIND_KO[it.kind]}
               {rec && <RiskTexts parts={it.parts ?? []} hits={riskySource(rec).hits} fresh={it.fresh} />}
               {!rec && it.nowText !== undefined && (

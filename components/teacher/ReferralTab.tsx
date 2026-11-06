@@ -9,6 +9,7 @@ import { kindsText } from "./RiskActions";
 import StyleNote from "./StyleNote";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview } from "./types";
+import { myNotes, riskSourcesOf } from "./own";
 import { kday } from "./when";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
@@ -18,12 +19,13 @@ type Draft = { flow: string; reasons: string; helps: string; style?: string[] };
 export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: NameOf }) {
   // 선생님이 남긴 면담 메모는 AI에 보내지 않고, 「담임이 해 본 지원」 칸에만 미리 채워 둔다
   // 위험 표현 조치 기록도 함께(한 날 순서대로). 마음 기록 밖(마치지 않은 기록·돌아보기·쪽지)에서 나온 것이면 어디서인지 붙인다
-  const memo = (n: number | null) => [
-    ...data.riskActions.filter((x) => x.no === n).map((x) => {
+  // 지금 그 번호 학생 것만(앞 학생 조치·메모는 빼고)
+  const memo = (n: number | null) => n == null ? "" : [
+    ...riskSourcesOf(data, n).actions.map((x) => {
       const kind = x.kind ?? kindOfId(x.recordId);
       return `· ${label(x.date)}${kind === "record" ? "" : ` · ${KIND_KO[kind]}`}: ${kindsText(x.kinds)}${x.note ? ` — ${x.note}` : ""}`;
     }),
-    ...data.notes.filter((x) => x.no === n).slice(0, 3).map((x) => `· ${label(kday(x.createdAt))}: ${x.text}`),
+    ...myNotes(data, n).slice(0, 3).map((x) => `· ${label(kday(x.createdAt))}: ${x.text}`),
   ].join("\n");
   const first = data.flags[0]?.no ?? null;
   const [no, setNo] = useState<number | null>(first);

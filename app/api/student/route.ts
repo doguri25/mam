@@ -13,7 +13,7 @@ import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
 import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
 import {
-  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, cleanSaveId, isWordOf,
+  ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, cleanSaveId, formerAt, isWordOf, ownBy,
   type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type RiskDraft, type Student,
 } from "@/lib/shared";
 import { baseline, cleanFeatures, toneOf } from "@/lib/tone";
@@ -116,15 +116,20 @@ async function handle(req: NextRequest, body: Body) {
     const s = await me(req);
     if (!s) return bad("다시 들어와 주세요.", 401);
     const settings = await getSettings();
+    // 이 번호를 새 학생에게 줬으면(since) 그 앞에 이 번호로 남은 기록·쪽지·돌아보기·점검 답은 앞 학생 것 — 보여 주지도 세지도 않는다
+    const own = (at?: string) => ownBy(s, at);
+    const myRecords = async () => (await recordsOf(s.no)).filter((r) => own(r.createdAt));
 
     if (body.action === "me") {
       const date = today();
       const week = monday(date);
       const [mine, looks, inbox, ref, round] = await Promise.all([
-        recordsOf(s.no), getLooks(), db().find<Letter>("letters", "to", "==", s.no), db().get<Reflect>("reflects", `${s.no}_${week}`),
+        myRecords(), getLooks(), db().find<Letter>("letters", "to", "==", s.no).then((ls) => ls.filter((l) => own(l.createdAt))),
+        db().get<Reflect>("reflects", `${s.no}_${week}`).then((r) => (r && own(r.createdAt) ? r : null)),
         getSelfRounds().then((rs) => rs.find((r) => !r.closedAt)),
       ]);
-      const answered = round ? !!(await db().get("meta", selfDocId(round.id, s.no))) : false;
+      const ans = round ? await db().get<SelfAnswer>("meta", selfDocId(round.id, s.no)) : null;
+      const answered = !!ans && own(ans.at);
       // 마음 꽃: 이번 달 기록한 날마다 한 송이(그날 마지막 마음 색)
       const month = new Map<string, string>();
       for (const r of mine.filter((r) => r.date.startsWith(date.slice(0, 7))).sort((a, b) => a.id.localeCompare(b.id))) month.set(r.date, r.emotion);
@@ -150,7 +155,7 @@ async function handle(req: NextRequest, body: Body) {
       const id = selfDocId(round.id, s.no);
       if (body.action === "selfCheck") {
         const mineAns = await db().get<SelfAnswer>("meta", id);
-        return NextResponse.json({ round: { id: round.id, title: round.title }, answers: mineAns?.answers ?? null });
+        return NextResponse.json({ round: { id: round.id, title: round.title }, answers: mineAns && own(mineAns.at) ? mineAns.answers : null });
       }
       // 답하는 사이 선생님이 새 회차를 열었으면 앞 회차 답을 새 회차에 넣지 않고 알린다(화면이 새 회차를 다시 읽는다)
       if (body.round !== round.id) return bad("마음 점검이 새로 열렸어요. 처음부터 다시 해 주세요.", 409);
@@ -177,7 +182,7 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "look") {
       const look = cleanLook(body.look);
       const looks = await getLooks();
-      const n = wordsOf(await recordsOf(s.no)).length;
+      const n = wordsOf(await myRecords()).length;
       if (ACC_UNLOCK[look.acc] > n && looks[s.no]?.acc !== look.acc) return bad("아직 열리지 않은 꾸미개예요.");
       await saveLook(s.no, look);
       return NextResponse.json({ look });
@@ -185,7 +190,7 @@ async function handle(req: NextRequest, body: Body) {
 
     if (body.action === "records") {
       const month = String(body.month ?? today().slice(0, 7));
-      const mine = (await recordsOf(s.no)).filter((r) => r.date.startsWith(month));
+      const mine = (await myRecords()).filter((r) => r.date.startsWith(month));
       return NextResponse.json({ records: mine.map(publicRecord) });
     }
 
@@ -210,23 +215,29 @@ async function handle(req: NextRequest, body: Body) {
     }
     if (body.action === "letters") {
       const [inbox, sent, roster] = await Promise.all([
-        db().find<Letter>("letters", "to", "==", s.no), db().find<Letter>("letters", "from", "==", s.no), getRoster(),
+        db().find<Letter>("letters", "to", "==", s.no).then((ls) => ls.filter((l) => own(l.createdAt))),
+        db().find<Letter>("letters", "from", "==", s.no).then((ls) => ls.filter((l) => own(l.createdAt))),
+        getRoster(),
       ]);
-      const name = (no: number) => `${no}번 ${roster.find((x) => x.no === no)?.alias ?? ""}`.trim();
+      // 쪽지를 쓴 때 그 번호를 쓰던 친구 이름으로(그 뒤 번호를 새 학생에게 줬으면 앞 학생 가명)
+      const name = (no: number, at: string) => {
+        const x = roster.find((y) => y.no === no);
+        return `${no}번 ${formerAt(x, at) ?? x?.alias ?? ""}`.trim();
+      };
       const newest = (a: Letter, b: Letter) => b.createdAt.localeCompare(a.createdAt);
       return NextResponse.json({
         // 연습 학생에게 가던 쪽지(toPractice)는 같은 번호를 새로 받은 실제 학생에게 보이지 않게
         inbox: inbox.filter((l) => l.status === "ok" && !l.toPractice).sort(newest).map((l) => ({
-          id: l.id, text: l.text, from: l.showName ? name(l.from) : null, at: l.checkedAt ?? l.createdAt, read: !!l.readAt,
+          id: l.id, text: l.text, from: l.showName ? name(l.from, l.createdAt) : null, at: l.checkedAt ?? l.createdAt, read: !!l.readAt,
         })),
-        sent: sent.sort(newest).slice(0, 20).map((l) => ({ id: l.id, text: l.text, to: name(l.to), status: l.status, at: l.createdAt })),
+        sent: sent.sort(newest).slice(0, 20).map((l) => ({ id: l.id, text: l.text, to: name(l.to, l.createdAt), status: l.status, at: l.createdAt })),
       });
     }
     // 읽음 표시만 한 번에 고친다(읽고 통째로 다시 쓰면 그 사이 선생님이 살펴본 표시·고친 글을 덮는다). 없는 쪽지는 만들지 않는다.
     // 연습 학생에게 가던 쪽지는 같은 번호의 새 학생이 읽은 것으로 적지 않는다
     if (body.action === "readLetter") {
       const at = new Date().toISOString();
-      await db().update<Letter>("letters", String(body.id), (l) => (l && l.to === s.no && !l.readAt && !l.toPractice ? { ...l, readAt: at } : undefined));
+      await db().update<Letter>("letters", String(body.id), (l) => (l && l.to === s.no && own(l.createdAt) && !l.readAt && !l.toPractice ? { ...l, readAt: at } : undefined));
       return NextResponse.json({ ok: true });
     }
 
@@ -234,7 +245,8 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "week") {
       const date = today();
       const ws = monday(date);
-      const [mine, ref] = await Promise.all([recordsOf(s.no), db().get<Reflect>("reflects", `${s.no}_${ws}`)]);
+      const [mine, found] = await Promise.all([myRecords(), db().get<Reflect>("reflects", `${s.no}_${ws}`)]);
+      const ref = found && own(found.createdAt) ? found : null;
       return NextResponse.json({
         weekStart: ws, today: date, records: mine.filter((r) => r.date >= ws).map(publicRecord),
         reflect: ref ? { text: ref.text, reply: ref.reply } : null,
@@ -245,7 +257,7 @@ async function handle(req: NextRequest, body: Body) {
       const lang: Lang = isLang(body.lang) ? body.lang : "ko";
       if (text.length < 2) return bad("한 줄을 적어 주세요.");
       const ws = monday(today());
-      const week = (await recordsOf(s.no)).filter((r) => r.date >= ws);
+      const week = (await myRecords()).filter((r) => r.date >= ws);
       const risk = matchRisk(text, settings.riskWords).length > 0;
       let reply = t(lang, "reflectThanks");
       if (risk) {
@@ -285,7 +297,7 @@ async function handle(req: NextRequest, body: Body) {
 
     // ── 반 감정 단어 사전: 최근 두 달 우리 반이 쓴 감정 단어 수(이름·번호 없이) ──
     if (body.action === "dictionary") {
-      const [recent, mine] = await Promise.all([recordsFrom(addDays(today(), -60)), recordsOf(s.no)]);
+      const [recent, mine] = await Promise.all([recordsFrom(addDays(today(), -60)), myRecords()]);
       const counts: Record<string, number> = {};
       for (const r of recent) if (r.word) counts[r.word] = (counts[r.word] ?? 0) + 1;
       return NextResponse.json({ counts, mine: wordsOf(mine), vocab: settings.vocab });
@@ -301,7 +313,7 @@ async function handle(req: NextRequest, body: Body) {
       const features = settings.voiceMode === "off" ? null : cleanFeatures(body.voice);
       let tone: { tone: string; why: string; by: "device" | "gemini" } | null = null;
       if (features) {
-        const history = (await recordsOf(s.no)).filter((r) => r.voice).map((r) => r.voice!);
+        const history = (await myRecords()).filter((r) => r.voice).map((r) => r.voice!);
         const tn = toneOf(features, baseline(history));
         if (tn) tone = { tone: tn.tone, why: tn.why, by: "device" };
       }

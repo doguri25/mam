@@ -7,6 +7,7 @@ import Doodle from "../Doodle";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
+import { formerAt, ownBy } from "@/lib/shared";
 import { SEL_COMPS, compScores, type SelCheck } from "@/lib/selcheck";
 import { SELF_ITEMS, classComps, itemCounts, pctOf, selfComps, selfWatch, type SelfAnswer, type SelfRound } from "@/lib/selfcheck";
 
@@ -74,8 +75,12 @@ export default function SelfCheckTab({ data, nameOf, version }: { data: Overview
   const of = (id: string | null) => d.answers.filter((a) => a.round === id);
   const round = d.rounds.find((r) => r.id === view);
   const baseId = base === view ? null : base; // 보는 회차를 자기 자신과 견주지 않게
-  const now = of(view), before = of(baseId);
-  const who = (no: number) => (hide ? `${no}번` : `${no} ${nameOf(no)}`);
+  // 견줄 회차의 답은 같은 학생 것만(그사이 이 번호를 새 학생에게 줬으면 앞 학생 답과 견주지 않는다)
+  const holder = (no: number, at?: string) => formerAt(data.students.find((s) => s.no === no), at) ?? "\u0000지금";
+  const now = of(view);
+  const before = of(baseId).filter((b) => { const n = now.find((a) => a.no === b.no); return !n || holder(b.no, b.at) === holder(n.no, n.at); });
+  const who = (no: number, at?: string) => (hide ? `${no}번` : `${no} ${nameOf(no, at)}`);
+  const done = (id: string) => of(id).filter((a) => ownBy(data.students.find((s) => s.no === a.no), a.at)); // 지금 학생이 낸 답
 
   return (
     <div className="space-y-4">
@@ -89,9 +94,9 @@ export default function SelfCheckTab({ data, nameOf, version }: { data: Overview
             <div>
               <p className="font-bold"><Doodle name="clipboard" /> 학생 화면에 열려 있어요 · 「{open.title}」 ({label(open.openedAt)}부터)</p>
               <p className="text-sm">
-                답한 학생 {of(open.id).length}/{data.students.length}
-                {data.students.length > of(open.id).length && (
-                  <span className="text-soft"> · 아직: {data.students.filter((s) => !of(open.id).some((a) => a.no === s.no)).map((s) => s.no).join(", ")}번</span>
+                답한 학생 {done(open.id).length}/{data.students.length}
+                {data.students.length > done(open.id).length && (
+                  <span className="text-soft"> · 아직: {data.students.filter((s) => !done(open.id).some((a) => a.no === s.no)).map((s) => s.no).join(", ")}번</span>
                 )}
               </p>
             </div>
@@ -149,7 +154,7 @@ export default function SelfCheckTab({ data, nameOf, version }: { data: Overview
 }
 
 function Results({ data, d, round, base, now, before, who }: {
-  data: Overview; d: Data; round: SelfRound; base: SelfRound | null; now: SelfAnswer[]; before: SelfAnswer[]; who: (no: number) => string;
+  data: Overview; d: Data; round: SelfRound; base: SelfRound | null; now: SelfAnswer[]; before: SelfAnswer[]; who: (no: number, at?: string) => string;
 }) {
   const c = classComps(now.map((a) => a.answers));
   const b = base ? classComps(before.map((a) => a.answers)) : null;
@@ -218,7 +223,7 @@ function Results({ data, d, round, base, now, before, who }: {
         {watch.length > 0 && (
           <div className="space-y-1 rounded-2xl bg-[#fff8e1] p-3 text-sm">
             <p className="font-bold"><Doodle name="dotYellow" /> 먼저 이야기 나눠 볼 학생 (진단이 아닌 살펴보기 신호)</p>
-            {watch.map((w) => <p key={w.no}>· {who(w.no)}: {w.why.join(", ")}</p>)}
+            {watch.map((w) => <p key={w.no}>· {who(w.no, now.find((a) => a.no === w.no)?.at)}: {w.why.join(", ")}</p>)}
           </div>
         )}
         <div className="overflow-x-auto">
@@ -238,7 +243,7 @@ function Results({ data, d, round, base, now, before, who }: {
                 const avg = s.reduce((x, y) => x + y, 0) / s.length, pavg = ps ? ps.reduce((x, y) => x + y, 0) / ps.length : null;
                 return (
                   <tr key={a.no} className={`border-b border-line/60 ${watch.some((w) => w.no === a.no) ? "bg-[#fff8e1]" : ""}`}>
-                    <td className="whitespace-nowrap py-1.5 pr-2">{who(a.no)}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-2">{who(a.no, a.at)}</td>
                     {s.map((v, i) => (
                       <td key={i} className="px-1">
                         <span className={v === 1 ? "font-bold text-alert" : ""}>{v.toFixed(1)}</span>

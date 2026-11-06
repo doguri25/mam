@@ -64,4 +64,5 @@ export interface Overview extends OverviewRaw {
 }
 
 export type Reload = () => Promise<void>;
-export type NameOf = (no: number) => string;
+// at: 그 글·쪽지를 쓴 때. 그 뒤 이 번호를 새 학생에게 줬으면 「앞 학생 ○○」(지금 학생 실명·가명을 붙이지 않게)
+export type NameOf = (no: number, at?: string) => string;

@@ -6,6 +6,7 @@ import StyleNote from "./StyleNote";
 import Notes from "./Notes";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview, Reload } from "./types";
+import { mine, myNotes } from "./own";
 import { useAct } from "./useAct";
 import { kday } from "./when";
 import { api } from "@/lib/api";
@@ -22,7 +23,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
   const saving = useAct(); // 「저장하고 복사」를 두 번 눌러 같은 응원이 두 번 남지 않게(남은 응원은 화면에서 지울 수 없어 주간 리포트 수가 늘어남)
   const [last, setLast] = useState<{ no: number; text: string } | null>(null); // 방금 저장한 응원: 그대로 다시 누르면 복사만
   const s = data.students.find((x) => x.no === no);
-  const saved = data.cheers.filter((c) => c.no === no);
+  const saved = no == null ? [] : mine(data, no, data.cheers, (c) => c.no, (c) => c.createdAt); // 앞 학생에게 쓴 응원은 빼고
   // AI 초안을 기다리는 동안 다른 학생을 고르면 늦게 온 앞 학생 초안은 버린다(다른 아이 칸에 들어가지 않게)
   const req = useRef(0);
   function pick(n: number) {
@@ -126,7 +127,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
               )}
               <section className="card">
                 <h2 className="mb-2 font-display text-xl"><Doodle name="memo" /> 면담 메모</h2>
-                <Notes key={s.no} no={s.no} notes={data.notes} reload={reload} />
+                <Notes key={s.no} no={s.no} notes={myNotes(data, s.no)} reload={reload} />
               </section>
             </>
           }
