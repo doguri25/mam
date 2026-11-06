@@ -12,7 +12,9 @@ const secure = process.env.NODE_ENV === "production";
 export async function POST(req: NextRequest) {
   // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
   if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
-  const body = await req.json().catch(() => ({}));
+  // 몸이 JSON 객체가 아니면(null·배열·깨진 JSON) 빈 요청으로 본다(body.action을 읽다 500이 나지 않게 — 들어가기는 몸이 없어도 된다)
+  const raw: unknown = await req.json().catch(() => null);
+  const body = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as { action?: unknown };
   if (body.action === "end") {
     const res = NextResponse.json({ ok: true });
     for (const c of [DEMO_COOKIE, TEACHER_COOKIE, STUDENT_COOKIE]) res.cookies.delete(c);

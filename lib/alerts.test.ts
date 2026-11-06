@@ -67,6 +67,42 @@ test("이어받기는 그 글을 마친 기록만: 같은 칸에 살펴보지 �
   assert.equal(D.recentDraft(amSame, Date.parse("2026-11-05T00:31:00.000Z")), false);
 });
 
+test("자정을 넘겨 마친 기록: 어제 칸에 남은 그 무렵 글을 이어받고 함께 지운다(한 글에 알림 둘이 남지 않게)", async () => {
+  const X = "학교 가기 싫고 죽고 싶어";
+  // 11월 5일 23:59:40(한국)에 정리 → 글은 어제(5일) 하교 전 칸, 11월 6일 00:00:20에 저장 → 기록은 6일 칸
+  const at = "2026-11-05T14:59:40.000Z";
+  const save = Date.parse("2026-11-05T15:00:20.000Z");
+  const y = draft("7_2026-11-05_pm", X, { no: 7, date: "2026-11-05", slot: "pm", at });
+  assert.deepEqual(D.nearDraftIds("7_2026-11-06_pm"), ["7_2026-11-06_am", "7_2026-11-05_pm", "7_2026-11-05_am"]);
+  assert.deepEqual(D.nearDraftIds("7_2026-11-06_am"), ["7_2026-11-06_pm", "7_2026-11-05_pm", "7_2026-11-05_am"]);
+  // 선생님이 그 글을 이미 살펴봤으면 오늘 기록이 이어받는다(어느 칸으로 저장하든)
+  assert.equal(D.seenDraft(saved(X), [y], "7_2026-11-06_pm", save), y);
+  assert.equal(D.seenDraft(saved(X), [y], "7_2026-11-06_am", save), y);
+  // 몇 시간 앞서 따로 쓴 어제 글은 이어받지 않는다
+  assert.equal(D.seenDraft(saved(X), [{ ...y, at: "2026-11-05T09:00:00.000Z" }], "7_2026-11-06_am", save), null);
+
+  await inSpace("calertmid", async () => {
+    const open = { ...y, checked: null };
+    const old = draft("7_2026-11-05_am", "죽고 싶어", { no: 7, date: "2026-11-05", checked: null, at: "2026-11-04T23:00:00.000Z" });
+    const other = draft("8_2026-11-05_pm", X, { no: 8, date: "2026-11-05", slot: "pm", checked: null, at });
+    await db().set("meta", "riskDrafts", { items: [open, old, other] });
+    await D.dropDoneDrafts("7_2026-11-06_pm", save, (d) => D.draftKept(d, X, "") && !d.checked);
+    // 그 무렵 쓴 어제 하교 전 글만 지운다(아침에 따로 남긴 글·다른 학생 글은 그대로)
+    assert.deepEqual((await D.getRiskDrafts()).map((d) => d.id).sort(), ["7_2026-11-05_am", "8_2026-11-05_pm"]);
+  });
+});
+
+test("선생님 화면에 보낼 기록: 34일보다 오래돼도 살펴보지 않은 위험 표현 기록은 더한다(살펴본 것·겹친 것은 빼고)", () => {
+  const rec = (id: string, extra: Partial<MoodRecord> = {}) => ({ id, no: 1, date: "2026-11-05", risk: false, riskChecked: null, ...extra }) as MoodRecord;
+  const recent = [rec("1_2026-11-05_am"), rec("1_2026-11-04_am", { risk: true })];
+  const risky = [
+    rec("1_2026-11-04_am", { risk: true }),
+    rec("1_2026-09-01_am", { date: "2026-09-01", risk: true }),
+    rec("1_2026-08-01_am", { date: "2026-08-01", risk: true, riskChecked: "2026-08-02T00:00:00.000Z" }),
+  ];
+  assert.deepEqual(D.withOpenRisks(recent, risky).map((r) => r.id), ["1_2026-11-05_am", "1_2026-11-04_am", "1_2026-09-01_am"]);
+});
+
 test("살펴본 마치지 않은 글의 조치 기록을 마친 마음 기록으로 옮긴다(이름은 via에, 무엇을 살펴봤나는 마음 기록으로)", async () => {
   await inSpace("calerts1", async () => {
     const act = (id: string, recordId: string, extra: Partial<RiskAction> = {}): RiskAction =>

@@ -27,6 +27,9 @@ export async function saveSub(sub: PushSubscription, label: string) {
 }
 
 export const removeSub = (endpoint: string) => db().del("subs", subId(endpoint));
+// 이 기기의 알림 주소가 이 학급 알림 목록에 지금 있나. 브라우저의 구독만 보면, 다른 기기에서 비밀번호를 바꾸거나
+// 「모두 끄기」로 서버 목록에서 빠진 뒤에도 「이 기기에서 받는 중」으로 보인다.
+export const hasSub = async (endpoint: string) => !!(await db().get("subs", subId(endpoint)));
 export const countSubs = async () => (await db().all<Sub>("subs")).length;
 
 // 이 학급의 알림 받는 기기를 모두 뺀다(잃어버린 휴대폰 끊기·비밀번호를 바꿀 때). keepEndpoint로 보낸 기기 하나만 남길 수 있다. 뺀 수를 돌려준다.

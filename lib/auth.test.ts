@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkPassword, isTeacher, makePin, queueCodeOk, queueToken, readQueueToken, sign, teacherSpace, teacherToken, validPin } from "./auth.ts";
+import { OTHER_STUDENT, checkPassword, isTeacher, makePin, otherStudent, queueCodeOk, queueToken, readQueueToken, sign, teacherSpace, teacherToken, validPin } from "./auth.ts";
 import { inSpace } from "./db.ts";
+import { LANGS, errText } from "./i18n.ts";
 
 test("바꾼 비밀번호는 해시로만 맞춰 보고, 바꾸기 전에는 처음 비밀번호", () => {
   const pin = makePin("246810", 1);
@@ -50,4 +51,22 @@ test("끊김 대비 표는 그 학생·그날만, 고치면 무효, 코드는 �
   assert.ok(queueCodeOk("ABC234", "ABC234")); // 예전 표
   assert.equal(readQueueToken(tk.replace("2026-10-21", "2026-10-22")), null);
   assert.equal(readQueueToken(teacherToken(0)), null);
+});
+
+test("다른 탭에서 다른 친구가 들어옴: 화면이 아는 학생·학급과 쿠키가 다를 때만, 보내지 않으면(예전 화면) 그대로", () => {
+  const ck = sign("3:ABC234:c1a2b3c4");
+  const at = (screen: Record<string, unknown>) => inSpace("c1a2b3c4", () => otherStudent(ck, screen));
+  assert.equal(at({}), false);
+  assert.equal(at({ screenNo: 3, screenSpace: "c1a2b3c4" }), false);
+  assert.equal(at({ screenNo: 7 }), true);
+  assert.equal(at({ screenNo: 3, screenSpace: "demo" }), true);
+  assert.equal(at({ screenNo: null, screenSpace: null }), false);
+  assert.equal(at({ screenNo: "3" }), false);
+  assert.equal(at({ screenNo: "abc" }), true); // 알아볼 수 없는 번호는 같은 학생이라 하지 않는다
+  assert.equal(inSpace("", () => otherStudent(sign("3:ABC234"), { screenNo: 3, screenSpace: "" })), false); // 공간이 적히기 전 쿠키
+  // 쿠키가 없거나 고쳐졌으면 여기서 막지 않는다(아래에서 「다시 들어와 주세요」 401)
+  assert.equal(otherStudent(undefined, { screenNo: 7 }), false);
+  assert.equal(otherStudent(`${ck}x`, { screenNo: 7 }), false);
+  // 학생 화면 언어로도 보인다
+  for (const { id } of LANGS) if (id !== "ko") assert.notEqual(errText(id, OTHER_STUDENT), errText(id, "문제가 생겼어요."), id);
 });

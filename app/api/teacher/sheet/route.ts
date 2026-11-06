@@ -32,6 +32,7 @@ async function handle(req: NextRequest) {
   } catch {
     return bad("요청이 올바르지 않아요.");
   }
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return bad("요청이 올바르지 않아요."); // 「null」 같은 몸에서 meta.run을 읽다 500이 나지 않게
   const files = (form?.getAll("page") ?? []).filter((f): f is File => f instanceof File && f.type === "image/jpeg");
   const r = (meta.run ?? {}) as Record<string, unknown>;
   const id = String(r.id ?? "");
