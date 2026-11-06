@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import webpush, { type PushSubscription } from "web-push";
 import { db } from "./db.ts";
+import { touch } from "./data.ts";
 
 export const pushPublicKey = () => process.env.VAPID_PUBLIC_KEY ?? "";
 export const pushReady = () => !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
@@ -50,6 +51,7 @@ export async function notifyTeachers(payload: { title: string; body: string; url
   const subs = await db().all<Sub>("subs");
   let sent = 0;
   let failed = 0;
+  let gone = 0;
   await Promise.all(
     subs.map(async (s) => {
       try {
@@ -58,10 +60,14 @@ export async function notifyTeachers(payload: { title: string; body: string; url
       } catch (e) {
         failed++;
         const code = (e as { statusCode?: number }).statusCode;
-        if (code === 404 || code === 410) await db().del("subs", s.id); // 지운 앱·끈 알림은 정리
-        else console.error("푸시 실패", code, (e as Error).message);
+        if (code === 404 || code === 410) {
+          await db().del("subs", s.id); // 지운 앱·끈 알림은 정리
+          gone++;
+        } else console.error("푸시 실패", code, (e as Error).message);
       }
     }),
   );
+  // 정리한 기기가 있으면 변경 표시를 남겨 선생님 화면 설정의 기기 수·「받는 중」도 맞춘다
+  if (gone) await touch("other");
   return { sent, failed };
 }

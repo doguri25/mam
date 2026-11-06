@@ -59,7 +59,11 @@ async function handle(req: NextRequest) {
   try {
     // 잠그기(로그아웃): 이 기기의 알림 주소(endpoint)를 보내면 이 학급 알림 목록에서도 뺀다(잠근 기기로 위험 알림이 가지 않게)
     if (body.action === "logout") {
-      if (typeof body.endpoint === "string" && !isDemo() && isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, (await getPin())?.v ?? 0)) await removeSub(body.endpoint);
+      // 뺐으면 변경 표시를 남겨, 설정을 열어 둔 다른 기기의 「알림 받는 기기 n대」도 20초 안에 맞춘다
+      if (typeof body.endpoint === "string" && !isDemo() && isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, (await getPin())?.v ?? 0)) {
+        await removeSub(body.endpoint);
+        await touch("other");
+      }
       const res = NextResponse.json({ ok: true });
       res.cookies.delete(TEACHER_COOKIE);
       return res;
@@ -105,6 +109,7 @@ async function handle(req: NextRequest) {
       const np = makePin(next, (pin?.v ?? 0) + 1);
       await savePin(np);
       const pushRemoved = await clearSubs(typeof body.keepEndpoint === "string" ? body.keepEndpoint : undefined);
+      if (pushRemoved) await touch("other"); // 다른 기기 설정의 기기 수·「받는 중」도 다시 읽게
       return withTeacherCookie(np.v, { pushRemoved, devices: await countSubs() });
     }
 
@@ -624,10 +629,15 @@ async function handle(req: NextRequest) {
       const sub = body.subscription;
       if (!sub?.endpoint || !/^https:\/\//.test(sub.endpoint) || !sub.keys?.p256dh || !sub.keys?.auth) return bad("알림 등록 정보가 맞지 않아요.");
       await saveSub(sub, String(body.label ?? ""));
+      // 알림 받는 기기가 바뀌면 변경 표시를 남긴다: 설정을 열어 둔 다른 기기도 20초 안에 기기 수·「받는 중」을 다시 본다
+      await touch("other");
       return NextResponse.json({ ok: true, devices: await countSubs() });
     }
     if (body.action === "unsubscribe") {
-      if (typeof body.endpoint === "string") await removeSub(body.endpoint);
+      if (typeof body.endpoint === "string") {
+        await removeSub(body.endpoint);
+        await touch("other");
+      }
       return NextResponse.json({ ok: true, devices: await countSubs() });
     }
     // 이 기기의 알림 주소가 이 학급 알림 목록에 지금 있나(브라우저 구독만 보면 다른 기기에서 비밀번호를 바꿔 빠진 뒤에도 「받는 중」으로 보임).
@@ -639,6 +649,7 @@ async function handle(req: NextRequest) {
     // 알림 받는 기기 모두 끄기(잃어버린 휴대폰 등): 이 학급에 등록된 알림 주소를 모두 지운다
     if (body.action === "pushClear") {
       const removed = await clearSubs();
+      if (removed) await touch("other");
       return NextResponse.json({ ok: true, removed, devices: await countSubs() });
     }
     if (body.action === "testPush") {

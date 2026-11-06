@@ -3,8 +3,9 @@
 import { useRef, useState } from "react";
 import Doodle from "../Doodle";
 import { api } from "@/lib/api";
+import type { Reload } from "./types";
 
-export default function PinCard({ pinSet }: { pinSet: boolean }) {
+export default function PinCard({ pinSet, reload }: { pinSet: boolean; reload: Reload }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [again, setAgain] = useState("");
@@ -35,6 +36,8 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
       setCurrent("");
       setNext("");
       setAgain("");
+      // 다른 기기 알림을 껐으면 이 화면의 「알림 받는 기기 n대」도 맞춘다(못 읽어도 비밀번호는 이미 바뀜)
+      await reload().catch(() => {});
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
     }

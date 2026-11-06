@@ -209,7 +209,7 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
   return (
     <div className="space-y-5">
       <p className="text-sm text-soft">처음에는 <b>비밀번호 바꾸기 · AI 키 넣기 · 반 이름</b>만 하면 돼요. 나머지는 아래 「자세한 설정」에 있어요.</p>
-      <PinCard pinSet={data.pinSet} />
+      <PinCard pinSet={data.pinSet} reload={reload} />
       <section className="card space-y-4">
         <div>
           <h2 className="font-display text-xl">AI 연결</h2>
