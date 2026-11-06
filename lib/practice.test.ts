@@ -121,3 +121,35 @@ test("체험 반 「처음 판으로」: 앞 사람이 넣은 역량 진단·차
     assert.deepEqual(await db().get("meta", "lessons"), lesson);
   });
 });
+
+test("「연습 데이터 지우기」가 도는 사이 바뀐 명단(그사이 실제 학생으로 바꾼 번호·새로 넣은 학생)은 덮어 잃지 않는다", async () => {
+  await inSpace("cpractice-race", async () => {
+    await saveRoster([
+      { no: 1, alias: "연습하나", code: "PRA111", demo: true },
+      { no: 2, alias: "연습둘", code: "PRA222", demo: true },
+      { no: 3, alias: "햇살", code: "REA333" },
+    ], false);
+    // 지우기가 명단을 읽은 뒤, 쓰기 전에 다른 기기가 2번을 실제 학생으로 바꾸고 4번을 넣는다
+    const store = db() as unknown as { del: (...a: unknown[]) => Promise<unknown> };
+    const del = store.del.bind(store);
+    let once = false;
+    store.del = async (...a: unknown[]) => {
+      if (!once) {
+        once = true;
+        await saveRoster([
+          { no: 1, alias: "연습하나", code: "PRA111", demo: true },
+          { no: 2, alias: "진짜둘", code: "NEW222" },
+          { no: 3, alias: "햇살", code: "REA333" },
+          { no: 4, alias: "바람", code: "NEW444" },
+        ], false);
+      }
+      return del(...a);
+    };
+    try {
+      await clearPractice();
+    } finally {
+      store.del = del;
+    }
+    assert.deepEqual((await getRoster()).map((s) => [s.no, s.alias]), [[2, "진짜둘"], [3, "햇살"], [4, "바람"]]);
+  });
+});

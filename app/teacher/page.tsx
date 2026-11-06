@@ -21,6 +21,7 @@ import SettingsTab from "@/components/teacher/SettingsTab";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
 import { riskAlertCount } from "@/components/teacher/alerts";
 import { useAct } from "@/components/teacher/useAct";
+import { whileRosterChanges } from "@/components/teacher/rosterBusy";
 import { api } from "@/lib/api";
 import { addDays, today as kToday } from "@/lib/date";
 import { useLocal, useNames } from "@/lib/local";
@@ -305,7 +306,7 @@ export default function TeacherPage() {
   const nameOf = (no: number) => names.name(no, data.students.find((s) => s.no === no)?.alias ?? "(명단에 없음)");
 
   const clearDemo = () => demoAct.run("연습 데이터를 지우지 못했어요", async () => {
-    await api("teacher", "demo", { mode: "clearDemo" });
+    await whileRosterChanges(() => api("teacher", "demo", { mode: "clearDemo" })); // 그동안 「명단 저장」은 막는다
     await load();
   }, "연습용(시연) 기록을 지울까요? 연습용 명단이면 명단·응원·메모도 함께 지워져요. 실제로 남긴 기록은 그대로예요.");
 
