@@ -37,6 +37,10 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
   const text = useRef("");
   const voice = useRef<Promise<VoiceResult | null> | null>(null);
   const shown = useRef(true); // 이 화면이 보이는 중(숨겨지면 듣기를 시작하지 않는다)
+  // 마이크를 여는 데(태블릿에서 0.3초쯤) 걸리는 사이 다시 누르면 받아쓰기·마이크가 둘 생겨, 하나가 켜진 채 남았다.
+  // opening: 지금 마이크를 여는 차례(0 = 없음). turn: 시작·그만두기·숨김마다 하나씩 → 늦게 끝난 앞 시작은 연 마이크를 닫고 물러난다.
+  const opening = useRef(0);
+  const turn = useRef(0);
 
   // 화면이 숨겨지거나(다른 작은 화면으로 감, Next.js Activity) 사라지면 받아쓰기와 마이크를 멈춘다
   // → 숨은 화면이 계속 듣고 글을 바꾸거나 마이크를 켜 두지 않게. 늦게 오는 받아쓰기 결과는 버린다.
@@ -44,6 +48,8 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
     shown.current = true;
     return () => {
       shown.current = false;
+      turn.current += 1; // 마이크를 여는 중이었으면 열리는 대로 닫는다(다시 보여도 저절로 듣지 않게)
+      opening.current = 0;
       const r = rec.current;
       rec.current = null;
       if (r) {
@@ -73,24 +79,30 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
 
   async function start() {
     const C = ctor();
-    if (!C) return;
+    if (!C || opening.current || rec.current) return; // 마이크를 여는 중이거나 이미 듣는 중: 두 번 눌러도 하나만
+    const my = ++turn.current;
+    opening.current = my;
     setError("");
     text.current = "";
     voice.current = null;
+    setListening(true); // 마이크를 여는 사이에도 듣는 모습(■)으로(그사이 다시 누른 것은 toggle이 넘기고, 카드로 바꾸기 등은 stop이 물린다)
+    let m: VoiceMeter | null = null;
     if (opts.measure) {
+      m = new VoiceMeter();
       try {
-        const m = new VoiceMeter();
         await m.start(!!opts.record);
-        if (!shown.current) {
-          m.stop("").catch(() => {}); // 마이크를 여는 사이 화면이 숨겨졌다
-          return;
-        }
-        meter.current = m;
       } catch {
-        meter.current = null; // 마이크를 함께 못 쓰는 기기면 말투 없이 받아쓰기만
+        m.stop("").catch(() => {}); // 반쯤 열린 마이크도 닫는다
+        m = null; // 마이크를 함께 못 쓰는 기기면 말투 없이 받아쓰기만
       }
     }
-    if (!shown.current) return;
+    if (opening.current === my) opening.current = 0;
+    if (turn.current !== my || !shown.current) {
+      m?.stop("").catch(() => {}); // 마이크를 여는 사이 그만두기를 눌렀거나 화면이 숨겨졌다
+      return;
+    }
+    meter.current?.stop("").catch(() => {}); // 앞에서 쓰고 남은 것이 있으면 닫는다(마이크가 켜진 채 남지 않게)
+    meter.current = m;
     const r = new C();
     r.lang = opts.lang ?? "ko-KR";
     r.interimResults = true;
@@ -100,17 +112,43 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
       onText(text.current);
     };
     r.onend = () => {
+      if (rec.current === r) rec.current = null;
       setListening(false);
       finishMeter();
     };
     r.onerror = (e) => {
+      if (rec.current === r) rec.current = null;
       setListening(false);
       finishMeter();
       setError(e.error === "not-allowed" ? "micDenied" : e.error === "no-speech" ? "noSpeech" : "speechFail"); // 화면에서 학생 언어로 바꿔 보여 준다
     };
-    r.start();
     rec.current = r;
-    setListening(true);
+    try {
+      r.start();
+    } catch {
+      rec.current = null;
+      setListening(false);
+      finishMeter();
+      setError("speechFail");
+    }
+  }
+
+  // 그만 듣기(카드로 바꾸기·정리하기·저장할 때도). 마이크를 여는 중이면 그 시작을 물린다(열리는 대로 닫힘)
+  function stop() {
+    if (opening.current) {
+      turn.current += 1;
+      opening.current = 0;
+      setListening(false);
+      return;
+    }
+    rec.current?.stop();
+  }
+
+  // 마이크 단추 하나로 듣기·그만 듣기. 마이크를 여는 사이 다시 누른 것은 두 번 누름으로 보고 넘긴다(아이들은 두 번 톡톡 누른다)
+  function toggle() {
+    if (opening.current) return;
+    if (rec.current) stop();
+    else start();
   }
 
   return {
@@ -118,7 +156,8 @@ export function useSpeech(onText: (text: string) => void, opts: { measure?: bool
     listening,
     error,
     start,
-    stop: () => rec.current?.stop(),
+    stop,
+    toggle,
     // 마지막으로 말한 것의 말투(재지 않았으면 null)
     takeVoice: async () => {
       if (meter.current) finishMeter(); // 받아쓰기가 아직 안 끝났어도 여기서 멈춘다

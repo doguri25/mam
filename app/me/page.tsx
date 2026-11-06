@@ -439,8 +439,10 @@ export default function MePage() {
       const prev = stepBack(pickNav, pick.emotion);
       return prev ? setPickNav(prev) : reset();
     }
-    if (step === "confirm") return setStep("voice");
-    if (step === "ask") return setStep(askFrom);
+    if (step === "confirm" || step === "ask") {
+      setNote(""); // 되묻기에서 못 한 저장 안내 등은 앞 단계로 가져가지 않는다
+      return setStep(step === "confirm" ? "voice" : askFrom);
+    }
     reset(); // 고르기 화면으로(말하기·저장한 뒤)
   }, "me");
   // 첫 화면에서 뒤로 가기를 눌러도 앱 밖으로 나가지 않고, 나가는 방법을 알려 준다.
@@ -516,6 +518,7 @@ export default function MePage() {
       if (!keep(c)) return;
       const q = toQa(r);
       setQa(q);
+      setNote(""); // 카드 단계의 안내(잘 못 알아들었어·생각이 길어졌어·연결 확인)는 되묻기로 가져가지 않는다
       if (method === "voice") {
         setTone(toTone(r));
         if (lang !== "ko" && r.summary) setSummaryKo(r.summary);
@@ -527,11 +530,15 @@ export default function MePage() {
       if (!keep(c)) return; // 뒤로 가기·다른 화면으로 나가 그만둠
       if (isTimeout(e)) {
         // 마음 친구가 너무 오래 생각함: 쓴 문장이 있으면 되묻기 없이 저장(서버가 위험한 말을 살핀다), 카드만이면 기본 되묻기로
+        setNote("");
         if (said) return save("", NO_QA, tone, p);
         setQa({ ...fallbackFor(lang, p.reason ?? "그냥", groupOf(p.emotion ?? "") === "joy"), aiRisk: false, skip: false });
         setAskFrom("card");
         setStep("ask");
-      } else if (!(e as { status?: number }).status) return save("", NO_QA, tone, p); // 와이파이가 끊겼으면 되묻기 없이 바로 기기에 담는다
+      } else if (!(e as { status?: number }).status) {
+        setNote("");
+        return save("", NO_QA, tone, p); // 와이파이가 끊겼으면 되묻기 없이 바로 기기에 담는다
+      } else if ((e as { status?: number }).status === 401) router.replace("/"); // 로그인이 풀림: 작은 화면들처럼 첫 화면으로
       else setNote((e as Error).message);
     }
     setBusy("");
@@ -556,6 +563,7 @@ export default function MePage() {
         setPick({ emotion: r.emotion, intensity: r.intensity, reason: r.reason, word: r.word || undefined });
         if (lang !== "ko" && r.summary) setSummaryKo(r.summary);
         setQa(toQa(r));
+        setNote(""); // 말하기 화면의 앞 안내는 다음 단계로 가져가지 않는다
         setStep("confirm");
       }
     } catch (e) {
@@ -565,7 +573,8 @@ export default function MePage() {
         setNote(isTimeout(e) ? "slowThink" : "loadFail");
         setPickNav(STEP_START);
         setStep("card");
-      } else setNote((e as Error).message);
+      } else if ((e as { status?: number }).status === 401) router.replace("/"); // 로그인이 풀림: 첫 화면으로
+      else setNote((e as Error).message);
     }
     setBusy("");
   }
@@ -629,6 +638,7 @@ export default function MePage() {
           flowers: [...cur.flowers.filter((f) => f.date !== today), { date: today, emotion: (lastMood(records) ?? record).emotion }],
         };
       });
+      setNote("");
       setStep("done");
       manual.current = false; // 손수 고른 시간은 이번 기록으로 다 썼다(정오가 지나면 다시 시계를 따라감)
       if (!heavy || hard) setCheer((n) => n + 1); // 위험한 말 뒤에 기쁜 마음 친구가 폴짝 뛰지 않게(힘든 마음은 끄덕이며 토닥)
@@ -636,7 +646,9 @@ export default function MePage() {
       setCalm(hard || heavy ? "offer" : "off");
       say(tt("saved").replace("✓ ", ""));
     } catch (e) {
-      setNote((e as Error).message);
+      // 로그인이 풀렸으면(401) 작은 화면들처럼 첫 화면으로(여기 머물면 다시 눌러도 401만 되풀이된다). 담아 두지 않는다(위에서 status가 있으면 담지 않음)
+      if ((e as { status?: number }).status === 401) router.replace("/");
+      else setNote((e as Error).message);
     }
     setBusy("");
   }
@@ -843,7 +855,7 @@ export default function MePage() {
               {step === "confirm" && (
                 <div className="flex justify-between gap-3 pt-2">
                   <button onClick={() => reset()} className="btn-sub">{tt("restart")}</button>
-                  <button onClick={() => { if (qa.skip) return save(""); setAskFrom("confirm"); setStep("ask"); }} disabled={!complete} className="btn-main px-8 text-lg">
+                  <button onClick={() => { if (qa.skip) return save(""); setNote(""); setAskFrom("confirm"); setStep("ask"); }} disabled={!complete} className="btn-main px-8 text-lg">
                     {complete ? tt("yesNext") : tt("pick3")}
                   </button>
                 </div>
@@ -854,7 +866,7 @@ export default function MePage() {
               <h2 className="font-display text-2xl">{tt("sayOne")}<SayBtn lang={lang} text={tt("sayOne")} /></h2>
               {speech.supported && (
                 <button
-                  onClick={speech.listening ? speech.stop : speech.start}
+                  onClick={speech.toggle}
                   className={`mx-auto grid size-28 place-items-center rounded-full text-5xl text-white shadow-lg ${speech.listening ? "animate-pulse bg-alert" : "bg-leaf-soft ring-4 ring-leaf"}`}
                   aria-label={speech.listening ? tt("micStop") : tt("voice")}
                 >
@@ -876,7 +888,7 @@ export default function MePage() {
               )}
               {note && <p className="text-alert">{msg(note)}</p>}
               <div className="flex justify-between gap-3">
-                <button onClick={() => { speech.stop(); if (!text.trim()) setMethod("card"); setPickNav(STEP_START); setStep("card"); }} className="btn-sub">{tt("toCard")}</button>
+                <button onClick={() => { speech.stop(); if (!text.trim()) setMethod("card"); setNote(""); setPickNav(STEP_START); setStep("card"); }} className="btn-sub">{tt("toCard")}</button>
                 <button onClick={fromText} disabled={text.trim().length < 2 || speech.listening} className="btn-main px-8 text-lg">{tt("organize")}</button>
               </div>
             </div>
@@ -895,7 +907,7 @@ export default function MePage() {
               <div className="flex gap-2">
                 <input value={answer} onChange={(e) => setAnswer(e.target.value.slice(0, 120))} className="field" placeholder={tt("ownAnswer")} />
                 {answerSpeech.supported && (
-                  <button onClick={answerSpeech.listening ? answerSpeech.stop : answerSpeech.start} className="btn-sub shrink-0" aria-label={answerSpeech.listening ? tt("micStop") : tt("voice")}>
+                  <button onClick={answerSpeech.toggle} className="btn-sub shrink-0" aria-label={answerSpeech.listening ? tt("micStop") : tt("voice")}>
                     {answerSpeech.listening ? <span aria-hidden>■</span> : <Doodle name="mic" size={26} />}
                   </button>
                 )}
