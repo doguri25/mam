@@ -112,8 +112,9 @@ test("이 화면의 학생을 실어 보낸다(login·me·logout·saveQueued·�
     const n = sent.length;
     assert.ok(isOtherStudent(await api("student", "letters").then(() => null, (x) => x)));
     assert.equal(sent.length, n);
-    // 다른 409(마음 점검 회차가 바뀜)는 예전처럼 서버 글 그대로
+    // 다른 409(마음 점검 회차가 바뀜)는 예전처럼 서버 글 그대로(이 탭에서 다시 들어온 뒤)
     setStudentScreen(null);
+    tab.store.delete(OTHER_KEY);
     answer = () => [409, { error: "마음 점검이 새로 열렸어요." }];
     const other = await api("student", "selfSave").then(() => null, (x) => x);
     assert.ok(!isOtherStudent(other));
@@ -133,8 +134,9 @@ test("me 답이 이 화면과 다른 학생(번호·학급)이면 그 답을 넘
     me = { no: 10, space: "s1", alias: "다른 친구" };
     assert.ok(isOtherStudent(await api("student", "me").then(() => null, (x) => x)));
     assert.deepEqual(tab.went, ["/"]);
-    // 같은 번호라도 다른 반이면 다른 친구
+    // 같은 번호라도 다른 반이면 다른 친구(이 탭에서 다시 들어온 뒤)
     setStudentScreen(null);
+    tab.store.delete(OTHER_KEY);
     tab.went.length = 0;
     me = { no: 9, space: "s1" };
     await api("student", "me");
@@ -143,6 +145,7 @@ test("me 답이 이 화면과 다른 학생(번호·학급)이면 그 답을 넘
     assert.deepEqual(tab.went, ["/"]);
     // 나가기: 이 화면의 학생을 비운다 → 다음 me가 새 학생
     setStudentScreen(null);
+    tab.store.delete(OTHER_KEY);
     tab.went.length = 0;
     me = { no: 9, space: "s1" };
     await api("student", "me");
@@ -159,6 +162,32 @@ test("me 답이 이 화면과 다른 학생(번호·학급)이면 그 답을 넘
     assert.equal(studentScreen(), null);
     assert.equal(tab.store.has(OTHER_KEY), false);
     assert.equal(tab.went.length, 0);
+  } finally {
+    tab.close();
+  }
+});
+
+test("쫓겨난 탭에서 뒤로 가기로 학생 화면을 다시 열어도 코드로 다시 들어오기 전에는 학생 요청을 보내지 않고 첫 화면으로", async () => {
+  const sent = server((a) => [200, a === "me" ? { no: 8, space: "s1" } : a === "login" ? { no: 7, qtoken: "q" } : { ok: true }]);
+  const tab = fakeTab("/me");
+  try {
+    setStudentScreen(null);
+    tab.store.set(OTHER_KEY, JSON.stringify({ no: 7, space: "s1" }));
+    // /me를 다시 연 탭: me(지금 기기의 다른 친구)를 묻지 않고 첫 화면으로
+    assert.ok(isOtherStudent(await api("student", "me").then(() => null, (x) => x)));
+    assert.equal(sent.length, 0);
+    assert.deepEqual(tab.went, ["/"]);
+    // 첫 화면에서는 다시 보내지 않는다(되풀이 새로 고침 없음). 나가기도 다른 친구를 내보내므로 막는다
+    setStudentScreen(null);
+    tab.went.length = 0;
+    (globalThis as unknown as { window: { location: { pathname: string } } }).window.location.pathname = "/";
+    assert.ok(isOtherStudent(await api("student", "logout").then(() => null, (x) => x)));
+    assert.equal(sent.length, 0);
+    assert.equal(tab.went.length, 0);
+    // 코드로 다시 들어오면 풀린다
+    await api("student", "login", { code: "ABC234" });
+    assert.equal(tab.store.has(OTHER_KEY), false);
+    assert.deepEqual(await api("student", "me"), { no: 8, space: "s1" });
   } finally {
     tab.close();
   }
