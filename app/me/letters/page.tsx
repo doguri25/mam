@@ -41,15 +41,19 @@ export default function LettersPage() {
     setMsg(null);
     try {
       await api("student", "letter", { to, text, showName, lang });
-      setMsg({ ok: true, text: tt("lettersSentOk") });
-      setText("");
-      setTo(null);
-      setCheer((n) => n + 1);
-      await load();
     } catch (e) {
       setMsg({ ok: false, text: errText(lang, (e as Error).message) });
+      setSending(false);
+      return;
     }
+    // 쪽지는 갔다. 「보낸 쪽지」를 다시 읽지 못해도(와이파이가 잠깐 끊김) 못 보낸 것처럼 보이지 않게 따로 다룬다
+    // → 아이가 같은 쪽지를 또 보내지 않게. 다시 읽기는 조용히 몇 초 뒤 한 번 더 해 본다.
+    setMsg({ ok: true, text: tt("lettersSentOk") });
+    setText("");
+    setTo(null);
+    setCheer((n) => n + 1);
     setSending(false);
+    load().catch(() => setTimeout(() => load().catch(() => {}), 3_000));
   }
 
   const tabs: [Tab, UIKey][] = [["inbox", "lettersInbox"], ["write", "lettersWrite"], ["sent", "lettersSent"]];
