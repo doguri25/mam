@@ -8,7 +8,7 @@ import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
 import { Loading, useQueueFlush, useStudentLang } from "@/components/StudentFrame";
-import { api } from "@/lib/api";
+import { api, isOtherStudent } from "@/lib/api";
 import { errText, t, type UIKey } from "@/lib/i18n";
 import {
   ACC_UNLOCK, BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, GROUPS, type BuddyAcc, type BuddyLook, type MoodRecord,
@@ -57,7 +57,7 @@ export default function BuddyPage() {
       api<Me>("student", "me").then(
         (m) => { if (alive) { setMe(m); setLook(m.look); } },
         (e) => {
-          if (!alive) return;
+          if (!alive || isOtherStudent(e)) return; // 다른 친구가 들어옴: lib/api가 첫 화면으로 보낸다
           if ((e as { status?: number }).status === 401) return router.replace("/");
           timer = setTimeout(() => load(Math.min(wait * 2, 10_000)), wait);
         },

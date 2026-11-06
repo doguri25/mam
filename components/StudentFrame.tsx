@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { api } from "@/lib/api";
+import { api, isOtherStudent } from "@/lib/api";
 import { backToMe } from "@/lib/back";
 import { isLang, t, type Lang, type UIKey } from "@/lib/i18n";
 import { useLocal } from "@/lib/local";
@@ -40,6 +40,7 @@ export function useStudentLang(who: { no: number; space?: string } | null): [Lan
 }
 
 // 서버에서 읽어 오기: 로그인이 풀렸을 때(401)만 첫 화면으로. 와이파이가 잠깐 끊긴 것이면 머문 채 2초·4초·8초·10초… 뒤 다시 묻는다.
+// 다른 친구가 이 기기로 들어왔으면(otherStudent) lib/api가 첫 화면으로 보내니 다시 묻지 않는다.
 // key가 바뀌면(달력의 달 등) 새로 읽는다. 늦게 온 앞 답은 버린다. 화면이 숨겨지면 멈추고, 다시 보이면 새로 읽는다.
 export function useRetry<T>(load: (() => Promise<T>) | null, done: (v: T) => void, key: unknown = 0) {
   const router = useRouter();
@@ -60,7 +61,7 @@ export function useRetry<T>(load: (() => Promise<T>) | null, done: (v: T) => voi
       f().then(
         (v) => alive && doneRef.current(v),
         (e) => {
-          if (!alive) return;
+          if (!alive || isOtherStudent(e)) return;
           if ((e as { status?: number }).status === 401) return router.replace("/");
           timer = setTimeout(() => go(Math.min(wait * 2, 10_000)), wait);
         },
