@@ -8,6 +8,7 @@ import RetentionCard from "./RetentionCard";
 import PinCard from "./PinCard";
 import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
+import { useAct } from "./useAct";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
 import { matchRisk } from "@/lib/rules";
@@ -22,7 +23,7 @@ const LINKS: Record<Provider, string> = {
   gemini: "https://aistudio.google.com/apikey",
 };
 
-export default function SettingsTab({ data, reload }: { data: Overview; reload: Reload }) {
+export default function SettingsTab({ data, reload, onAlerts }: { data: Overview; reload: Reload; onAlerts?: () => void }) {
   const s = data.settings;
   const shared = data.sharedAi; // 서버의 공용 업스테이지 키(있으면 키 없이도 하루 정해진 번까지)
   // 선생님이 이 기기에서 고친 칸만 기억하고 보낸다. 고치지 않은 칸은 늘 서버 값을 보여 주고 보내지도 않는다
@@ -45,6 +46,8 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
   const [advRaw, setAdv] = useLocal("mb_adv"); // 자세한 설정(모델 이름·단어 목록·말투·규칙·연습 데이터)은 펼칠 때만
   const adv = advRaw === "1";
   const say = (k: string, v: string) => setMsg((m) => ({ ...m, [k]: v }));
+  // 쓰는 단추를 두 번 눌러 겹쳐 보내지 않게(까닭은 저마다 msg에): 설정 저장 · 키(연결 확인·키 지우기) · 연습 데이터
+  const saving = useAct(), keying = useAct(), demoing = useAct();
   const split = (t: string) => t.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
   // 위험 표현 단어: 서버는 한 낱말 RISK_WORD_LEN자·모두 RISK_WORDS_MAX개까지만 받는다 → 넘는 것을 저장 전에 알린다(말없이 잘려 빠지지 않게)
   const riskList = [...new Set(split(risk).map((w) => w.replace(/[\p{Cc}\p{Cf}]/gu, "").trim()).filter(Boolean))];
@@ -54,7 +57,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     riskList.length > RISK_WORDS_MAX ? `위험 표현이 ${riskList.length}개예요. ${RISK_WORDS_MAX}개까지 저장돼요 — ${riskList.length - RISK_WORDS_MAX}개를 빼 주세요(넘는 것은 저장되지 않아요).` : "",
   ].filter(Boolean).join(" ");
 
-  async function save() {
+  const save = () => saving.run("", async () => {
     if (riskIssue) return say("save", `저장하지 않았어요. ${riskIssue}`);
     try {
       const d = draft;
@@ -74,7 +77,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     } catch (e) {
       say("save", (e as Error).message);
     }
-  }
+  });
 
   async function exportCsv() {
     let got: {
@@ -175,7 +178,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     await reload();
   }
 
-  async function test(p: Provider) {
+  const test = (p: Provider) => keying.run("", async () => {
     say(p, "확인하는 중…");
     try {
       const typed = keys[p]?.trim();
@@ -185,15 +188,10 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     } catch (e) {
       say(p, (e as Error).message);
     }
-  }
+  });
+  const dropKey = (p: Provider) => keying.run("", () => saveKey(p, "").then(() => say(p, "키를 지웠어요."), (e) => say(p, (e as Error).message)), "이 키를 지울까요?");
 
-  async function demo(mode: "seed" | "clear" | "clearDemo") {
-    const ask = {
-      seed: "지금 기록과 명단을 모두 지우고 연습용 가짜 학생 25명 + 7일 기록을 만들까요? 실제 반 기록이 있다면 함께 지워져요.",
-      clear: "모든 기록·응원·메모·명단을 지울까요? 되돌릴 수 없어요.",
-      clearDemo: "연습용(시연) 기록만 지울까요? 실제로 남긴 기록은 그대로예요.",
-    }[mode];
-    if (!confirm(ask)) return;
+  const demo = (mode: "seed" | "clear" | "clearDemo") => demoing.run("", async () => {
     try {
       await api("teacher", "demo", { mode });
     } catch (e) {
@@ -201,7 +199,11 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
     }
     say("demo", { seed: "연습 데이터를 만들었어요. 「마음 지도」를 보세요.", clear: "모두 지웠어요.", clearDemo: "연습 데이터를 지웠어요." }[mode]);
     await reload();
-  }
+  }, {
+    seed: "지금 기록과 명단을 모두 지우고 연습용 가짜 학생 25명 + 7일 기록을 만들까요? 실제 반 기록이 있다면 함께 지워져요.",
+    clear: "모든 기록·응원·메모·명단을 지울까요? 되돌릴 수 없어요.",
+    clearDemo: "연습용(시연) 기록만 지울까요? 실제로 남긴 기록은 그대로예요.",
+  }[mode]);
 
   return (
     <div className="space-y-5">
@@ -246,9 +248,9 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
                 </label>
               )}
               <div className="mt-3 flex items-center gap-2">
-                <button onClick={() => test(p)} disabled={!s.keys[p] && !keys[p] && !(p === "upstage" && shared)} className="btn-sub min-h-9 px-3 text-sm">연결 확인</button>
+                <button onClick={() => test(p)} disabled={keying.busy || (!s.keys[p] && !keys[p] && !(p === "upstage" && shared))} className="btn-sub min-h-9 px-3 text-sm">연결 확인</button>
                 {s.keys[p] && (
-                  <button onClick={() => confirm("이 키를 지울까요?") && saveKey(p, "").then(() => say(p, "키를 지웠어요."), (e) => say(p, (e as Error).message))} className="text-xs text-soft underline">키 지우기</button>
+                  <button onClick={() => dropKey(p)} disabled={keying.busy} className="text-xs text-soft underline">키 지우기</button>
                 )}
                 <span className="text-xs">{msg[p]}</span>
               </div>
@@ -280,11 +282,11 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
         </label>}
         <div className="flex items-center justify-end gap-3 md:col-span-2">
           <span className="min-w-0 text-sm wrap-anywhere">{msg.save}</span>
-          <button onClick={() => save()} className="btn-main">설정 저장</button>
+          <button onClick={() => save()} disabled={saving.busy} className="btn-main">설정 저장</button>
         </div>
       </section>
 
-      <RetentionCard data={data} reload={reload} onExport={exportCsv} exportMsg={msg.export ?? ""} />
+      <RetentionCard data={data} reload={reload} onExport={exportCsv} exportMsg={msg.export ?? ""} onAlerts={onAlerts} />
 
       <button onClick={() => setAdv(adv ? "" : "1")} aria-expanded={adv} className="btn-sub w-full">
         {adv ? "▴ 자세한 설정 접기" : "▾ 자세한 설정 펼치기 (휴대폰 알림 · 단어 목록 · 말투 · 살펴볼 학생 규칙 · 연습 데이터)"}
@@ -313,7 +315,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
         {voiceMode === "gemini" && !s.keys.gemini && <p className="text-sm text-alert">Gemini 키가 없어요. 위 「AI 연결」에서 Gemini 키를 넣어 주세요(쓸 AI로 고르지 않아도 돼요).</p>}
         <div className="flex items-center justify-end gap-3">
           <span className="min-w-0 text-sm wrap-anywhere">{msg.save}</span>
-          <button onClick={() => save()} className="btn-main">설정 저장</button>
+          <button onClick={() => save()} disabled={saving.busy} className="btn-main">설정 저장</button>
         </div>
       </section>
 
@@ -334,7 +336,7 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
           ))}
         </div>
         <div className="flex justify-end">
-          <button onClick={() => save()} className="btn-main">규칙 저장</button>
+          <button onClick={() => save()} disabled={saving.busy} className="btn-main">규칙 저장</button>
         </div>
       </section>
 
@@ -345,9 +347,9 @@ export default function SettingsTab({ data, reload }: { data: Overview; reload: 
           연습 데이터는 가명 25명과 최근 7일 기록으로, 살펴볼 학생 3명과 위험 표현 1건이 들어 있어요. 연습 기록에는 표시가 붙어 「연습 데이터만 지우기」로 따로 지울 수 있어요.
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <button onClick={() => demo("seed")} className="btn-sub">연습 데이터 만들기</button>
-          {data.demo && <button onClick={() => demo("clearDemo")} className="btn-sub">연습 데이터만 지우기</button>}
-          <button onClick={() => demo("clear")} className="btn-sub text-alert">모두 지우기</button>
+          <button onClick={() => demo("seed")} disabled={demoing.busy} className="btn-sub">연습 데이터 만들기</button>
+          {data.demo && <button onClick={() => demo("clearDemo")} disabled={demoing.busy} className="btn-sub">연습 데이터만 지우기</button>}
+          <button onClick={() => demo("clear")} disabled={demoing.busy} className="btn-sub text-alert">모두 지우기</button>
           <span className="text-sm">{msg.demo}</span>
         </div>
       </section>

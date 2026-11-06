@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import StyleNote from "./StyleNote";
 import type { NameOf, Overview } from "./types";
+import { useAct } from "./useAct";
 import { kday } from "./when";
 import { api } from "@/lib/api";
 import { parseNums, sheetGroups } from "@/lib/rules";
@@ -56,11 +57,25 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState("");
   const stop = useRef(false);
+  const removing = useAct(); // 지난 회차 지우기(두 번 눌림·실패 알림)
+  // 고친 「학생에게 줄 피드백」 중 아직 서버 답을 기다리는 것(「회차 id:번호」 → 글): 그사이 받은 지난 회차 목록이 고치기 전 글로 덮지 않게
+  const pending = useRef(new Map<string, { id: string; no: number; text: string }>());
 
   const skip = parseNums(skipText);
   const groups = sheetGroups(pages.length, pagesPer, skip);
   const thumb = (n: number) => pages[n - 1]?.url; // n: 1부터 센 쪽
   const ai = PROVIDERS[data.settings.provider].label;
+
+  // 한 학생의 피드백 글만 바꾼다(그 회차가 아니면 그대로)
+  const withText = (x: SheetRun, id: string, no: number, toStudent: string): SheetRun =>
+    x.id !== id ? x : { ...x, items: x.items.map((i) => (i.no === no ? { ...i, toStudent } : i)) };
+  // 서버에서 받은 지난 회차 목록에 아직 저장 중인 고친 글을 얹어 쓴다
+  const loadRuns = () =>
+    api<{ runs: SheetRun[] }>("teacher", "sheets").then((r) => {
+      let list = r.runs;
+      for (const p of pending.current.values()) list = list.map((x) => withText(x, p.id, p.no, p.text));
+      setRuns(list);
+    }).catch(() => {});
 
   useEffect(() => {
     api<{ runs: SheetRun[] }>("teacher", "sheets").then((r) => setRuns(r.runs)).catch(() => {});
@@ -104,13 +119,13 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
     setErr("");
     stop.current = false;
     setProgress({ done: 0, total: todo.length });
-    let cur = r;
     for (const [i, g] of todo.entries()) {
       if (stop.current) break;
       try {
-        const item = await sendOne(cur, g);
-        cur = { ...cur, items: [...cur.items.filter((x) => x.no !== item.no), item].sort((a, b) => a.no - b.no) };
-        setRun(cur);
+        const item = await sendOne(r, g);
+        // 지금 화면의 회차에 새 학생만 더한다(그사이 선생님이 고친 앞 학생 피드백을 처음 글로 덮지 않게).
+        // 그사이 다른 지난 회차를 열었으면 그 회차는 건드리지 않는다(만든 결과는 서버에 있어 목록에서 다시 열 수 있음)
+        setRun((x) => (x && x.id === r.id ? { ...x, items: [...x.items.filter((y) => y.no !== item.no), item].sort((a, b) => a.no - b.no) } : x));
         setFails((f) => Object.fromEntries(Object.entries(f).filter(([k]) => Number(k) !== g.no)));
       } catch (e) {
         setFails((f) => ({ ...f, [g.no]: (e as Error).message }));
@@ -123,21 +138,33 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
       setProgress({ done: i + 1, total: todo.length });
     }
     setProgress(null);
-    api<{ runs: SheetRun[] }>("teacher", "sheets").then((x) => setRuns(x.runs)).catch(() => {});
+    void loadRuns();
   }
 
-  async function edit(no: number, toStudent: string) {
-    if (!run) return;
-    setRun({ ...run, items: run.items.map((x) => (x.no === no ? { ...x, toStudent } : x)) });
-    await api("teacher", "sheetEdit", { id: run.id, no, toStudent }).catch((e) => setErr(e.message));
+  // 고친 피드백은 보고 있는 회차와 지난 회차 목록에 함께 적는다(인쇄·전체 복사, 목록에서 다시 열 때도 고친 글로).
+  // 저장하지 못하면 서버에 있는 글로 되돌리고 알린다(칸에는 고친 글이 남아 있어 다시 칸을 나가면 다시 저장한다)
+  async function edit(id: string, no: number, toStudent: string, before: string) {
+    const k = `${id}:${no}`;
+    pending.current.set(k, { id, no, text: toStudent });
+    setRun((x) => x && withText(x, id, no, toStudent));
+    setRuns((rs) => rs.map((x) => withText(x, id, no, toStudent)));
+    try {
+      await api("teacher", "sheetEdit", { id, no, toStudent });
+      if (pending.current.get(k)?.text === toStudent) pending.current.delete(k);
+    } catch (e) {
+      if (pending.current.get(k)?.text !== toStudent) return; // 그사이 또 고쳤다(그 저장이 알아서 한다)
+      pending.current.delete(k);
+      setRun((x) => x && withText(x, id, no, before));
+      setRuns((rs) => rs.map((x) => withText(x, id, no, before)));
+      setErr(`${no}번 피드백 고친 것을 저장하지 못했어요: ${(e as Error).message}`);
+    }
   }
 
-  async function remove(r: SheetRun) {
-    if (!confirm(`${kday(r.createdAt)} 「${r.topic || r.items[0]?.topic || r.file}」 피드백을 지울까요?`)) return;
+  const remove = (r: SheetRun) => removing.run("피드백을 지우지 못했어요", async () => {
     await api("teacher", "sheetDelete", { id: r.id });
-    setRuns(runs.filter((x) => x.id !== r.id));
-    if (run?.id === r.id) setRun(null);
-  }
+    setRuns((rs) => rs.filter((x) => x.id !== r.id));
+    setRun((x) => (x?.id === r.id ? null : x));
+  }, `${kday(r.createdAt)} 「${r.topic || r.items[0]?.topic || r.file}」 피드백을 지울까요?`);
 
   const busy = !!progress || !!reading;
   const failed = groups.filter((g) => fails[g.no]);
@@ -284,7 +311,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
                   <span className="text-sm font-bold"><Doodle name="speech" /> 학생에게 줄 피드백 <span className="font-normal text-soft">· 고치면 저장돼요</span></span>
                   <textarea
                     defaultValue={x.toStudent}
-                    onBlur={(e) => e.target.value !== x.toStudent && edit(x.no, e.target.value)}
+                    onBlur={(e) => e.target.value !== x.toStudent && edit(run.id, x.no, e.target.value, x.toStudent)}
                     rows={3}
                     className="field mt-1"
                   />
@@ -312,13 +339,15 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
       {runs.length > 0 && (
         <section className="no-print card">
           <h3 className="mb-2 font-bold">지난 활동지 피드백</h3>
+          {removing.err && <p role="alert" className="mb-2 text-sm text-alert">{removing.err}</p>}
           <ul className="divide-y divide-line">
             {runs.map((r) => (
               <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
-                <button onClick={() => { setRun(r); setFails({}); setTimeout(() => document.getElementById("sheet-run")?.scrollIntoView({ behavior: "smooth" }), 50); }} className="min-h-11 flex-1 text-left">
+                {/* 보고 있는 회차를 다시 누르면 화면에 든 것(고친 글·만드는 중인 학생·못 만든 학생)을 그대로 둔다 */}
+                <button onClick={() => { if (run?.id !== r.id) { setRun(r); setFails({}); } setTimeout(() => document.getElementById("sheet-run")?.scrollIntoView({ behavior: "smooth" }), 50); }} className="min-h-11 flex-1 text-left">
                   <b>{r.topic || r.items[0]?.topic || r.file}</b> <span className="text-soft">· {kday(r.createdAt)} · {r.items.length}명</span>
                 </button>
-                <button onClick={() => remove(r)} className="btn-sub min-h-11 px-3 text-xs" aria-label="지우기">지우기</button>
+                <button onClick={() => remove(r)} disabled={removing.busy} className="btn-sub min-h-11 px-3 text-xs" aria-label="지우기">지우기</button>
               </li>
             ))}
           </ul>

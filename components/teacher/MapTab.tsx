@@ -11,6 +11,7 @@ import PrevList from "./PrevList";
 import Timeline from "./Timeline";
 import Weather from "./Weather";
 import type { NameOf, Overview, Reload } from "./types";
+import { useAct } from "./useAct";
 import { flagChecked, flagKey } from "./when";
 import { reflectSource, riskAlerts, riskySource } from "./alerts";
 import { api } from "@/lib/api";
@@ -21,6 +22,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
   const [open, setOpen] = useState<number | null>(null);
   const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
   const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 폼에 고른 것
+  const flagAct = useAct(); // 먼저 살펴볼 학생 「살펴봤어요」(실패하면 그 목록 위에 까닭을)
   const { students, records, today, flags, settings, absent } = data;
   const todays = records.filter((r) => r.date === today);
   const alerts = riskAlerts(data);
@@ -39,10 +41,10 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
   // 명단에서 빠진 번호(알림만 남은 학생)는 번호만
   const who = (no: number) => (students.some((s) => s.no === no) ? `${no}번 ${nameOf(no)}` : `${no}번`);
 
-  async function checkFlag(no: number) {
+  const checkFlag = (no: number) => flagAct.run(`${no}번 「살펴봤어요」를 적지 못했어요`, async () => {
     await api("teacher", "checkFlag", { key: flagKey(no, today) });
     await reload();
-  }
+  });
 
   // 명단이 비어도(모두 지운 뒤 등) 남은 위험 표현 알림은 보인다 — 메뉴의 빨간 수와 어긋나지 않게
   const alertBox = alerts.length > 0 && (
@@ -198,6 +200,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
             <h2 className="font-display text-xl">이번 주 먼저 살펴볼 학생</h2>
             <p className="mb-3 text-xs text-soft">최근 7일 규칙에 걸린 학생이에요. 진단이 아니라 대화를 시작할 신호예요.</p>
             {flags.length === 0 && <p className="text-soft">이번 주는 신호가 없어요.</p>}
+            {flagAct.err && <p role="alert" className="mb-2 text-sm text-alert">{flagAct.err}</p>}
             <ul className="space-y-2">
               {flags.map((f) => {
                 const checked = checkedAt(f.no);
@@ -209,7 +212,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
                       {checked ? (
                         <span className="text-xs text-soft">✓ 살펴봤어요</span>
                       ) : (
-                        <button onClick={() => checkFlag(f.no)} className="btn-sub min-h-8 px-3 text-xs">살펴봤어요</button>
+                        <button onClick={() => checkFlag(f.no)} disabled={flagAct.busy} className="btn-sub min-h-8 px-3 text-xs">살펴봤어요</button>
                       )}
                       <button onClick={() => onCheer(f.no)} className="btn-sub min-h-8 px-3 text-xs">응원 한마디</button>
                     </div>
@@ -255,7 +258,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
             )}
             <div className="border-t border-line pt-3">
               <h3 className="mb-2 font-bold"><Doodle name="memo" /> 면담 메모</h3>
-              <Notes no={open} notes={data.notes} reload={reload} />
+              <Notes key={open} no={open} notes={data.notes} reload={reload} />
             </div>
             <button onClick={() => onCheer(open)} className="btn-main w-full"><Doodle name="letter" /> 응원 한마디 쓰기</button>
           </div>

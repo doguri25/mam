@@ -5,6 +5,7 @@ import { useState } from "react";
 import Doodle from "../Doodle";
 import { EmotionArt } from "../Art";
 import type { Overview, Reload } from "./types";
+import { useAct } from "./useAct";
 import { api } from "@/lib/api";
 
 interface Found {
@@ -23,6 +24,8 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
   const [unit, setUnit] = useState("");
   const [pickW, setPickW] = useState<Set<number>>(new Set());
   const [pickA, setPickA] = useState<Set<number>>(new Set());
+  const saving = useAct(); // 「선택한 것 반영하기」를 두 번 눌러 같은 차시가 둘 생기지 않게
+  const removing = useAct(); // 차시 지우기
   const toggle = (set: Set<number>, i: number) => {
     const n = new Set(set);
     if (n.has(i)) n.delete(i);
@@ -51,8 +54,7 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
     setBusy(false);
   }
 
-  async function save() {
-    if (!found) return;
+  const save = () => found && saving.run("반영하지 못했어요", async () => {
     await api("teacher", "saveLesson", {
       unit,
       words: found.words.filter((_, i) => pickW.has(i)),
@@ -61,13 +63,12 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
     setFound(null);
     setFile(null);
     await reload();
-  }
+  });
 
-  async function remove(id: string) {
-    if (!confirm("이 차시를 지울까요? 반 감정 단어는 그대로 남아요(설정에서 지울 수 있어요).")) return;
+  const remove = (id: string) => removing.run("차시를 지우지 못했어요", async () => {
     await api("teacher", "deleteLesson", { id });
     await reload();
-  }
+  }, "이 차시를 지울까요? 반 감정 단어는 그대로 남아요(설정에서 지울 수 있어요).");
 
   return (
     <div className="space-y-5">
@@ -90,6 +91,7 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
                 setFile(e.target.files?.[0] ?? null);
                 setFound(null);
                 setErr("");
+                saving.setErr("");
               }}
             />
           </label>
@@ -145,22 +147,24 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
               <p className="text-sm text-soft">활동을 찾지 못했어요.</p>
             )}
           </div>
+          {saving.err && <p role="alert" className="text-right text-sm text-alert">{saving.err}</p>}
           <div className="flex justify-end gap-2">
-            <button onClick={() => setFound(null)} className="btn-sub">취소</button>
-            <button onClick={save} disabled={!pickW.size && !pickA.size} className="btn-main">선택한 것 반영하기</button>
+            <button onClick={() => { setFound(null); saving.setErr(""); }} disabled={saving.busy} className="btn-sub">취소</button>
+            <button onClick={save} disabled={(!pickW.size && !pickA.size) || saving.busy} className="btn-main">{saving.busy ? "반영하는 중…" : "선택한 것 반영하기"}</button>
           </div>
         </section>
       )}
 
       <section className="card">
         <h2 className="mb-3 font-display text-xl">연결한 차시</h2>
+        {removing.err && <p role="alert" className="mb-2 text-sm text-alert">{removing.err}</p>}
         {data.lessons.length ? (
           <ul className="space-y-2">
             {data.lessons.map((l) => (
               <li key={l.id} className="rounded-2xl border border-line p-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <b>{l.unit || "이름 없는 차시"}</b>
-                  <button onClick={() => remove(l.id)} className="text-xs text-soft underline">지우기</button>
+                  <button onClick={() => remove(l.id)} disabled={removing.busy} className="text-xs text-soft underline">지우기</button>
                 </div>
                 {l.words.length > 0 && <p className="mt-1">단어: {l.words.join(", ")}</p>}
                 {l.activities.length > 0 && <p className="text-soft">활동: {l.activities.map((a) => a.title).join(" · ")}</p>}
