@@ -16,7 +16,8 @@ import { flagChecked, flagKey } from "./when";
 import { reflectSource, riskAlerts, riskySource } from "./alerts";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
-import { isHard } from "@/lib/shared";
+import { isHard, ownBy } from "@/lib/shared";
+import { myNotes, myRecords, myReflects, riskSourcesOf } from "./own";
 
 export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void }) {
   const [open, setOpen] = useState<number | null>(null);
@@ -32,14 +33,10 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
   // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
   const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
   const openFlags = flags.filter((f) => !checkedAt(f.no));
-  // 한 학생의 위험 표현(마음 기록·마치지 않은 기록·돌아보기·보낸 쪽지)과 조치 기록
-  const risks = (no: number) => ({
-    records: records.filter((r) => r.no === no), actions: data.riskActions.filter((a) => a.no === no),
-    drafts: (data.riskDrafts ?? []).filter((d) => d.no === no), reflects: data.reflects.filter((x) => x.no === no),
-    letters: data.letters.filter((l) => l.from === no), words: settings.riskWords,
-  });
-  // 명단에서 빠진 번호(알림만 남은 학생)는 번호만
-  const who = (no: number) => (students.some((s) => s.no === no) ? `${no}번 ${nameOf(no)}` : `${no}번`);
+  // 한 학생의 위험 표현(마음 기록·마치지 않은 기록·돌아보기·보낸 쪽지)과 조치 기록 — 지금 그 번호 학생 것만(앞 학생 것은 위 알림에 「앞 학생」으로)
+  const risks = (no: number) => riskSourcesOf(data, no);
+  // 명단에서 빠진 번호(알림만 남은 학생)는 번호만. at: 글을 쓴 때(그 뒤 번호를 새 학생에게 줬으면 앞 학생 가명)
+  const who = (no: number, at?: string) => (students.some((s) => s.no === no) ? `${no}번 ${nameOf(no, at)}` : `${no}번`);
 
   const checkFlag = (no: number) => flagAct.run(`${no}번 「살펴봤어요」를 적지 못했어요`, async () => {
     await api("teacher", "checkFlag", { key: flagKey(no, today) });
@@ -57,7 +54,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
       <ul className="mt-3 space-y-2">
         {alerts.map((a) => {
           const slot = "slot" in a ? (a.slot === "am" ? " 아침" : " 하교 전") : "";
-          const head = (what: string) => <><b>{who(a.no)}</b> · {label(a.date)}{slot} · {what}</>;
+          const head = (what: string) => <><b>{who(a.no, a.at)}</b> · {label(a.date)}{slot} · {what}</>;
           let body: React.ReactNode;
           let saw = "text" in a ? a.text : "";
           if (a.kind === "record") {
@@ -106,7 +103,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
           } else {
             body = (
               <span>
-                {head(`공감 쪽지 → ${who(a.to)}`)}
+                {head(`공감 쪽지 → ${who(a.to, a.at)}`)}
                 <span className="block text-sm">“{a.text}”</span>
                 <span className="block text-xs text-soft">허락을 기다리는 쪽지예요. 살펴본 일을 적고, 「공감 쪽지」에서 읽고 전하거나 돌려보내 주세요.</span>
               </span>
@@ -166,7 +163,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
               const am = todays.find((r) => r.no === s.no && r.slot === "am");
               const pm = todays.find((r) => r.no === s.no && r.slot === "pm");
               const flagged = flags.some((f) => f.no === s.no);
-              const alerted = alerts.some((r) => r.no === s.no);
+              const alerted = alerts.some((r) => r.no === s.no && ownBy(s, r.at)); // 앞 학생 알림으로 새 학생 칸을 빨갛게 하지 않게
               const gone = absent.includes(s.no);
               return (
                 <button
@@ -242,14 +239,14 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
           <div className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${open}번 기록`}>
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-display text-2xl">
-                <BuddyFace look={data.looks[open]} emotion={records.filter((r) => r.no === open).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />
+                <BuddyFace look={data.looks[open]} emotion={myRecords(data, open).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />
                 {open}번 {nameOf(open)} · 최근 2주
               </h2>
               <button onClick={() => setOpen(null)} className="btn-sub min-h-9 px-3" aria-label="닫기" autoFocus>✕</button>
             </div>
             {flags.find((f) => f.no === open)?.reasons.map((r) => <p key={r} className="rounded-xl bg-[#fff8e1] px-3 py-1 text-sm"><Doodle name="dotYellow" /> {r}</p>)}
-            <ReflectBox reflects={data.reflects} no={open} words={settings.riskWords} />
-            <Timeline records={records.filter((r) => r.no === open)} today={today} />
+            <ReflectBox reflects={myReflects(data, open)} no={open} words={settings.riskWords} />
+            <Timeline records={myRecords(data, open)} today={today} />
             {riskItems(risks(open)).length > 0 && (
               <div className="border-t border-line pt-3">
                 <h3 className="mb-2 font-bold"><Doodle name="warning" /> 위험 표현과 조치</h3>
@@ -258,7 +255,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
             )}
             <div className="border-t border-line pt-3">
               <h3 className="mb-2 font-bold"><Doodle name="memo" /> 면담 메모</h3>
-              <Notes key={open} no={open} notes={data.notes} reload={reload} />
+              <Notes key={open} no={open} notes={myNotes(data, open)} reload={reload} />
             </div>
             <button onClick={() => onCheer(open)} className="btn-main w-full"><Doodle name="letter" /> 응원 한마디 쓰기</button>
           </div>

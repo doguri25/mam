@@ -142,7 +142,8 @@ export async function api<T = Record<string, unknown>>(who: "student" | "teacher
       leaveForOther();
       throw otherError(); // 안내는 학생 언어로 바꿔 보여 줄 수 있게 늘 같은 한국어 글로
     }
-    if (!res.ok) throw Object.assign(new Error(data.error ?? "문제가 생겼어요."), { status: res.status });
+    // body: 서버가 함께 보낸 것(예: 명단 저장의 whoIs — 같은 번호를 새 학생에게 주는지 물을 번호 목록)
+    if (!res.ok) throw Object.assign(new Error(data.error ?? "문제가 생겼어요."), { status: res.status, body: data });
     if (student) {
       if (action === "me" && !sameStudent(data as { no?: unknown; space?: unknown })) {
         leaveForOther();

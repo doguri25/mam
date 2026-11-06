@@ -12,6 +12,9 @@ import { useNames } from "@/lib/local";
 import type { Student } from "@/lib/shared";
 
 const rosterText = (xs: Pick<Student, "no" | "alias">[]) => xs.map((s) => `${s.no} ${s.alias}`).join("\n");
+// 같은 번호를 다른 학생에게 주는지 서버가 묻는 번호: 가명이 바뀐 번호(renamed), 명단에 없다가 다시 넣었는데 그 번호로 남은 기록이 있는 번호(back)
+type Ask = { no: number; before: string; now: string; kind: "renamed" | "back" };
+type Pick2 = "same" | "new";
 
 export default function RosterTab({ data, reload }: { data: Overview; reload: Reload }) {
   const serverText = rosterText(data.students);
@@ -33,6 +36,10 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
   }
   const [msg, setMsg] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]); // 명단 저장 때 읽지 못한 줄
+  // 같은 학생인지 새 학생인지 고를 번호(그때의 칸 글과 함께). 칸을 고치면 닫는다(다른 명단에 고른 것이 붙지 않게)
+  const [ask, setAsk] = useState<{ text: string; items: Ask[] } | null>(null);
+  const [picks, setPicks] = useState<Record<number, Pick2>>({});
+  if (ask && ask.text !== text) setAsk(null);
   const names = useNames(data.space);
   const [qr, setQr] = useState<Record<string, string>>({});
   const [letter, setLetter] = useState(false); // 보호자 안내문을 보고 인쇄할 때는 QR 카드를 인쇄에서 뺀다
@@ -47,15 +54,20 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
       .then((pairs) => setQr(Object.fromEntries(pairs)));
   }, [data.students, origin]);
 
-  const saveRoster = () => saving.run("", async () => {
+  const saveRoster = (decide?: Record<number, Pick2>) => saving.run("", async () => {
     setSkipped([]);
     try {
       // skipped: 서버가 읽지 못한 줄(번호가 겹침·모양이 다름·가명이 너무 김). 예전 서버는 보내지 않는다.
       // base: 이 칸이 바탕으로 삼은 서버 명단. 그사이 명단이 바뀌었으면(연습 데이터 지우기·다른 기기) 서버가 409로 막는다
-      const r = await api<{ students: Student[]; skipped?: unknown }>("teacher", "roster", { text, base });
+      // decide: 번호마다 같은 학생(same)·새 학생(new). 고르지 않은 번호가 있으면 서버가 409 whoIs로 물을 번호를 보낸다
+      const r = await api<{ students: Student[]; skipped?: unknown }>("teacher", "roster", { text, base, ...(decide ? { decide } : {}) });
       const bad = Array.isArray(r.skipped) ? r.skipped.map(String) : [];
       setSkipped(bad);
-      setMsg(`${r.students.length}명을 저장했어요. 같은 번호는 원래 코드를 그대로 써요.`);
+      setAsk(null);
+      const fresh = Object.values(decide ?? {}).filter((v) => v === "new").length;
+      setMsg(fresh
+        ? `${r.students.length}명을 저장했어요. 새 학생 ${fresh}명은 새 코드를 받았어요. 아래 QR 카드를 다시 나눠 주세요.`
+        : `${r.students.length}명을 저장했어요. 같은 번호는 원래 코드를 그대로 써요.`);
       setChanged(false);
       // 저장한 명단으로 칸을 맞춘다. 읽지 못한 줄이 있으면 고치라고 칸은 그대로 둔다(이 저장으로 바뀐 서버 명단을 「바뀌었어요」로 알리지 않게)
       const saved = Array.isArray(r.students) ? rosterText(r.students) : null;
@@ -63,6 +75,14 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
       setMine(saved);
       await reload();
     } catch (e) {
+      const body = (e as { body?: { code?: unknown; ask?: unknown } }).body;
+      if (body?.code === "whoIs" && Array.isArray(body.ask)) {
+        const items = (body.ask as Ask[]).filter((a) => Number.isInteger(a?.no));
+        setAsk({ text, items });
+        setPicks((p) => Object.fromEntries(items.filter((a) => p[a.no]).map((a) => [a.no, p[a.no]])));
+        setMsg("");
+        return;
+      }
       setMsg((e as Error).message);
       // 명단이 그사이 바뀜: 지금 명단을 다시 읽어 「바뀌었어요」 안내와 「지금 명단으로 바꾸기」를 보여 준다(칸에 쓰던 글은 그대로)
       if ((e as { status?: number }).status === 409) await reload().catch(() => {});
@@ -103,8 +123,42 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
         )}
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm">{msg}</span>
-          <button onClick={saveRoster} disabled={saving.busy || rosterChanging} className="btn-main">{saving.busy ? "저장하는 중…" : rosterChanging ? "연습 데이터를 바꾸는 중…" : "명단 저장"}</button>
+          <button onClick={() => saveRoster()} disabled={saving.busy || rosterChanging || !!ask} className="btn-main">{saving.busy ? "저장하는 중…" : rosterChanging ? "연습 데이터를 바꾸는 중…" : "명단 저장"}</button>
         </div>
+        {ask && (
+          <div role="dialog" aria-label="같은 번호에 다른 학생이 오나요" className="space-y-3 rounded-2xl border border-sun bg-[#fff8e1] p-4 text-sm">
+            <p className="font-bold"><Doodle name="warning" /> 같은 번호를 다른 학생에게 주나요?</p>
+            <p className="text-soft">
+              새 학생이면 앞 학생 것과 나눠요. 새 코드를 만들어서 앞 학생은 예전 코드로 들어오지 못하고, 새 학생 화면에는 지금부터 남긴 것만 보여요.
+              앞 학생의 기록·쪽지는 지우지 않고, 선생님 화면에 「앞 학생」이라고 붙여 둬요. 이름만 고쳤다면 「같은 학생」을 골라 주세요.
+            </p>
+            <ul className="space-y-2">
+              {ask.items.map((a) => (
+                <li key={a.no} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card p-2.5">
+                  <span>
+                    <b>{a.no}번</b>{" "}
+                    {a.kind === "renamed" ? <>{a.before} → <b>{a.now}</b></> : <><b>{a.now}</b> <span className="text-soft">· 명단에 없던 번호인데 이 번호로 남은 기록이 있어요{a.before ? `(앞서 ${a.before})` : ""}</span></>}
+                  </span>
+                  <span className="flex gap-1.5" role="radiogroup" aria-label={`${a.no}번`}>
+                    {(["same", "new"] as const).map((v) => (
+                      <button key={v} role="radio" aria-checked={picks[a.no] === v} onClick={() => setPicks((p) => ({ ...p, [a.no]: v }))}
+                        className={`min-h-10 rounded-full border px-3 text-sm font-bold ${picks[a.no] === v ? "border-leaf bg-leaf text-white" : "border-line bg-card"}`}>
+                        {v === "new" ? "새 학생" : a.kind === "renamed" ? "같은 학생 · 이름만 고침" : "같은 학생 · 다시 넣음"}
+                      </button>
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {names.on && <p className="text-xs text-soft">이 컴퓨터의 실명 보기를 쓰고 있다면, 새 학생 번호의 실명도 아래에서 바꿔 주세요.</p>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button onClick={() => setAsk(null)} className="btn-sub">그만두기</button>
+              <button onClick={() => saveRoster(picks)} disabled={saving.busy || rosterChanging || ask.items.some((a) => !picks[a.no])} className="btn-main">
+                {saving.busy ? "저장하는 중…" : "고른 대로 저장"}
+              </button>
+            </div>
+          </div>
+        )}
         {skipped.length > 0 && (
           <div role="alert" className="space-y-1 rounded-2xl border border-alert/40 bg-alert-soft p-3 text-sm">
             <p className="font-bold text-alert"><Doodle name="warning" /> 읽지 못한 줄 {skipped.length}개 · 명단에 넣지 않았어요</p>

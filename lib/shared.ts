@@ -1,4 +1,5 @@
 // 화면과 서버가 함께 쓰는 감정·까닭·자료 모양
+import { today } from "./date.ts";
 import type { VoiceFeatures } from "./tone.ts";
 
 export type Group = "joy" | "calm" | "sad" | "angry" | "fear";
@@ -268,6 +269,28 @@ export interface Student {
   code: string;
   consent?: string; // 보호자 동의서를 받은 날(YYYY-MM-DD). 기록을 막지는 않고 명단에 표시만
   demo?: boolean; // 연습 데이터로 만든 가짜 학생(「연습 데이터만 지우기」로 지운다)
+  // 이 번호를 새 학생에게 준 때(ISO). 그 앞에 이 번호로 남은 기록·쪽지·돌아보기는 앞 학생 것 —
+  // 학생 화면에는 보이지 않고, 선생님 화면에는 「앞 학생」으로 보인다(전학 온 학생에게 빈 번호를 주거나 새 학년에 명단만 바꿀 때)
+  since?: string;
+  formers?: Former[]; // 앞서 이 번호를 쓴 학생들(오래된 차례, 몇 명까지만)
+}
+// 앞서 이 번호를 쓴 학생: 가명과, 그 학생이 이 번호를 쓴 마지막 때(ISO)
+export interface Former { alias: string; until: string }
+
+// 이 번호의 지금 학생 것인가. at: 글을 쓴 때(ISO)나 날짜(YYYY-MM-DD, 한국 날짜). since 앞이면 앞 학생 것.
+// 날짜만 있으면(조치 기록의 기록 날짜 등) 새 학생이 번호를 받은 날부터 지금 학생 것으로 본다.
+const dayOf = (iso: string) => today(new Date(iso));
+export const ownBy = (s: Pick<Student, "since"> | undefined, at: string | undefined) =>
+  !s?.since || !at || (at.length === 10 ? at >= dayOf(s.since) : at >= s.since);
+// 그때 이 번호를 쓴 앞 학생의 가명. 지금 학생 것이면 null, 앞 학생 가명을 모르면 ""
+export function formerAt(s: Pick<Student, "since" | "formers"> | undefined, at: string | undefined): string | null {
+  if (ownBy(s, at)) return null;
+  return s?.formers?.find((f) => (at!.length === 10 ? at! <= dayOf(f.until) : at! < f.until))?.alias ?? "";
+}
+// 지금 명단 학생의 것만 남긴다(번호를 새 학생에게 줬으면 그 앞 것은 뺀다). 명단에 없는 번호의 것은 그대로.
+export function ownOnly<T>(xs: T[], students: Pick<Student, "no" | "since">[], no: (x: T) => number, at: (x: T) => string | undefined): T[] {
+  const by = new Map(students.filter((s) => s.since).map((s) => [s.no, s]));
+  return by.size ? xs.filter((x) => ownBy(by.get(no(x)), at(x))) : xs;
 }
 
 // 위험 표현 조치 기록: 「살펴봤어요」를 누를 때와 그 뒤에 선생님이 한 일(선생님만 봄, AI에 보내지 않음)

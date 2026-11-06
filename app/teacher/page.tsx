@@ -26,7 +26,7 @@ import { api } from "@/lib/api";
 import { addDays, today as kToday } from "@/lib/date";
 import { useLocal, useNames } from "@/lib/local";
 import { absentStudents, watchFlags } from "@/lib/rules";
-import type { MoodRecord } from "@/lib/shared";
+import { formerAt, ownOnly, type MoodRecord } from "@/lib/shared";
 
 // 메뉴 묶음: [탭, 그림, 이름]. 세로 화면에서도 한눈에 다 보이게 모두 펼쳐 둔다.
 const NAV: { title: string; items: [Tab, DoodleName, string][] }[] = [
@@ -296,14 +296,22 @@ export default function TeacherPage() {
     );
   }
   // 「기록 없음」은 최근 기록으로만 센다(오래된 위험 표현 알림 하나가 반 기록이 있던 날로 세지지 않게)
-  const recent = raw.records.filter((r) => r.date >= addDays(raw.today, -DAYS));
+  // 먼저 살펴볼 학생·기록 없음은 지금 학생 기록으로만(번호를 새 학생에게 줬으면 앞 학생 기록으로 새 학생을 고르지 않게)
+  const owned = ownOnly(raw.records, raw.students, (r) => r.no, (r) => r.createdAt);
+  const recent = owned.filter((r) => r.date >= addDays(raw.today, -DAYS));
   const data: Overview = {
     ...raw,
-    flags: watchFlags(raw.records, raw.today, raw.settings.rules),
+    flags: watchFlags(owned, raw.today, raw.settings.rules),
     absent: absentStudents(recent, raw.students.map((s) => s.no), raw.today, raw.settings.rules.absentDays),
   };
-  // 명단에서 빠진 번호(지운 학생·연습 학생에게 간 쪽지 등)는 「14번 14번」이 되지 않게 따로 알린다
-  const nameOf = (no: number) => names.name(no, data.students.find((s) => s.no === no)?.alias ?? "(명단에 없음)");
+  // 명단에서 빠진 번호(지운 학생·연습 학생에게 간 쪽지 등)는 「14번 14번」이 되지 않게 따로 알린다.
+  // at(쓴 때)이 이 번호를 새 학생에게 주기 전이면 앞 학생 가명으로(이 기기의 실명은 지금 학생 것이라 붙이지 않는다)
+  const nameOf = (no: number, at?: string) => {
+    const s = data.students.find((x) => x.no === no);
+    const former = formerAt(s, at);
+    if (former !== null) return former ? `앞 학생 ${former}` : "앞 학생";
+    return names.name(no, s?.alias ?? "(명단에 없음)");
+  };
 
   const clearDemo = () => demoAct.run("연습 데이터를 지우지 못했어요", async () => {
     await whileRosterChanges(() => api("teacher", "demo", { mode: "clearDemo" })); // 그동안 「명단 저장」은 막는다

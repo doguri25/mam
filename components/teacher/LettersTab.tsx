@@ -66,7 +66,7 @@ function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter;
   return (
     <article className={`card space-y-3 ${l.risk ? "border-alert bg-alert-soft" : ""}`}>
       <p className="flex flex-wrap items-center gap-2 text-sm">
-        <b>{l.from}번 {nameOf(l.from)}</b> → <b>{l.to}번 {nameOf(l.to)}</b>
+        <b>{l.from}번 {nameOf(l.from, l.createdAt)}</b> → <b>{l.to}번 {nameOf(l.to, l.createdAt)}</b>
         <span className="rounded-full bg-paper px-2 py-0.5 text-xs">{l.showName ? "이름 공개" : "이름 비공개"}</span>
         {l.lang && l.lang !== "ko" && <span className="rounded-full bg-paper px-2 py-0.5 text-xs"><Doodle name="globe" /> {l.lang}</span>}
         {l.risk && <span className="rounded-full bg-alert px-2 py-0.5 text-xs text-white"><Doodle name="warning" /> 걱정되는 말</span>}

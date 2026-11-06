@@ -267,7 +267,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
               {run.topic || run.items[0]?.topic || "활동지"} <span className="text-base text-soft">· {kday(run.createdAt)} · {run.items.length}명</span>
             </h3>
             <button onClick={() => window.print()} disabled={!run.items.length} className="btn-sub ml-auto"><Doodle name="printer" /> 학생용 쪽지 인쇄</button>
-            <button onClick={() => navigator.clipboard?.writeText(run.items.map((x) => `${x.no}번 ${nameOf(x.no)}\n${x.toStudent}`).join("\n\n"))} disabled={!run.items.length} className="btn-sub">
+            <button onClick={() => navigator.clipboard?.writeText(run.items.map((x) => `${x.no}번 ${nameOf(x.no, run.createdAt)}\n${x.toStudent}`).join("\n\n"))} disabled={!run.items.length} className="btn-sub">
               <Doodle name="clipboard" /> 전체 복사
             </button>
           </div>
@@ -277,7 +277,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
           {run.items.map((x) => (
             <article key={`${run.id}-${x.no}`} className="no-print card grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
               <div className="space-y-2">
-                <p className="font-display text-lg">{x.no}번 {nameOf(x.no)}</p>
+                <p className="font-display text-lg">{x.no}번 {nameOf(x.no, run.createdAt)}</p>
                 {live && x.pages.map((p) => (
                   <a key={p} href={thumb(p)} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-line">
                     {/* eslint-disable-next-line @next/next/no-img-element -- 이 기기에서 만든 쪽 그림(blob:) */}
@@ -328,7 +328,7 @@ export default function SheetTab({ data, nameOf }: { data: Overview; nameOf: Nam
           <div className="hidden print:block">
             {run.items.filter((x) => x.toStudent).map((x) => (
               <div key={x.no} className="break-inside-avoid border-b border-dashed border-ink py-4 text-lg leading-relaxed">
-                <p className="font-bold">{x.no}번 {nameOf(x.no)} · {x.topic}</p>
+                <p className="font-bold">{x.no}번 {nameOf(x.no, run.createdAt)} · {x.topic}</p>
                 <p className="whitespace-pre-wrap">{x.toStudent}</p>
               </div>
             ))}
