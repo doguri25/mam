@@ -455,6 +455,8 @@ export const WEEKDAYS: Record<Lang, string[]> = {
 const ERR: Record<string, Tr> = {
   "코드를 다시 확인해 주세요.": { en: "Please check your code again.", zh: "请再检查一下你的代码。", vi: "Em hãy kiểm tra lại mã nhé.", ja: "コードを もういちど たしかめてね。" },
   "다시 들어와 주세요.": { en: "Please sign in again.", zh: "请重新进入。", vi: "Em hãy vào lại nhé.", ja: "もういちど はいってね。" },
+  // 같은 기기의 다른 탭에서 다른 친구가 들어왔을 때(서버 409 otherStudent — lib/auth.ts OTHER_STUDENT)
+  "다른 친구가 이 기기로 들어왔어요. 다시 들어와 주세요.": { en: "Another friend signed in on this device. Please sign in again.", zh: "有别的同学在这台设备上进入了。请重新进入。", vi: "Một bạn khác đã vào trên máy này. Em hãy vào lại nhé.", ja: "ほかの ともだちが この きかいで はいったよ。もういちど はいってね。" },
   "기록 모양이 맞지 않아요.": { en: "Something didn't look right. Please try again.", zh: "内容不太对，请再试一次。", vi: "Có gì đó chưa đúng. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },
   "모양이 맞지 않아요.": { en: "Something didn't look right. Please try again.", zh: "内容不太对，请再试一次。", vi: "Có gì đó chưa đúng. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },
   "먼저 마음을 남겨 주세요.": { en: "Please share your feelings first.", zh: "请先记录你的心情。", vi: "Em hãy ghi lại cảm xúc trước nhé.", ja: "さきに きもちを のこしてね。" },

@@ -8,11 +8,11 @@ import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
   DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
-  rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch,
+  HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
-import { countSubs, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
+import { countSubs, hasSub, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
 import { cleanCheck } from "@/lib/selcheck";
@@ -53,7 +53,9 @@ const TRIAL_WRITES = new Set([
 const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
 async function handle(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
+  // 몸이 JSON 객체가 아니면(null·배열·숫자·깨진 JSON) 400 — body.action을 읽다 500이 나지 않게
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return bad("요청이 올바르지 않아요.");
   try {
     // 잠그기(로그아웃): 이 기기의 알림 주소(endpoint)를 보내면 이 학급 알림 목록에서도 뺀다(잠근 기기로 위험 알림이 가지 않게)
     if (body.action === "logout") {
@@ -127,15 +129,19 @@ async function handle(req: NextRequest) {
       const from = addDays(date, -DAYS);
       // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
       const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
-      const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from)) : recordsFrom(from);
-      const [students, records, cheers, notes, demo, subs, lessons, weekly, looks, letters, recentReflects, riskyReflects, aiUsed, riskActions, drafts] = await Promise.all([
+      // 그 뒤에 바뀐 기록 가운데 오래된 것은 위험 표현 기록만(살펴본 것도): 다른 기기에서 「살펴봤어요」를 눌러 닫은 오래된 알림이
+      // 이 기기에 저장해 둔 「살펴보지 않음」 판으로 남지 않게 새 판을 보낸다(화면이 합친 뒤 살펴본 오래된 기록은 버린다)
+      const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from || r.risk)) : recordsFrom(from);
+      const [students, recent, cheers, notes, demo, subs, lessons, weekly, looks, letters, recentReflects, riskyReflects, aiUsed, riskActions, drafts, risky] = await Promise.all([
         getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
         getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
         db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)),
         db().find<Reflect>("reflects", "risk", "==", true), isDemo() ? demoAiUsed() : 0,
-        getRiskActions(), getRiskDrafts(),
+        getRiskActions(), getRiskDrafts(), riskyRecords(),
       ]);
-      // 위험 표현이 있는 돌아보기는 오래돼도 선생님이 살펴볼 때까지 보낸다
+      // 위험 표현이 있는 기록·돌아보기·마치지 않은 글은 34일이 지나도 선생님이 살펴볼 때까지 보낸다(알림이 날짜 때문에 사라지지 않게).
+      // 저장해 둔 기록만 받는 때(partial)에도 늘 보낸다 — 예전 화면이 34일로 잘라 버렸어도 다시 받게.
+      const records = withOpenRisks(recent, risky);
       const reflects = [...recentReflects, ...riskyReflects.filter((x) => !x.riskChecked && !recentReflects.some((y) => y.id === x.id))];
       // 보관 기한이 지난 마음 기록 수(세기만): 있으면 선생님 화면에 「정리할 기록」 알림
       const expired = await db().count("records", "date", "<", cutoffOf(settings.retention, date));
@@ -165,7 +171,8 @@ async function handle(req: NextRequest) {
         letters: [...newest(letters.filter((l) => l.status === "wait")), ...newest(letters.filter((l) => l.status !== "wait")).slice(0, 150)],
         reflects, // 이번 주·지난주 한 주 돌아보기
         riskActions, // 위험 표현 조치 기록(선생님만)
-        riskDrafts: drafts.filter((x) => x.date >= from), // 학생이 기록을 마치지 않고 나간 위험 표현(살펴본 것도 — 리포트·CSV용, 알림은 살펴보지 않은 것만)
+        // 학생이 기록을 마치지 않고 나간 위험 표현: 최근 것은 살펴본 것도(리포트·CSV용, 알림은 살펴보지 않은 것만), 살펴보지 않은 것은 오래돼도
+        riskDrafts: drafts.filter((x) => x.date >= from || !x.checked),
         expired,
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
         sharedAi,
@@ -455,8 +462,10 @@ async function handle(req: NextRequest) {
 
     // 교과서에서 고른 감정 단어·활동 저장 → 반 감정 단어에 더하고, 활동은 주간 추천 후보로
     if (body.action === "saveLesson") {
-      const words = (Array.isArray(body.words) ? body.words : []).map((x: { word?: unknown }) => String(x.word ?? "").trim().slice(0, 12)).filter(Boolean).slice(0, 12);
-      const activities = (Array.isArray(body.activities) ? body.activities : []).slice(0, 6).map((a: { title?: unknown; how?: unknown; minutes?: unknown }) => ({
+      // 목록 칸이 객체가 아니면(null·글자 등) 빈 것으로 본다(x.word를 읽다 500이 나지 않게)
+      const obj = (x: unknown): Record<string, unknown> => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
+      const words = (Array.isArray(body.words) ? body.words : []).map((x: unknown) => String(obj(x).word ?? "").trim().slice(0, 12)).filter(Boolean).slice(0, 12);
+      const activities = (Array.isArray(body.activities) ? body.activities : []).slice(0, 6).map(obj).map((a: Record<string, unknown>) => ({
         title: String(a.title ?? "").slice(0, 30), how: String(a.how ?? "").slice(0, 120), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
       })).filter((a: { title: string }) => a.title);
       const lessons = await getLessons();
@@ -515,15 +524,18 @@ async function handle(req: NextRequest) {
     if (body.action === "selChecks") return NextResponse.json({ items: await getSelChecks() });
 
     // ── 기록 보관 기한: 지난 것 세기 / 선생님이 눌러 지우기(화면이 본 기준 날짜와 지금 기준이 같을 때만) ──
+    // held: 기한 앞의 살펴보지 않은 위험 표현 알림 수(있으면 정리하지 않는다 — 먼저 살펴보게). counts와 따로 둔다(화면이 counts를 모두 더해 「모두 ○건」으로 보임).
     if (body.action === "retentionInfo") {
       const cutoff = await cutoffNow();
-      return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs() });
+      return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs(), held: await heldRisks(cutoff) });
     }
     if (body.action === "purgeOld") {
       const cutoff = await cutoffNow();
       if (body.cutoff !== cutoff) return bad("보관 기한이 바뀌었어요. 화면을 다시 열어 확인해 주세요.", 409);
+      const held = await heldRisks(cutoff);
+      if (held) return NextResponse.json({ error: HELD_RISK(held), code: "heldRisk", held }, { status: 409 });
       const log = await purgeBefore(cutoff);
-      return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs(), done: log });
+      return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs(), done: log, held: 0 });
     }
 
     // ── 학생 자기진단(마음 점검): 회차 열기·닫기·다시 열기·지우기. 열린 회차는 하나만, 학생 화면에 그 회차만 보인다 ──
@@ -570,7 +582,10 @@ async function handle(req: NextRequest) {
       const id = String(body.check?.id ?? "");
       const old = items.find((x) => x.id === id);
       const now = new Date().toISOString();
-      const saved = old ? { ...old, ...c, updatedAt: now } : { ...c, id: `sel${Date.now().toString(36)}`, createdAt: now };
+      // 체험 반에서 넣은 회차는 연습 표시를 붙인다(「처음 판으로」·「연습 데이터만 지우기」가 다음 사람에게 남기지 않게)
+      const saved = old
+        ? { ...old, ...c, updatedAt: now }
+        : { ...c, id: `sel${Date.now().toString(36)}`, createdAt: now, ...(isDemo() ? { demo: true } : {}) };
       await saveSelChecks(old ? items.map((x) => (x.id === id ? saved : x)) : [...items, saved]);
       return NextResponse.json({ check: saved, items: await getSelChecks() });
     }
@@ -610,6 +625,12 @@ async function handle(req: NextRequest) {
     if (body.action === "unsubscribe") {
       if (typeof body.endpoint === "string") await removeSub(body.endpoint);
       return NextResponse.json({ ok: true, devices: await countSubs() });
+    }
+    // 이 기기의 알림 주소가 이 학급 알림 목록에 지금 있나(브라우저 구독만 보면 다른 기기에서 비밀번호를 바꿔 빠진 뒤에도 「받는 중」으로 보임).
+    // 체험에서는 알림을 받지 않으므로 늘 false.
+    if (body.action === "pushHas") {
+      if (typeof body.endpoint !== "string" || !body.endpoint) return bad("알림 주소가 없어요.");
+      return NextResponse.json({ has: !isDemo() && (await hasSub(body.endpoint)) });
     }
     // 알림 받는 기기 모두 끄기(잃어버린 휴대폰 등): 이 학급에 등록된 알림 주소를 모두 지운다
     if (body.action === "pushClear") {

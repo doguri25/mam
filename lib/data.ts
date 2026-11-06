@@ -7,7 +7,7 @@ import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import type { SelCheck } from "./selcheck.ts";
 import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type CalmUse, type Letter, type MoodRecord, type PrevVersion, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type CalmUse, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 import { riskSrcOf } from "../components/teacher/alerts.ts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 
 export interface Settings {
@@ -358,6 +358,14 @@ export const allRecords = () => db().all<MoodRecord>("records"); // 내보내기
 export const recordsOf = (no: number) => db().find<MoodRecord>("records", "no", "==", no);
 export const recordsFrom = (date: string) => db().find<MoodRecord>("records", "date", ">=", date);
 export const recordsChangedAfter = (ms: number) => db().find<MoodRecord>("records", "updatedAt", ">", ms);
+// 위험 표현이 있는 기록(살펴본 것도). 위험한 기록은 드물어 이것만 따로 읽어도 적다(Firestore 단일 필드 색인).
+export const riskyRecords = () => db().find<MoodRecord>("records", "risk", "==", true);
+// 선생님 화면에 보낼 기록: 최근 기록(recent)에, 그보다 오래됐어도 선생님이 아직 살펴보지 않은 위험 표현 기록을 더한다
+// (34일이 지났다고 알림이 사라지지 않게 — 한 주 돌아보기와 같게 「살펴볼 때까지」).
+export function withOpenRisks(recent: MoodRecord[], risky: MoodRecord[]): MoodRecord[] {
+  const have = new Set(recent.map((r) => r.id));
+  return [...recent, ...risky.filter((r) => r.risk && !r.riskChecked && !have.has(r.id))];
+}
 
 // ── 학생 기록 저장: 같은 칸(아침·하교 전)에 이미 있는 기록과 합친다 ──
 // 적힌 시각을 밀리초로(읽지 못하면 0 = 가장 앞). 글자가 아니라 때로 견준다(「+09:00」로 적힌 시각과 「Z」 시각이 섞여도)
@@ -502,6 +510,33 @@ export async function addCalm(id: string, use: CalmUse): Promise<MoodRecord | nu
   const out = await db().update<MoodRecord>("records", id, (cur) => (cur ? { ...cur, calm: [...(cur.calm ?? []), use].slice(-10), updatedAt: Date.now() } : undefined));
   if (out) await touch("records");
   return out;
+}
+
+// ── 공감 쪽지 보내기: 학생마다 하루 perDay통까지 ──
+// 세고 나서 쓰면 한꺼번에 보낸 쪽지가 모두 같은 수를 보고 지나가고, 「번호_밀리초」 이름이 겹친 쪽지는 서로 덮어써
+// 모두 200을 받고도 몇 통만 남았다. 그래서 이름을 그날의 자리(「번호_날짜_1」~「번호_날짜_perDay」)로 정하고
+// 그 자리가 비어 있을 때만 만든다(읽고 쓰기를 한 번에) → 같은 순간 여러 통이 와도 하루 수를 넘지 않고 이름도 겹치지 않는다.
+// 자리가 다 찼으면 null(화면에는 429로 — 저장하지 않은 쪽지에 거짓 200을 주지 않게). 지운 쪽지의 자리는 다시 쓸 수 있다(예전처럼 남은 쪽지 수로 셈).
+// 이 이름을 쓰기 전에 보낸 오늘 쪽지(번호_밀리초)는 그만큼 자리를 줄인다.
+export const letterSlotId = (no: number, date: string, k: number) => `${no}_${date}_${k}`;
+export async function addLetter(l: Omit<Letter, "id">, perDay: number): Promise<Letter | null> {
+  const date = today(new Date(l.createdAt));
+  const sent = (await db().find<Letter>("letters", "from", "==", l.from)).filter((x) => today(new Date(x.createdAt)) === date);
+  const taken = new Set(sent.map((x) => x.id));
+  const slotted = (id: string) => /^\d+_\d{4}-\d{2}-\d{2}_\d+$/.test(id);
+  const room = perDay - sent.filter((x) => !slotted(x.id)).length;
+  for (let k = 1; k <= room; k++) {
+    const id = letterSlotId(l.from, date, k);
+    if (taken.has(id)) continue;
+    const letter: Letter = { ...l, id };
+    let won = false; // update는 겹치면 fn을 다시 부르므로 마지막에 부른 때의 값으로 정한다
+    await db().update<Letter>("letters", id, (cur) => {
+      won = !cur;
+      return cur ? undefined : { ...letter };
+    });
+    if (won) return letter;
+  }
+  return null;
 }
 
 // 변경 표시: 교사 화면은 이 문서 하나만 자주 읽고, 바뀌었을 때만 기록을 더 읽는다
@@ -708,10 +743,19 @@ export const addRiskDraftSummary = (id: string, text: string, summaryKo: string)
 // 두 칸을 이어 붙여야 걸리는 말, 글 없이 AI만 위험하다고 본 것)이 하나라도 있으면 null — 지금처럼 다시 알린다.
 // 이어받는 것은 그 글을 「마친」 기록뿐이다: 그 글이 모두 기록에 담겼고, 바로 그 무렵(DRAFT_JOIN_MS 안)에 마쳤을 때만.
 // · 같은 칸에 마치지 않은 글이 있으면 그것만 본다 — 살펴보지 않은 글(그사이 새로 쓴 것)이면 다시 알린다.
-// · 다른 칸 글은 같은 칸 글이 없고, 정리하는 사이 정오를 넘긴 경우(아침 글 → 하교 전 기록)만.
+// · 다른 칸 글은 같은 칸 글이 없고, 정리하는 사이 정오를 넘긴 경우(아침 글 → 하교 전 기록)나 자정을 넘긴 경우(어제 칸 글 → 오늘 기록)만.
 // (아침에 살펴본 「…죽고 싶어」가 오후에 새로 쓴 「죽고 싶어」나 되묻기 답을 조용히 덮지 않게)
 export const DRAFT_JOIN_MS = 30 * 60_000;
 export const recentDraft = (d: Pick<RiskDraft, "at">, at: number) => Math.abs(at - (Date.parse(d.at) || 0)) <= DRAFT_JOIN_MS;
+// 그 칸(「번호_날짜_칸」) 기록을 마칠 때 함께 볼 다른 칸의 마치지 않은 글: 같은 날 다른 칸(정오를 넘김), 어제 하교 전·아침 칸(자정을 넘김 —
+// 23시 59분에 정리하고 0시 넘어 저장하면 글은 어제 날짜로 남고 기록은 오늘 날짜로 저장된다). 그 무렵(recentDraft) 쓴 글만 함께 다룬다.
+export function nearDraftIds(id: string): string[] {
+  const m = id.match(/^(\d+)_(\d{4}-\d{2}-\d{2})_(am|pm)$/);
+  if (!m) return [];
+  const [, no, date, slot] = m;
+  const y = addDays(date, -1);
+  return [`${no}_${date}_${slot === "am" ? "pm" : "am"}`, `${no}_${y}_pm`, `${no}_${y}_am`];
+}
 export interface SavedText { summary: string; answer: string; hits: string[]; summaryHits: string[]; answerHits: string[]; aiRisk: boolean }
 export function seenDraft(rec: SavedText, drafts: RiskDraft[], sameId: string, at: number = Date.now()): RiskDraft | null {
   const parts: string[] = [];
@@ -721,7 +765,9 @@ export function seenDraft(rec: SavedText, drafts: RiskDraft[], sameId: string, a
   if (!parts.length || parts.some((p) => !p) || rec.hits.some((h) => !known.has(h))) return null;
   const same = drafts.find((d) => d.id === sameId);
   const crossNoon = sameId.endsWith("_pm") ? drafts.find((d) => d.id === sameId.replace(/_pm$/, "_am")) : undefined;
-  const d = same ?? crossNoon;
+  const [, yPm, yAm] = nearDraftIds(sameId);
+  const crossMidnight = drafts.find((d) => d.id === yPm) ?? drafts.find((d) => d.id === yAm);
+  const d = same ?? crossNoon ?? crossMidnight;
   if (!d?.checked || !recentDraft(d, at) || !draftKept(d, rec.summary, rec.answer)) return null;
   const texts = [d.text, ...(d.earlier ?? []).map((e) => e.text)];
   return parts.every((p) => texts.some((t) => t.includes(p))) ? d : null;
@@ -755,6 +801,13 @@ export async function moveRiskActions(from: string, to: string, recordDate: stri
 // (먼저 읽고 견준 뒤 지우면, 그사이 학생이 새로 쓴 위험한 글까지 함께 지워진다)
 export const dropRiskDraft = (id: string, when: (d: RiskDraft) => boolean = () => true) =>
   editRiskDrafts((items) => items.filter((x) => x.id !== id || !when(x)));
+// 기록을 마친 그 칸(id)과 그 무렵 다른 칸(nearDraftIds — 정오·자정을 넘김)에 남은 같은 글을 한 번에(문서 한 번 읽고 쓰기) 지운다.
+// done: 그 칸 글을 지워도 되나(지우는 그 순간의 글로 견줌). 다른 칸 글은 at(기록을 만든 때) 무렵 쓴 것일 때만 —
+// 몇 시간 앞서 따로 남긴 아침 글·어제 글은 그 칸의 알림으로 그대로 둔다.
+export function dropDoneDrafts(id: string, at: number, done: (d: RiskDraft) => boolean) {
+  const near = new Set(nearDraftIds(id));
+  return editRiskDrafts((items) => items.filter((x) => !(x.id === id ? done(x) : near.has(x.id) && recentDraft(x, at) && done(x))));
+}
 // 선생님이 살펴봄: seen(선생님이 본 판 = at)이 지금 글과 같을 때만 그 자리에서 표시한다.
 // stale = 그사이 학생이 새로 씀, missing = 그사이 그 글로 기록을 마쳐 없어짐
 export async function checkRiskDraft(id: string, seen?: string | null): Promise<"ok" | "stale" | "missing"> {
@@ -838,7 +891,25 @@ export async function expiredCounts(cut: string) {
 export async function purgeLogs(): Promise<PurgeLog[]> {
   return (await db().get<{ items: PurgeLog[] }>("meta", "purges"))?.items ?? [];
 }
+// 기한 앞의 위험 표현 가운데 선생님이 아직 살펴보지 않은 것(알림이 열려 있는 것 — components/teacher/alerts.ts riskAlerts와 같은 기준)의 수.
+// 정리가 이것들을 조용히 지우면 선생님이 한 번도 보지 못한 위험 표현이 사라지므로, 있으면 정리하지 않고 먼저 살펴보게 한다.
+// 견주기는 정리(purgeBefore)가 지우는 기준과 같게(날짜 칸은 그대로, 만든 시각은 그날 한국 자정의 시각과).
+export const HELD_RISK = (n: number) => `아직 살펴보지 않은 위험 표현 알림이 ${n}건 있어요. 마음 지도 알림에서 먼저 「살펴봤어요」를 누른 뒤 정리해 주세요.`;
+export async function heldRisks(cut: string): Promise<number> {
+  const iso = cutIso(cut);
+  const [recs, refs, letters, drafts] = await Promise.all([
+    db().find<MoodRecord>("records", "risk", "==", true), db().find<Reflect>("reflects", "risk", "==", true),
+    db().find<Letter>("letters", "risk", "==", true), getRiskDrafts(),
+  ]);
+  return recs.filter((r) => !r.riskChecked && r.date < cut).length
+    + refs.filter((x) => !x.riskChecked && x.createdAt < iso).length
+    + letters.filter((l) => l.status === "wait" && !l.riskChecked && l.createdAt < iso).length
+    + drafts.filter((d) => !d.checked && d.date < cut).length;
+}
+// 살펴보지 않은 위험 표현이 기한 앞에 있으면 아무것도 지우지 않고 오류(HELD_RISK)를 낸다 — 화면은 그 전에 heldRisks로 409를 돌려준다.
 export async function purgeBefore(cut: string): Promise<PurgeLog> {
+  const held = await heldRisks(cut);
+  if (held) throw new Error(HELD_RISK(held));
   const counts: Record<string, number> = {};
   for (const [col, field] of DATED) counts[col] = await db().delWhere(col, field, "<", cutFor(field, cut));
   const iso = cutIso(cut);
@@ -890,7 +961,11 @@ export async function seedPractice() {
   await db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }]));
   await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
   await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
-  await saveSelChecks([...(await getSelChecks()).filter((c) => !c.demo), ...demoSelChecks(date)]); // 역량 진단 연습 회차(실제 회차는 그대로)
+  // 역량 진단 연습 회차(실제 반은 선생님이 넣은 회차를 그대로 둔다). 체험 반은 여럿이 함께 쓰므로 앞 사람이 넣은 회차(학교·작성자 이름·메모)도,
+  // 앞 사람이 올린 차시(감정 단어·활동)·만든 주간 요약·정리 기록도 비운다 — 「처음 판으로」 뒤에 다음 사람에게 남지 않게.
+  const trial = isDemo();
+  await saveSelChecks([...(trial ? [] : (await getSelChecks()).filter((c) => !c.demo)), ...demoSelChecks(date)]);
+  if (trial) for (const id of ["lessons", "weekly", "purges"]) await db().del("meta", id);
   await saveRiskActions(demoRiskActions(date)); // 위험 표현 조치 연습 기록
   await seedSelfChecks(date); // 학생 자기진단 연습 회차(실제 회차는 그대로)
   // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).

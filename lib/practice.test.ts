@@ -8,7 +8,7 @@ import { test } from "node:test";
 process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), "mam-practice-")));
 for (const k of ["MONGODB_URI", "FIREBASE_SERVICE_ACCOUNT", "VERCEL"]) delete process.env[k];
 const { db, inSpace } = await import("./db.ts");
-const { clearPractice, getRiskActions, getRoster, purgeBefore, readRoster, rosterIsDemo, saveRiskActions, saveRoster } = await import("./data.ts");
+const { clearPractice, getRiskActions, getRoster, getSelChecks, purgeBefore, readRoster, rosterIsDemo, saveRiskActions, saveRoster, saveSelChecks, seedPractice } = await import("./data.ts");
 
 test("명단 읽기: 읽지 못한 줄을 알려 주고, 연습 학생을 실제 학생으로 바꾸면 연습 표시·동의 날짜를 뗀다", () => {
   const old = [
@@ -95,5 +95,29 @@ test("연습 명단 위에 실제 명단을 붙여 넣은 반: 실제 학생일 
     assert.deepEqual((await getRoster()).map((s) => s.no), [1, 2]);
     assert.deepEqual((await db().all<{ id: string }>("records")).map((r) => r.id), ["1_2026-11-03_am"]);
     assert.equal(await rosterIsDemo(), false);
+  });
+});
+
+test("체험 반 「처음 판으로」: 앞 사람이 넣은 역량 진단·차시·주간 요약·정리 기록을 남기지 않는다(실제 반의 연습 데이터 만들기는 그대로 둠)", async () => {
+  const visitor = { id: "selv", date: "2026-11-05", school: "방문자가 쓴 학교", group: "아무 반", rater: "방문자", answers: Array(20).fill(1), memo: "다음 사람에게 보이는 글", createdAt: "2026-11-05T00:00:00.000Z" };
+  const lesson = { items: [{ id: "1", unit: "방문자가 올린 차시", words: ["방문자낱말"], activities: [], createdAt: "" }] };
+  const leave = async () => {
+    await saveSelChecks([visitor]);
+    await db().set("meta", "lessons", lesson);
+    await db().set("meta", "weekly", { weekStart: "2026-10-31", createdAt: "", summary: "방문자 요약" });
+    await db().set("meta", "purges", { items: [{ at: "", cutoff: "2026-03-01", counts: { records: 1 } }] });
+  };
+  await inSpace("demo", async () => {
+    await leave();
+    await seedPractice();
+    const sel = await getSelChecks();
+    assert.ok(sel.length > 0 && sel.every((c) => c.demo)); // 연습 회차만
+    for (const id of ["lessons", "weekly", "purges"]) assert.equal(await db().get("meta", id), null, id);
+  });
+  await inSpace("cseedreal", async () => {
+    await leave();
+    await seedPractice();
+    assert.ok((await getSelChecks()).some((c) => c.id === "selv")); // 선생님이 넣은 회차는 그대로
+    assert.deepEqual(await db().get("meta", "lessons"), lesson);
   });
 });

@@ -3,9 +3,9 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
-import { DEMO_COOKIE, STUDENT_COOKIE, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { addCalm, aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
-import { addRiskDraftSummary, draftKept, dropRiskDraft, getRiskDrafts, moveRiskActions, putRiskDraft, recentDraft, saveLook, seenDraft } from "@/lib/data";
+import { DEMO_COOKIE, OTHER_STUDENT, STUDENT_COOKIE, otherStudent, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
+import { addCalm, addLetter, aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
+import { addRiskDraftSummary, draftKept, dropDoneDrafts, getRiskDrafts, moveRiskActions, nearDraftIds, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -41,7 +41,9 @@ const wordsOf = (rs: MoodRecord[]) => [...new Set(rs.map((r) => r.word).filter((
 export async function POST(req: NextRequest) {
   // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
   if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
-  const body = await req.json().catch(() => ({}));
+  // 몸이 JSON 객체가 아니면(null·배열·숫자·깨진 JSON) 400 — 아래에서 body.action을 읽다 500이 나지 않게
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return bad("요청이 올바르지 않아요.");
   if (body.action === "login") return codeLogin(req, body);
   return inSpace(await studentSpace(req, body), () => handle(req, body));
 }
@@ -103,6 +105,12 @@ async function handle(req: NextRequest, body: Body) {
       const when = queuedWhen(body.madeAt, q.date);
       if (!when) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
       return saveRecord(s, body.record ?? {}, await getSettings(), { date: when.date, madeAt: when.madeAt, saveId: body.saveId });
+    }
+
+    // 같은 기기 다른 탭에서 다른 친구가 들어와 쿠키가 바뀌었으면, 화면이 아는 학생(screenNo·screenSpace)과 다르다 →
+    // 명단·기록을 읽거나 쓰기 전에 409로 돌려보낸다(앞 탭의 저장·쪽지가 다른 친구 이름으로 들어가지 않게). 「me」는 누가 들어와 있는지 묻는 것이라 뺀다.
+    if (body.action !== "me" && otherStudent(req.cookies.get(STUDENT_COOKIE)?.value, body)) {
+      return NextResponse.json({ error: OTHER_STUDENT, code: "otherStudent" }, { status: 409 });
     }
 
     const s = await me(req);
@@ -189,15 +197,13 @@ async function handle(req: NextRequest, body: Body) {
       const to = Number(body.to);
       const text = String(body.text ?? "").trim().slice(0, 120);
       if (to === s.no || !(await getRoster()).some((x) => x.no === to) || text.length < 2) return bad("받는 친구와 쪽지 내용을 확인해 주세요.");
-      const date = today();
-      const sentToday = (await db().find<Letter>("letters", "from", "==", s.no)).filter((l) => today(new Date(l.createdAt)) === date).length;
-      if (sentToday >= LETTERS_PER_DAY) return bad(`쪽지는 하루에 ${LETTERS_PER_DAY}통까지 보낼 수 있어요.`, 429);
       const risk = matchRisk(text, settings.riskWords).length > 0;
-      const letter: Letter = {
-        id: `${s.no}_${Date.now()}`, from: s.no, to, text, showName: body.showName !== false, status: "wait",
+      // 하루 수 세기와 저장을 한 번에(lib/data.ts addLetter): 한꺼번에 보내도 5통을 넘지 않고, 넘친 쪽지는 저장하지 않고 429
+      const letter = await addLetter({
+        from: s.no, to, text, showName: body.showName !== false, status: "wait",
         createdAt: new Date().toISOString(), risk, lang: isLang(body.lang) ? body.lang : "ko", ...(isDemo() || s.demo ? { demo: true } : {}),
-      };
-      await db().set("letters", letter.id, { ...letter });
+      }, LETTERS_PER_DAY);
+      if (!letter) return bad(`쪽지는 하루에 ${LETTERS_PER_DAY}통까지 보낼 수 있어요.`, 429);
       await touch("other"); // 선생님 화면에 「허락 기다리는 쪽지」가 바로 보이게
       if (risk) alertTeacher(s.no, "공감 쪽지", `letter-${letter.id}`);
       return NextResponse.json({ ok: true });
@@ -417,7 +423,9 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   let seen: RiskDraft | null = null;
   if (own) {
     try {
-      const drafts = (await getRiskDrafts()).filter((d) => d.no === s.no && d.date === date);
+      // 이 칸과 그 무렵 다른 칸(정오·자정을 넘김 — 23시 59분에 정리한 글은 어제 날짜로 남는다)의 마치지 않은 글
+      const near = new Set([id, ...nearDraftIds(id)]);
+      const drafts = (await getRiskDrafts()).filter((d) => near.has(d.id));
       seen = seenDraft({
         summary, answer, hits, aiRisk: r.aiRisk === true,
         summaryHits: [...new Set([...matchRisk(summary, settings.riskWords), ...koHits])], answerHits: matchRisk(answer, settings.riskWords),
@@ -464,13 +472,9 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
   // 살펴본 글은 이어받은 바로 그 판(at)일 때만 지운다(그사이 학생이 새로 쓴 글은 살펴보지 않은 알림으로 남게) → 같은 일이 한 번만 보인다.
   try {
     const done = (d: RiskDraft) => draftKept(d, summary, answer) && (!d.checked || (d.id === moveFrom?.id && d.at === moveFrom.at));
-    // 정리하는 사이 정오를 넘기면 글은 아침 칸으로 먼저 남고 기록은 하교 전 칸에 저장된다 → 같은 날 다른 칸의 같은 글도 함께 본다
-    // (그 무렵 쓴 글만 — 몇 시간 앞서 따로 남긴 아침 글은 그 칸의 알림으로 그대로 둔다)
-    if (own) {
-      await dropRiskDraft(`${s.no}_${date}_${saved.slot}`, done);
-      const other = `${s.no}_${date}_${saved.slot === "am" ? "pm" : "am"}`;
-      await dropRiskDraft(other, (d) => recentDraft(d, timeOf(createdAt)) && done(d));
-    }
+    // 정리하는 사이 정오를 넘기면 글은 아침 칸으로 먼저 남고 기록은 하교 전 칸에 저장된다. 자정을 넘기면 글은 어제 칸으로 남고 기록은 오늘 칸에.
+    // → 그 무렵 다른 칸의 같은 글도 함께 지운다(한 글에 알림이 둘 남지 않게). 몇 시간 앞서 따로 남긴 글은 그 칸의 알림으로 그대로 둔다(lib/data.ts dropDoneDrafts).
+    if (own) await dropDoneDrafts(saved.id, timeOf(createdAt), done);
   } catch (e) {
     console.error("마치지 않은 위험 표현 정리 실패", e);
   }

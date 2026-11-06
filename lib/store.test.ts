@@ -146,6 +146,33 @@ test("AI 하루 몫: 열 요청이 같은 순간 와도 한도(7)까지만 쓰�
   });
 });
 
+test("공감 쪽지 하루 5통: 열두 통을 같은 순간 보내도 다섯 통만 남고 이름이 겹치지 않는다(넘친 것은 null — 화면에는 429)", async () => {
+  await inSpace("crace7", async () => {
+    const at = new Date().toISOString();
+    const send = (i: number) => D.addLetter({ from: 1, to: 2, text: `고마워 ${i}`, showName: true, status: "wait", createdAt: at, risk: false, lang: "ko" }, 5);
+    const got = await Promise.all(Array.from({ length: 12 }, (_, i) => send(i)));
+    const ok = got.filter((l) => l !== null);
+    assert.equal(ok.length, 5);
+    const stored = await db().find<{ id: string; text: string }>("letters", "from", "==", 1);
+    assert.equal(stored.length, 5);
+    assert.deepEqual(new Set(stored.map((l) => l.text)), new Set(ok.map((l) => l!.text))); // 200을 받은 쪽지가 바로 남은 쪽지
+    assert.deepEqual(stored.map((l) => l.id).sort(), [1, 2, 3, 4, 5].map((k) => D.letterSlotId(1, today(), k)));
+    // 하루가 다 찼으면 더 보내도 남지 않는다
+    assert.equal(await send(99), null);
+    // 다른 학생은 따로 센다
+    const other = await D.addLetter({ from: 2, to: 1, text: "나도 고마워", showName: true, status: "wait", createdAt: at, risk: false, lang: "ko" }, 5);
+    assert.equal(other?.id, D.letterSlotId(2, today(), 1));
+  });
+  await inSpace("crace8", async () => {
+    // 이 이름을 쓰기 전에 보낸 오늘 쪽지(번호_밀리초)도 하루 수에 든다. 이틀 전 쪽지는 세지 않는다.
+    const at = new Date().toISOString();
+    await db().set("letters", "1_1700000000000", { id: "1_1700000000000", from: 1, to: 2, text: "예전 이름", showName: true, status: "ok", createdAt: at });
+    await db().set("letters", "1_1700000000001", { id: "1_1700000000001", from: 1, to: 2, text: "이틀 전", showName: true, status: "ok", createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    const got = await Promise.all(Array.from({ length: 6 }, (_, i) => D.addLetter({ from: 1, to: 2, text: `새 ${i}`, showName: true, status: "wait", createdAt: at, risk: false, lang: "ko" }, 5)));
+    assert.equal(got.filter(Boolean).length, 4);
+  });
+});
+
 test("공간 밖 모음(accounts)도 update로 「없을 때만 만들기」", async () => {
   const a = { id: "x", name: "x", space: "c00000001", createdAt: "" };
   const r = await Promise.all([1, 2, 3].map((i) => outOfSpace(() => db().update<typeof a>("accounts", "x", (cur) => (cur ? undefined : { ...a, space: `c0000000${i}` })))));

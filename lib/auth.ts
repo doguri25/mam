@@ -30,6 +30,17 @@ export const TEACHER_HOURS = 8;
 
 export const DEMO_COOKIE = "mb_demo"; // 예전 체험 표시(공간이 적히지 않은 예전 학생 쿠키를 체험 공간으로 보낼 때만 읽음)
 
+// 학생 쿠키는 기기마다 하나라, 다른 탭에서 다른 친구가 들어오면 쿠키가 그 친구로 바뀐다. 화면이 알고 있는 학생 번호(screenNo)·
+// 학급 공간(screenSpace)이 쿠키와 다르면 true → API가 아무것도 읽거나 쓰기 전에 409로 돌려보낸다(앞 탭의 저장이 다른 친구 기록으로 들어가지 않게).
+// 화면이 보내지 않으면(예전 화면) false. 쿠키가 없거나 고쳐졌으면 false — 그때는 「다시 들어와 주세요」(401)로 간다.
+export const OTHER_STUDENT = "다른 친구가 이 기기로 들어왔어요. 다시 들어와 주세요.";
+export function otherStudent(cookie: string | undefined, screen: { screenNo?: unknown; screenSpace?: unknown }, sp = spaceId()) {
+  const no = unsign(cookie)?.split(":")[0];
+  if (no === undefined) return false;
+  const { screenNo: n, screenSpace: s } = screen;
+  return (n !== undefined && n !== null && Number(n) !== Number(no)) || (s !== undefined && s !== null && String(s) !== sp);
+}
+
 // 선생님 표: t:만료:v:공간. v는 비밀번호 판 — 비밀번호를 바꾸면 v가 올라가 다른 기기의 예전 표는 무효가 된다.
 // 공간(""·demo·c…)은 이 표로 열 수 있는 학급 — 요청 전체가 그 학급 공간에서 돈다. 예전 표(공간 없음·끝이 d)도 읽는다.
 export function teacherToken(v = 0, sp = spaceId()) {
