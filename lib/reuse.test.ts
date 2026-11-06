@@ -8,7 +8,7 @@ import { test } from "node:test";
 process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), "mam-reuse-")));
 for (const k of ["MONGODB_URI", "FIREBASE_SERVICE_ACCOUNT", "VERCEL"]) delete process.env[k];
 const { db, inSpace } = await import("./db.ts");
-const { getLooks, readRoster, saveLook, startFresh, withDataFor } = await import("./data.ts");
+const { addLetter, getLooks, getRiskDrafts, getSettings, readRoster, saveLook, saveSettings, startFresh, withDataFor } = await import("./data.ts");
 const { formerAt, ownBy, ownOnly } = await import("./shared.ts");
 const { monday, today } = await import("./date.ts");
 
@@ -56,6 +56,14 @@ test("뺐다가 다시 넣은 번호: 새 학생이면 뺄 때 남긴 학생이 
   const back = readRoster("5 별님", [], { left, now }).students[0];
   assert.equal(back.since, "2026-09-01T00:00:00.000Z");
   assert.deepEqual(back.formers, [{ alias: "달님", until: "2026-09-01T00:00:00.000Z" }]);
+  // 「같은 학생 · 다시 넣음」을 고르면 뺄 때의 코드·동의 날짜를 되살린다. 고르지 않았으면(묻지 않은 번호) 예전처럼 새 코드
+  const left2 = { 5: { ...left[5], code: "STAR55", consent: "2026-04-20" } };
+  const same = readRoster("5 별님", [], { same: new Set([5]), left: left2, now }).students[0];
+  assert.equal(same.code, "STAR55");
+  assert.equal(same.consent, "2026-04-20");
+  const unasked = readRoster("5 별님", [], { left: left2, now }).students[0];
+  assert.notEqual(unasked.code, "STAR55");
+  assert.equal(unasked.consent, undefined);
 });
 
 test("ownBy·formerAt: 번호를 받은 때 앞은 앞 학생 것, 날짜만 있으면 받은 날부터 지금 학생 것", () => {
@@ -75,15 +83,32 @@ test("ownBy·formerAt: 번호를 받은 때 앞은 앞 학생 것, 날짜만 있
   assert.deepEqual(ownOnly(xs, [{ no: 1, since: s.since }, { no: 2 }], (x) => x.no, (x) => x.at).map((x) => [x.no, x.at.slice(0, 10)]), [[1, "2026-11-06"], [2, "2026-07-09"], [9, "2020-01-01"]]);
 });
 
-test("startFresh: 마음 친구 모습은 처음으로, 이번 주 돌아보기는 다른 id로 옮기고 조치 기록도 따라간다", async () => {
+test("startFresh: 마음 친구 모습은 처음으로, 새 학생이 쓸 자리(오늘 기록·마치지 않은 기록·이번 주 돌아보기)의 앞 학생 것은 다른 id로 옮기고 조치 기록도 따라간다", async () => {
   await inSpace("creuse001", async () => {
     await saveLook(1, { body: "cat", color: "blue", acc: "none" } as never);
     await saveLook(2, { body: "cat", color: "blue", acc: "none" } as never);
-    const ws = monday(today());
+    const day = today();
+    const ws = monday(day);
     const id = `1_${ws}`;
-    await db().set("reflects", id, { id, no: 1, weekStart: ws, text: "무서워", reply: "", createdAt: new Date(Date.now() - 3600e3).toISOString(), risk: true, riskChecked: null });
-    await db().set("meta", "riskActions", { items: [{ id: "a1", no: 1, recordId: `reflect:${id}`, recordDate: ws, date: ws, kinds: ["talk"], note: "", createdAt: new Date().toISOString(), kind: "reflect" }] });
-    await startFresh([1]);
+    const at = new Date(Date.now() - 3600e3).toISOString();
+    await db().set("reflects", id, { id, no: 1, weekStart: ws, text: "무서워", reply: "", createdAt: at, risk: true, riskChecked: null });
+    await db().set("records", `1_${day}_am`, { id: `1_${day}_am`, no: 1, date: day, slot: "am", summary: "죽고 싶어", createdAt: at, risk: true, riskChecked: null });
+    await db().set("records", `2_${day}_am`, { id: `2_${day}_am`, no: 2, date: day, slot: "am", summary: "", createdAt: at });
+    await db().set("meta", "riskDrafts", { items: [{ id: `1_${day}_pm`, no: 1, date: day, slot: "pm", text: "무서워", hits: [], at, checked: null }] });
+    await db().set("meta", "riskActions", { items: [
+      { id: "a1", no: 1, recordId: `reflect:${id}`, recordDate: ws, date: ws, kinds: ["talk"], note: "", createdAt: new Date().toISOString(), kind: "reflect" },
+      { id: "a2", no: 1, recordId: `1_${day}_am`, recordDate: day, date: day, kinds: ["talk"], note: "", createdAt: new Date().toISOString() },
+    ] });
+    await saveSettings({ ...(await getSettings()), checks: { [`1_${ws}`]: at, [`2_${ws}`]: at } });
+    assert.equal(await startFresh([1]), true);
+    const recs = (await db().all<{ id: string; no: number; summary: string }>("records")).filter((r) => r.no === 1);
+    assert.equal(recs.length, 1);
+    assert.match(recs[0].id, new RegExp(`^1_${day}_am_p`));
+    assert.equal(recs[0].summary, "죽고 싶어");
+    assert.ok(await db().get("records", `2_${day}_am`)); // 다른 번호는 그대로
+    const drafts = await getRiskDrafts();
+    assert.match(drafts[0].id, new RegExp(`^1_${day}_pm_p`));
+    assert.deepEqual(Object.keys((await getSettings()).checks), [`2_${ws}`]);
     const looks = await getLooks();
     assert.equal(1 in looks, false);
     assert.equal(2 in looks, true);
@@ -92,8 +117,23 @@ test("startFresh: 마음 친구 모습은 처음으로, 이번 주 돌아보기�
     assert.equal(moved.length, 1);
     assert.match(moved[0].id, new RegExp(`^1_${ws}_p`));
     assert.equal(moved[0].text, "무서워");
-    const acts = (await db().get<{ items: { recordId: string }[] }>("meta", "riskActions"))!.items;
+    const acts = (await db().get<{ items: { recordId: string; kind?: string }[] }>("meta", "riskActions"))!.items;
     assert.equal(acts[0].recordId, `reflect:${moved[0].id}`);
+    assert.equal(acts[0].kind, "reflect");
+    assert.equal(acts[1].recordId, recs[0].id);
+  });
+});
+
+test("addLetter(since): 같은 번호의 앞 학생이 오늘 보낸 쪽지는 새 학생의 하루 5통에 세지 않는다", async () => {
+  await inSpace("creuse003", async () => {
+    const before = new Date(Date.now() - 3600e3).toISOString();
+    const since = new Date(Date.now() - 1800e3).toISOString();
+    const base = { from: 3, to: 4, text: "안녕", showName: true, status: "wait" as const, risk: false, lang: "ko" as const };
+    for (let i = 0; i < 5; i++) assert.ok(await addLetter({ ...base, createdAt: before }, 5));
+    assert.equal(await addLetter({ ...base, createdAt: new Date().toISOString() }, 5), null); // 예전처럼(since 없음) 막힘
+    const got = await Promise.all(Array.from({ length: 8 }, () => addLetter({ ...base, createdAt: new Date().toISOString() }, 5, since)));
+    assert.equal(got.filter(Boolean).length, 5); // 한꺼번에 보내도 새 학생 몫 5통까지
+    assert.equal((await db().find("letters", "from", "==", 3)).length, 10);
   });
 });
 

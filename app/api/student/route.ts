@@ -207,7 +207,7 @@ async function handle(req: NextRequest, body: Body) {
       const letter = await addLetter({
         from: s.no, to, text, showName: body.showName !== false, status: "wait",
         createdAt: new Date().toISOString(), risk, lang: isLang(body.lang) ? body.lang : "ko", ...(isDemo() || s.demo ? { demo: true } : {}),
-      }, LETTERS_PER_DAY);
+      }, LETTERS_PER_DAY, s.since);
       if (!letter) return bad(`쪽지는 하루에 ${LETTERS_PER_DAY}통까지 보낼 수 있어요.`, 429);
       await touch("other"); // 선생님 화면에 「허락 기다리는 쪽지」가 바로 보이게
       if (risk) alertTeacher(s.no, "공감 쪽지", `letter-${letter.id}`);

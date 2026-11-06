@@ -241,10 +241,10 @@ export const ROSTER_MAX = 60; // 한 반 학생 수 한도(학생마다 코드 �
 // 번호를 새 학생에게 줄 때(choose): fresh에 든 번호는 앞 학생과 나눈다 — 새 코드(앞 학생은 예전 코드로 못 들어옴), 동의 표시 떼기,
 // since(그때부터 지금 학생 것)·formers(앞 학생 가명) 남기기. 명단에서 뺐다가 다시 넣은 번호는 left(뺄 때 남긴 학생)를 앞 학생으로 본다.
 // renamed: 연습 학생이 아닌데 가명이 바뀐 번호 · added: 명단에 없다가 새로 넣은 번호 — 같은 학생인지 새 학생인지 선생님께 묻는다
-export interface LeftStudent { alias: string; at: string; since?: string; formers?: Former[] }
+export interface LeftStudent { alias: string; at: string; code?: string; consent?: string; since?: string; formers?: Former[] }
 export const FORMERS_MAX = 5;
 export function readRoster(
-  text: string, old: Student[], choose: { fresh?: Set<number>; left?: Record<number, LeftStudent>; now?: string } = {},
+  text: string, old: Student[], choose: { fresh?: Set<number>; same?: Set<number>; left?: Record<number, LeftStudent>; now?: string } = {},
 ): { students: Student[]; skipped: string[]; renamed: { no: number; before: string; now: string }[]; added: { no: number; now: string }[] } {
   const taken = new Set(old.map((s) => s.code));
   const seen = new Set<number>();
@@ -280,11 +280,14 @@ export function readRoster(
       continue;
     }
     const keepPractice = !!prev?.demo && prev.alias === alias;
-    const consent = prev?.consent && (!prev.demo || keepPractice) ? prev.consent : undefined;
+    // 뺐다가 다시 넣은 번호를 선생님이 「같은 학생」이라고 고르면 뺄 때의 코드·동의 날짜를 되살린다(코드가 이 반에서 겹치지 않을 때)
+    const back = !prev && left && choose.same?.has(no) ? left : undefined;
+    const backCode = back?.code && !taken.has(back.code) ? back.code : undefined;
+    const consent = prev?.consent && (!prev.demo || keepPractice) ? prev.consent : back?.consent;
     // 같은 학생이면 이 번호의 앞 학생 기록(since·formers)을 이어받는다(뺐다가 다시 넣은 같은 학생도)
     const hist = prev ?? left;
     out.push({
-      no, alias, code: prev?.code ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}),
+      no, alias, code: prev?.code ?? backCode ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}),
       ...(hist?.since ? { since: hist.since, formers: hist.formers ?? [] } : {}),
     });
     taken.add(out.at(-1)!.code);
@@ -299,26 +302,62 @@ export async function getLeft(): Promise<Record<number, LeftStudent>> {
 export async function saveLeft(items: Record<number, LeftStudent>) {
   await db().set("meta", "left", { items });
 }
-// 번호를 새 학생에게 줬을 때 그 번호에 매인 앞 학생 것을 정리한다: 마음 친구 모습은 처음으로,
-// 이번 주 돌아보기는 다른 id로 옮긴다(같은 id에 새 학생이 쓰면 앞 학생 글·살펴보지 않은 위험 표시를 이어받으므로). 조치 기록도 따라 옮긴다.
-export async function startFresh(nos: number[]) {
-  if (!nos.length) return;
+// 번호를 새 학생에게 줬을 때 그 번호에 매인 앞 학생 것을 정리한다. 새 학생이 같은 id에 쓰면 앞 학생 글·살펴보지 않은 위험 표시를
+// 이어받으므로(id가 「번호_날짜_칸」·「번호_주」), 새 학생이 쓸 수 있는 자리(오늘 아침·하교 전 기록과 마치지 않은 기록, 이번 주 돌아보기)에
+// 앞 학생 것이 있으면 다른 id(…_p시각, p: 앞 학생)로 옮기고 조치 기록도 따라 옮긴다. 마음 친구 모습은 처음으로,
+// 「먼저 살펴볼 학생 · 살펴봤어요」 표시는 뗀다(앞 학생 때 누른 표시로 새 학생 신호가 흐려지지 않게).
+// 기록을 옮겼으면 true — 선생님 기기에 저장해 둔 예전 id 기록을 버리게(wipe) 하라고.
+export async function startFresh(nos: number[]): Promise<boolean> {
+  if (!nos.length) return false;
   await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
     if (!cur?.items || !nos.some((n) => n in cur.items)) return undefined;
     const items = { ...cur.items };
     for (const n of nos) delete items[n];
     return { ...cur, items };
   });
-  const ws = monday(today());
+  const day = today();
+  const ws = monday(day);
+  const tag = `_p${Date.now().toString(36)}`;
+  let moved = false;
   for (const no of nos) {
+    for (const slot of ["am", "pm"] as const) {
+      const id = `${no}_${day}_${slot}`;
+      const rec = await db().get<MoodRecord>("records", id);
+      if (!rec) continue;
+      await db().set("records", id + tag, { ...rec, id: id + tag, updatedAt: Date.now() });
+      await db().del("records", id);
+      await renameRiskActions(id, id + tag);
+      moved = true;
+    }
     const id = `${no}_${ws}`;
     const ref = await db().get<Reflect>("reflects", id);
-    if (!ref) continue;
-    const to = `${id}_p${Date.now().toString(36)}`; // p: 앞 학생(previous)
-    await db().set("reflects", to, { ...ref, id: to });
-    await db().del("reflects", id);
-    await moveRiskActions(`reflect:${id}`, `reflect:${to}`, today(new Date(ref.createdAt)));
+    if (ref) {
+      await db().set("reflects", id + tag, { ...ref, id: id + tag });
+      await db().del("reflects", id);
+      await renameRiskActions(`reflect:${id}`, `reflect:${id}${tag}`);
+    }
   }
+  const drafts = new Set(nos.flatMap((no) => [`${no}_${day}_am`, `${no}_${day}_pm`]));
+  const had = (await getRiskDrafts()).filter((d) => drafts.has(d.id)).map((d) => d.id);
+  if (had.length) {
+    await editRiskDrafts((items) => items.map((d) => (drafts.has(d.id) ? { ...d, id: d.id + tag } : d)));
+    for (const id of had) await renameRiskActions(`draft:${id}`, `draft:${id}${tag}`);
+  }
+  const st = await getSettings();
+  const gone = new Set(nos);
+  const checks = Object.fromEntries(Object.entries(st.checks ?? {}).filter(([k]) => !gone.has(Number(k.split("_")[0]))));
+  if (Object.keys(checks).length !== Object.keys(st.checks ?? {}).length) await saveSettings({ ...st, checks });
+  return moved;
+}
+// 조치 기록이 가리키는 글의 id만 바꾼다(무엇을 살펴봤나·한 일은 그대로)
+async function renameRiskActions(from: string, to: string) {
+  let moved = false;
+  await db().update<{ items: RiskAction[] }>("meta", "riskActions", (cur) => {
+    moved = !!cur?.items?.some((a) => a.recordId === from);
+    if (!moved) return undefined;
+    return { ...cur, items: cur!.items.map((a) => (a.recordId === from ? { ...a, recordId: to } : a)) };
+  });
+  if (moved) await touch("other");
 }
 
 // 이 번호들 가운데 그 번호로 남은 기록·쪽지·돌아보기가 있는 것(명단에 없던 번호를 다시 넣을 때 새 학생인지 물을지)
@@ -585,14 +624,20 @@ export async function addCalm(id: string, use: CalmUse): Promise<MoodRecord | nu
 // 자리가 다 찼으면 null(화면에는 429로 — 저장하지 않은 쪽지에 거짓 200을 주지 않게). 지운 쪽지의 자리는 다시 쓸 수 있다(예전처럼 남은 쪽지 수로 셈).
 // 이 이름을 쓰기 전에 보낸 오늘 쪽지(번호_밀리초)는 그만큼 자리를 줄인다.
 export const letterSlotId = (no: number, date: string, k: number) => `${no}_${date}_${k}`;
-export async function addLetter(l: Omit<Letter, "id">, perDay: number): Promise<Letter | null> {
+// since: 보내는 학생이 이 번호를 받은 때(새 학생이면). 그 앞 같은 번호(앞 학생)가 오늘 보낸 쪽지는 세지 않고 그 자리만 건너뛴다.
+export async function addLetter(l: Omit<Letter, "id">, perDay: number, since?: string): Promise<Letter | null> {
   const date = today(new Date(l.createdAt));
   const sent = (await db().find<Letter>("letters", "from", "==", l.from)).filter((x) => today(new Date(x.createdAt)) === date);
   const taken = new Set(sent.map((x) => x.id));
   const slotted = (id: string) => /^\d+_\d{4}-\d{2}-\d{2}_\d+$/.test(id);
-  const room = perDay - sent.filter((x) => !slotted(x.id)).length;
-  for (let k = 1; k <= room; k++) {
+  const mine = (x: Letter) => !since || x.createdAt >= since;
+  const pred = new Set(sent.filter((x) => !mine(x) && slotted(x.id)).map((x) => x.id)); // 앞 학생이 쓴 자리: 세지 않고 건너뜀
+  const room = perDay - sent.filter((x) => mine(x) && !slotted(x.id)).length;
+  // 앞 학생 자리를 뺀 처음 room개 자리만 쓴다(한꺼번에 보내도 모든 요청이 같은 자리 묶음을 다퉈 room통을 넘지 않게)
+  for (let k = 1, n = 0; n < room; k++) {
     const id = letterSlotId(l.from, date, k);
+    if (pred.has(id)) continue;
+    n++;
     if (taken.has(id)) continue;
     const letter: Letter = { ...l, id };
     let won = false; // update는 겹치면 fn을 다시 부르므로 마지막에 부른 때의 값으로 정한다

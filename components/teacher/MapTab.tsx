@@ -16,7 +16,7 @@ import { flagChecked, flagKey } from "./when";
 import { reflectSource, riskAlerts, riskySource } from "./alerts";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
-import { isHard, ownBy } from "@/lib/shared";
+import { isHard, ownBy, ownOnly } from "@/lib/shared";
 import { myNotes, myRecords, myReflects, riskSourcesOf } from "./own";
 
 export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void }) {
@@ -25,7 +25,8 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { d
   const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 폼에 고른 것
   const flagAct = useAct(); // 먼저 살펴볼 학생 「살펴봤어요」(실패하면 그 목록 위에 까닭을)
   const { students, records, today, flags, settings, absent } = data;
-  const todays = records.filter((r) => r.date === today);
+  // 오늘 칸은 지금 그 번호 학생 것만(새 학생에게 준 번호의 앞 학생 오늘 기록은 위 알림·마음 날씨에만)
+  const todays = ownOnly(records.filter((r) => r.date === today), students, (r) => r.no, (r) => r.createdAt);
   const alerts = riskAlerts(data);
   // 마치지 않은 글을 살펴보는 사이 학생이 그 글로 기록을 마쳤으면 폼(고른 일·메모)을 같은 칸의 마음 기록 알림으로 옮긴다
   const actingOn = movedTo(acting, alerts.map((a) => a.id));
