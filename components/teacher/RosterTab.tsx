@@ -6,6 +6,7 @@ import Doodle from "../Doodle";
 import ConsentLetter from "./ConsentLetter";
 import type { Overview, Reload } from "./types";
 import { useAct } from "./useAct";
+import { useRosterChanging } from "./rosterBusy";
 import { api } from "@/lib/api";
 import { useNames } from "@/lib/local";
 import type { Student } from "@/lib/shared";
@@ -37,6 +38,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
   const [letter, setLetter] = useState(false); // 보호자 안내문을 보고 인쇄할 때는 QR 카드를 인쇄에서 뺀다
   const [busy, setBusy] = useState(false);
   const saving = useAct(); // 명단 저장
+  const rosterChanging = useRosterChanging(); // 연습 데이터 만들기·지우기가 서버에서 도는 중이면 명단 저장을 막는다
   const renewing = useAct(); // 새 코드(실패하면 QR 카드 위에 까닭을)
   const origin = window.location.origin; // 이 탭은 로그인 뒤 브라우저에서만 그려진다
 
@@ -49,7 +51,8 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
     setSkipped([]);
     try {
       // skipped: 서버가 읽지 못한 줄(번호가 겹침·모양이 다름·가명이 너무 김). 예전 서버는 보내지 않는다.
-      const r = await api<{ students: Student[]; skipped?: unknown }>("teacher", "roster", { text });
+      // base: 이 칸이 바탕으로 삼은 서버 명단. 그사이 명단이 바뀌었으면(연습 데이터 지우기·다른 기기) 서버가 409로 막는다
+      const r = await api<{ students: Student[]; skipped?: unknown }>("teacher", "roster", { text, base });
       const bad = Array.isArray(r.skipped) ? r.skipped.map(String) : [];
       setSkipped(bad);
       setMsg(`${r.students.length}명을 저장했어요. 같은 번호는 원래 코드를 그대로 써요.`);
@@ -61,6 +64,8 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
       await reload();
     } catch (e) {
       setMsg((e as Error).message);
+      // 명단이 그사이 바뀜: 지금 명단을 다시 읽어 「바뀌었어요」 안내와 「지금 명단으로 바꾸기」를 보여 준다(칸에 쓰던 글은 그대로)
+      if ((e as { status?: number }).status === 409) await reload().catch(() => {});
     }
   });
 
@@ -98,7 +103,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
         )}
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm">{msg}</span>
-          <button onClick={saveRoster} disabled={saving.busy} className="btn-main">{saving.busy ? "저장하는 중…" : "명단 저장"}</button>
+          <button onClick={saveRoster} disabled={saving.busy || rosterChanging} className="btn-main">{saving.busy ? "저장하는 중…" : rosterChanging ? "연습 데이터를 바꾸는 중…" : "명단 저장"}</button>
         </div>
         {skipped.length > 0 && (
           <div role="alert" className="space-y-1 rounded-2xl border border-alert/40 bg-alert-soft p-3 text-sm">

@@ -278,6 +278,10 @@ async function handle(req: NextRequest) {
 
     if (body.action === "roster") {
       const old = await getRoster();
+      // 칸이 바탕으로 삼은 명단(base)이 지금 명단과 다르면 막는다: 「연습 데이터 지우기」 뒤(또는 다른 기기에서 고친 뒤) 칸에 남은
+      // 예전 명단을 그대로 저장하면 지운 연습 학생이 실제 학생으로 다시 들어간다. base가 없으면(예전 화면) 그대로 받는다.
+      if (typeof body.base === "string" && body.base !== old.map((s) => `${s.no} ${s.alias}`).join("\n"))
+        return NextResponse.json({ error: "그사이 명단이 바뀌었어요(연습 데이터 지우기·다른 기기). 지금 명단을 확인하고 다시 저장해 주세요.", code: "rosterChanged" }, { status: 409 });
       const { students, skipped } = readRoster(String(body.text ?? ""), old);
       if (!students.length) return bad("「번호 가명」 모양으로 한 줄에 한 명씩 적어 주세요.");
       // 연습용 가짜 학생을 실제 학생으로 바꾸거나 뺀 번호는, 그 번호에 남은 연습 흔적만 바로 지운다(다른 연습 학생 것은 그대로).

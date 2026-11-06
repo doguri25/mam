@@ -1003,8 +1003,13 @@ export async function clearPractice() {
   const gone = new Set((await getSelfRounds()).filter((r) => r.demo).map((r) => r.id));
   await editSelfRounds((rs) => rs.filter((r) => !r.demo));
   if (gone.size) await deleteSelfAnswers((a) => !gone.has(a.round));
-  if (fake.size) await saveRoster(roster.filter((s) => !fake.has(s.no)), false);
-  else if (doc?.demo) await saveRoster(roster, false);
+  // 명단은 지우는 사이(몇 초) 다른 기기에서 바뀌었을 수 있으니 쓰기 직전에 다시 읽어, 처음 본 그 연습 학생(번호·코드가 같음)만 뺀다.
+  // 그사이 실제 학생으로 바꾼 번호는 새 코드를 받으므로 남는다(처음 읽은 명단으로 덮어 그 저장을 잃지 않게).
+  if (fake.size || doc?.demo) {
+    const was = new Map(roster.filter((s) => fake.has(s.no)).map((s) => [s.no, s.code]));
+    const now = await getRoster();
+    await saveRoster(now.filter((s) => was.get(s.no) !== s.code), false);
+  }
   // 「살펴봤어요」 표시는 연습 학생 것만 지운다(실제 학생 표시는 그대로)
   const st = await getSettings();
   const checks = Object.fromEntries(Object.entries(st.checks).filter(([k]) => !fake.has(Number(k.split("_")[0]))));

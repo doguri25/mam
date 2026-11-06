@@ -9,6 +9,7 @@ import PinCard from "./PinCard";
 import PushCard from "./PushCard";
 import type { Overview, Reload } from "./types";
 import { useAct } from "./useAct";
+import { whileRosterChanges } from "./rosterBusy";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
 import { matchRisk } from "@/lib/rules";
@@ -193,7 +194,7 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
 
   const demo = (mode: "seed" | "clear" | "clearDemo") => demoing.run("", async () => {
     try {
-      await api("teacher", "demo", { mode });
+      await whileRosterChanges(() => api("teacher", "demo", { mode })); // 명단을 통째로 바꾸는 동안 「명단 저장」은 막는다
     } catch (e) {
       return say("demo", (e as Error).message); // 체험 반에서 너무 자주 누르면 기다리라는 안내
     }
