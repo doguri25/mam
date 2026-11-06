@@ -302,8 +302,9 @@ async function handle(req: NextRequest) {
       if (ask.some((a) => !pick(a.no)))
         return NextResponse.json({ error: "같은 번호를 다른 학생에게 주는지 골라 주세요.", code: "whoIs", ask: ask.sort((a, b) => a.no - b.no) }, { status: 409 });
       const fresh = new Set(ask.filter((a) => pick(a.no) === "new").map((a) => a.no));
+      const same = new Set(ask.filter((a) => a.kind === "back" && pick(a.no) === "same").map((a) => a.no));
       const now = new Date().toISOString();
-      const { students, skipped } = readRoster(text, old, { fresh, left, now });
+      const { students, skipped } = readRoster(text, old, { fresh, same, left, now });
       // 연습용 가짜 학생을 실제 학생으로 바꾸거나 뺀 번호는, 그 번호에 남은 연습 흔적만 바로 지운다(다른 연습 학생 것은 그대로).
       // 바꾼 번호는 코드도 새로 준다(연습 때 나눠 준 코드로 실제 학생 화면에 들어오지 않게).
       const kept = new Set(students.filter((s) => s.demo).map((s) => s.no));
@@ -323,9 +324,13 @@ async function handle(req: NextRequest) {
       // 뺀 학생은 남겨 두고(다시 넣을 때 앞 학생으로 묻는다), 다시 넣은 번호는 지운다. 새 학생에게 준 번호는 앞 학생 것을 정리
       const nowNos = new Set(saved.map((s) => s.no));
       const nextLeft = Object.fromEntries(Object.entries(left).filter(([no]) => !nowNos.has(Number(no))));
-      for (const o of old) if (!o.demo && !nowNos.has(o.no)) nextLeft[o.no] = { alias: o.alias, at: now, ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}) };
+      // 코드·동의 날짜도 남긴다: 「같은 학생 · 다시 넣음」을 고르면 되살린다(고르지 않고 다시 넣은 번호는 예전처럼 새 코드)
+      for (const o of old)
+        if (!o.demo && !nowNos.has(o.no))
+          nextLeft[o.no] = { alias: o.alias, at: now, code: o.code, ...(o.consent ? { consent: o.consent } : {}), ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}) };
       if (JSON.stringify(nextLeft) !== JSON.stringify(left)) await saveLeft(nextLeft);
-      await startFresh([...fresh]);
+      // 오늘 칸의 앞 학생 기록을 옮겼으면 다른 기기 선생님 화면도 예전 id 기록을 버리고 다시 읽게
+      if (await startFresh([...fresh])) await touch("wipe");
       // 마지막 연습 학생까지 바뀌었으면 학생에 매이지 않은 연습 자료(자기진단·역량 진단 연습 회차, 활동지 예시)도 정리
       if (replaced.size && !saved.some((s) => s.demo)) await clearPractice();
       if (replaced.size) await touch("wipe"); // 다른 기기 선생님 화면도 지운 기록을 버리고 다시 읽게
