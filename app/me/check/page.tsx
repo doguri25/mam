@@ -7,7 +7,7 @@ import Doodle from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
 import StudentFrame, { Loading, useRetry, useStudent } from "@/components/StudentFrame";
-import { api } from "@/lib/api";
+import { api, isOtherStudent } from "@/lib/api";
 import { errText, t, type Lang } from "@/lib/i18n";
 import { speak } from "@/lib/local";
 import { SELF_ANSWER, SELF_ITEMS, SELF_SCALE } from "@/lib/selfcheck";
@@ -74,7 +74,7 @@ export default function CheckPage() {
       setCheer((n) => n + 1);
       speak(tt("checkThanks"), false, lang);
     } catch (e) {
-      if ((e as { status?: number }).status === 409) {
+      if ((e as { status?: number }).status === 409 && !isOtherStudent(e)) {
         // 답하는 사이 회차가 바뀌었거나 닫혔다: 새 회차를 다시 읽어 처음 화면으로(앞 회차 답을 새 회차에 넣지 않는다)
         try {
           const fresh = await api<Open>("student", "selfCheck");
