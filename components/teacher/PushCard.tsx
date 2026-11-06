@@ -21,9 +21,18 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
   const [msg, setMsg] = useState("");
   const [clearing, setClearing] = useState(false);
   const act = useAct(); // 켜기·끄기·시험·모두 끄기를 두 번 눌러 겹치지 않게
-  const { ready, key, devices } = data.push;
+  const push = data.push;
+  const { ready, key, devices } = push;
+  // 탭으로 돌아올 때마다 한 번 더 본다(그사이 다른 기기에서 끄거나 비밀번호를 바꿨을 수 있다)
+  const [look, setLook] = useState(0);
+  useEffect(() => {
+    const again = () => document.visibilityState === "visible" && setLook((n) => n + 1);
+    document.addEventListener("visibilitychange", again);
+    return () => document.removeEventListener("visibilitychange", again);
+  }, []);
 
-  // 처음 열 때와 알림 받는 기기 수가 바뀔 때(다른 기기에서 켜고 끔) 이 기기가 정말 서버 목록에 있는지 다시 본다
+  // 처음 열 때와 서버에서 통째로 다시 읽을 때마다(알림 기기가 바뀌면 변경 표시가 남아 다른 기기도 20초 안에 다시 읽는다),
+  // 그리고 탭으로 돌아올 때 이 기기가 정말 서버 목록에 있는지 다시 본다. 기기 수만 보면 한 대 끄고 한 대 켜면 못 본다.
   useEffect(() => {
     let live = true;
     (async (): Promise<State> => {
@@ -42,10 +51,10 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
       } catch {
         // 예전 서버(이 요청을 모름)·끊김: 서버에 알림 받는 기기가 하나도 없으면 이 기기도 빠진 것
       }
-      return devices > 0 ? "on" : "lost";
+      return push.devices > 0 ? "on" : "lost";
     })().then((st) => live && setState(st), () => live && setState("unsupported"));
     return () => { live = false; };
-  }, [devices]);
+  }, [push, look]);
 
   async function turnOn() {
     setMsg("");
