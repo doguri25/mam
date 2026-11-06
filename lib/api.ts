@@ -72,8 +72,10 @@ function watch() {
   if (watching || typeof window === "undefined" || typeof document === "undefined") return;
   watching = true;
   const look = () => {
-    if (!screen || left || looking || document.visibilityState !== "visible") return;
     if (!/^\/me(\/|$)/.test(window.location.pathname)) return;
+    // 뒤로 가기로 쫓겨나기 전 화면이 그대로 되살아났으면(브라우저 페이지 캐시) 다시 첫 화면으로
+    if (kicked()) return window.location.replace("/");
+    if (!screen || left || looking || document.visibilityState !== "visible") return;
     looking = true;
     api("student", "me").then(
       () => { looking = false; },
@@ -85,9 +87,27 @@ function watch() {
   window.addEventListener("pageshow", look);
 }
 
+// 이 탭은 다른 친구가 들어와 첫 화면으로 보낸 탭이다(코드로 다시 들어오기 전까지). 화면을 새로 불러도 남는다(sessionStorage).
+function kicked() {
+  try {
+    return typeof sessionStorage !== "undefined" && sessionStorage.getItem(OTHER_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export async function api<T = Record<string, unknown>>(who: "student" | "teacher" | "try", action: string, body: Record<string, unknown> = {}, opt: ApiOpts = {}): Promise<T> {
   const student = who === "student";
   if (student && left) throw otherError();
+  // 쫓겨난 탭에서 브라우저 뒤로 가기로 학생 화면(/me)을 다시 열면, 새로 읽는 me는 지금 이 기기에 들어온 다른 친구다.
+  // 코드로 다시 들어오기(login) 전에는 학생 요청을 보내지 않고, 학생 화면이면 다시 첫 화면으로 보낸다(나가기 logout도 다른 친구를 내보내므로 막는다).
+  if (student && action !== "login" && kicked()) {
+    if (typeof window !== "undefined" && /^\/me(\/|$)/.test(window.location.pathname)) {
+      left = true;
+      window.location.replace("/");
+    }
+    throw otherError();
+  }
   const extra = student && screen && !BARE.has(action) ? { screenNo: screen.no, ...(screen.space !== undefined ? { screenSpace: screen.space } : {}) } : {};
   // AbortSignal.timeout·AbortSignal.any가 없는 오래된 태블릿에서도 되게 손수 잇는다
   const ctl = opt.timeout || opt.signal ? new AbortController() : null;
