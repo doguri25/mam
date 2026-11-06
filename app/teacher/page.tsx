@@ -20,6 +20,7 @@ import RosterTab from "@/components/teacher/RosterTab";
 import SettingsTab from "@/components/teacher/SettingsTab";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
 import { riskAlertCount } from "@/components/teacher/alerts";
+import { useAct } from "@/components/teacher/useAct";
 import { api } from "@/lib/api";
 import { addDays, today as kToday } from "@/lib/date";
 import { useLocal, useNames } from "@/lib/local";
@@ -59,6 +60,10 @@ function writeCache(c: Cache | null) {
 const basePrefix = (o: { dataPrefix: string; space: string }) => (o.space ? o.dataPrefix.slice(0, -(o.space.length + 1)) : o.dataPrefix);
 const keep = (records: MoodRecord[], stamp: Stamp, prefix: string) =>
   writeCache({ prefix, wipe: stamp.wipe ?? 0, at: stamp.records, records });
+// 화면에 들고 있는 기록: 최근 34일 + 그보다 오래됐어도 아직 살펴보지 않은 위험 표현(「바로 살펴봐 주세요」·메뉴의 빨간 수에서 빠지지 않게).
+// 바뀐 기록을 합칠 때·기기에 저장해 둔 기록에도 같은 기준을 쓴다(서버도 이 오래된 알림을 보낸다)
+const DAYS = 34;
+const held = (r: MoodRecord, from: string) => r.date >= from || (r.risk && !r.riskChecked);
 const LOAD_STUCK_MS = 60_000; // 다시 읽기 답을 이만큼 기다렸으면 멈춘 것으로 보고 변경 확인을 다시 한다
 // 아직 아무것도 불러오지 못했을 때(처음 열 때·비밀번호로 들어온 뒤) 실패하면 2·4·8·16·30초…마다 다시 해 본다.
 // 20초 변경 확인은 불러온 판(stamp)이 있어야 돌아서, 이것이 없으면 첫 실패 한 번에 「불러오는 중…」에서 멈춘다.
@@ -79,6 +84,7 @@ export default function TeacherPage() {
   const [cheerNo, setCheerNo] = useState<number | null>(null);
   // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(자기진단·누적 기록)도 다시 불러온다
   const [version, setVersion] = useState(0);
+  const demoAct = useAct(); // 위 띠의 「연습 데이터 지우기」(두 번 눌림·실패 알림)
   const names = useNames(raw?.space ?? "");
   const stamp = useRef<Stamp | null>(null);
   const day = useRef(""); // 불러온 「오늘」(한국 날짜)
@@ -172,8 +178,8 @@ export default function TeacherPage() {
       if (o.partial && c) {
         const byId = new Map(c.records.map((r) => [r.id, r]));
         for (const r of o.records) byId.set(r.id, r);
-        const from = addDays(o.today, -34);
-        o.records = [...byId.values()].filter((r) => r.date >= from);
+        const from = addDays(o.today, -DAYS);
+        o.records = [...byId.values()].filter((r) => held(r, from));
         o.demo ||= o.records.some((r) => r.demo);
       }
       applied.current = my;
@@ -239,8 +245,8 @@ export default function TeacherPage() {
       const safe: Stamp = { ...prev, records: next.records };
       const byId = new Map(o.records.map((r) => [r.id, r]));
       for (const r of records) byId.set(r.id, r);
-      const from = addDays(o.today, -34);
-      const merged = [...byId.values()].filter((r) => r.date >= from);
+      const from = addDays(o.today, -DAYS);
+      const merged = [...byId.values()].filter((r) => held(r, from));
       // 저장·화면 바꾸기는 여기서 한 번에(setState 갱신 함수 안에서 저장하면, 그 함수가 도는 때엔 이미 잠갔을 수 있다)
       applied.current = my;
       stamp.current = safe;
@@ -288,19 +294,20 @@ export default function TeacherPage() {
       </main>
     );
   }
+  // 「기록 없음」은 최근 기록으로만 센다(오래된 위험 표현 알림 하나가 반 기록이 있던 날로 세지지 않게)
+  const recent = raw.records.filter((r) => r.date >= addDays(raw.today, -DAYS));
   const data: Overview = {
     ...raw,
     flags: watchFlags(raw.records, raw.today, raw.settings.rules),
-    absent: absentStudents(raw.records, raw.students.map((s) => s.no), raw.today, raw.settings.rules.absentDays),
+    absent: absentStudents(recent, raw.students.map((s) => s.no), raw.today, raw.settings.rules.absentDays),
   };
   // 명단에서 빠진 번호(지운 학생·연습 학생에게 간 쪽지 등)는 「14번 14번」이 되지 않게 따로 알린다
   const nameOf = (no: number) => names.name(no, data.students.find((s) => s.no === no)?.alias ?? "(명단에 없음)");
 
-  async function clearDemo() {
-    if (!confirm("연습용(시연) 기록을 지울까요? 연습용 명단이면 명단·응원·메모도 함께 지워져요. 실제로 남긴 기록은 그대로예요.")) return;
+  const clearDemo = () => demoAct.run("연습 데이터를 지우지 못했어요", async () => {
     await api("teacher", "demo", { mode: "clearDemo" });
     await load();
-  }
+  }, "연습용(시연) 기록을 지울까요? 연습용 명단이면 명단·응원·메모도 함께 지워져요. 실제로 남긴 기록은 그대로예요.");
 
   // 잠그기·「학생 화면」: 이 기기가 휴대폰 알림을 받고 있으면 끌지 먼저 묻는다(말없이 끄면 위험 알림을 놓친다).
   // 「취소」= 알림은 계속 받기(선생님 휴대폰·교무실 컴퓨터), 「확인」= 이 기기 알림도 끄기(함께 쓰는 기기)
@@ -414,7 +421,8 @@ export default function TeacherPage() {
           ) : data.demo && (
             <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-3 text-sm">
               <span><Doodle name="flask" /> <b>연습용(시연) 데이터</b>가 들어 있어요. 가짜 학생·기록이라 실제 반 기록과 섞이지 않게, 실제로 시작할 때 지워 주세요.</span>
-              <button onClick={clearDemo} className="btn-sub min-h-9 px-3 text-sm">연습 데이터 지우기</button>
+              <button onClick={clearDemo} disabled={demoAct.busy} className="btn-sub min-h-9 px-3 text-sm">{demoAct.busy ? "지우는 중…" : "연습 데이터 지우기"}</button>
+              {demoAct.err && <p role="alert" className="w-full text-sm text-alert">{demoAct.err}</p>}
             </div>
           )}
           {tab === "map" && data.expired > 0 && (
@@ -435,7 +443,7 @@ export default function TeacherPage() {
           {tab === "lesson" && <LessonTab data={data} reload={load} />}
           {tab === "sheet" && <SheetTab data={data} nameOf={nameOf} />}
           {tab === "roster" && <RosterTab data={data} reload={load} />}
-          {tab === "settings" && <SettingsTab data={data} reload={load} />}
+          {tab === "settings" && <SettingsTab data={data} reload={load} onAlerts={() => setTab("map")} />}
           {tab === "guide" && <GuideTab />}
         </main>
       </div>

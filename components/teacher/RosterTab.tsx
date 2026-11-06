@@ -5,17 +5,39 @@ import { useEffect, useState } from "react";
 import Doodle from "../Doodle";
 import ConsentLetter from "./ConsentLetter";
 import type { Overview, Reload } from "./types";
+import { useAct } from "./useAct";
 import { api } from "@/lib/api";
 import { useNames } from "@/lib/local";
+import type { Student } from "@/lib/shared";
+
+const rosterText = (xs: Pick<Student, "no" | "alias">[]) => xs.map((s) => `${s.no} ${s.alias}`).join("\n");
 
 export default function RosterTab({ data, reload }: { data: Overview; reload: Reload }) {
-  const [text, setText] = useState(() => data.students.map((s) => `${s.no} ${s.alias}`).join("\n"));
+  const serverText = rosterText(data.students);
+  const [text, setText] = useState(serverText);
+  // 명단 칸은 서버 명단이 바뀌면 다시 맞춘다(위 띠의 「연습 데이터 지우기」·다른 기기에서 고친 명단): 예전 명단이 칸에 남아
+  // 그대로 「명단 저장」하면 지운 연습 학생이 실제 학생으로 다시 들어갔다.
+  // base: 칸을 마지막으로 맞춘 서버 명단 · mine: 이 칸에서 방금 저장한 명단(읽지 못한 줄을 고치라고 칸에 남겨 둔 때)
+  // · changed: 선생님이 칸을 고치던 사이 서버 명단이 바뀜(고친 글은 두고 알린다)
+  const [base, setBase] = useState(serverText);
+  const [mine, setMine] = useState<string | null>(null);
+  const [changed, setChanged] = useState(false);
+  if (base !== serverText) {
+    setBase(serverText);
+    setMine(null);
+    if (text === base || text === serverText) {
+      setText(serverText);
+      setChanged(false);
+    } else setChanged(serverText !== mine);
+  }
   const [msg, setMsg] = useState("");
   const [skipped, setSkipped] = useState<string[]>([]); // 명단 저장 때 읽지 못한 줄
   const names = useNames(data.space);
   const [qr, setQr] = useState<Record<string, string>>({});
   const [letter, setLetter] = useState(false); // 보호자 안내문을 보고 인쇄할 때는 QR 카드를 인쇄에서 뺀다
   const [busy, setBusy] = useState(false);
+  const saving = useAct(); // 명단 저장
+  const renewing = useAct(); // 새 코드(실패하면 QR 카드 위에 까닭을)
   const origin = window.location.origin; // 이 탭은 로그인 뒤 브라우저에서만 그려진다
 
   useEffect(() => {
@@ -23,25 +45,29 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
       .then((pairs) => setQr(Object.fromEntries(pairs)));
   }, [data.students, origin]);
 
-  async function saveRoster() {
+  const saveRoster = () => saving.run("", async () => {
     setSkipped([]);
     try {
       // skipped: 서버가 읽지 못한 줄(번호가 겹침·모양이 다름·가명이 너무 김). 예전 서버는 보내지 않는다.
-      const r = await api<{ students: unknown[]; skipped?: unknown }>("teacher", "roster", { text });
+      const r = await api<{ students: Student[]; skipped?: unknown }>("teacher", "roster", { text });
       const bad = Array.isArray(r.skipped) ? r.skipped.map(String) : [];
       setSkipped(bad);
       setMsg(`${r.students.length}명을 저장했어요. 같은 번호는 원래 코드를 그대로 써요.`);
+      setChanged(false);
+      // 저장한 명단으로 칸을 맞춘다. 읽지 못한 줄이 있으면 고치라고 칸은 그대로 둔다(이 저장으로 바뀐 서버 명단을 「바뀌었어요」로 알리지 않게)
+      const saved = Array.isArray(r.students) ? rosterText(r.students) : null;
+      if (saved !== null && !bad.length) setText(saved);
+      setMine(saved);
       await reload();
     } catch (e) {
       setMsg((e as Error).message);
     }
-  }
+  });
 
-  async function renew(no: number) {
-    if (!confirm(`${no}번의 코드를 새로 만들까요? 예전 코드와 QR은 더 이상 쓸 수 없어요.`)) return;
+  const renew = (no: number) => renewing.run(`${no}번 코드를 새로 만들지 못했어요`, async () => {
     await api("teacher", "newCode", { no });
     await reload();
-  }
+  }, `${no}번의 코드를 새로 만들까요? 예전 코드와 QR은 더 이상 쓸 수 없어요.`);
 
   // 보호자 동의서 받음 표시(기록을 막지는 않음)
   async function consent(nos: number[], on: boolean) {
@@ -64,9 +90,15 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
         <h2 className="font-display text-xl">반 명단</h2>
         <p className="text-sm text-soft">한 줄에 한 명, 「번호 가명」으로 적어요. 실명 대신 가명이나 별명을 권해요(AI에는 가명만 가요).</p>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} className="field font-mono text-sm" placeholder={"1 햇살\n2 구름\n3 단풍"} />
+        {changed && text !== serverText && (
+          <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#fff8e1] px-3 py-2 text-sm">
+            <span>칸을 고치는 사이 저장된 명단이 바뀌었어요(연습 데이터 지우기·다른 기기). 칸에 쓰던 글은 그대로 두었어요.</span>
+            <button onClick={() => { setText(serverText); setChanged(false); }} className="btn-sub min-h-9 px-3 text-sm">지금 명단으로 바꾸기</button>
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm">{msg}</span>
-          <button onClick={saveRoster} className="btn-main">명단 저장</button>
+          <button onClick={saveRoster} disabled={saving.busy} className="btn-main">{saving.busy ? "저장하는 중…" : "명단 저장"}</button>
         </div>
         {skipped.length > 0 && (
           <div role="alert" className="space-y-1 rounded-2xl border border-alert/40 bg-alert-soft p-3 text-sm">
@@ -133,6 +165,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
             <div>
               <h2 className="font-display text-xl">코드·QR 카드</h2>
               <p className="text-xs text-soft">QR 주소: {origin}/join?c=…</p>
+              {renewing.err && <p role="alert" className="text-sm text-alert">{renewing.err}</p>}
               {local && (
                 <p className="text-xs text-alert">
                   지금 주소가 localhost라 태블릿에서는 열리지 않아요. 같은 와이파이의 이 컴퓨터 IP 주소(예: http://192.168.0.10:3000)로 선생님 화면을 열고 인쇄하세요.
@@ -148,7 +181,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
                 {/* eslint-disable-next-line @next/next/no-img-element -- data: URL QR이라 이미지 최적화가 필요 없다 */}
                 {qr[s.code] ? <img src={qr[s.code]} alt={`${s.no}번 QR`} className="size-28" /> : <div className="size-28" />}
                 <p className="font-mono text-lg tracking-widest">{s.code}</p>
-                <button onClick={() => renew(s.no)} className="no-print text-xs text-soft underline underline-offset-4">새 코드</button>
+                <button onClick={() => renew(s.no)} disabled={renewing.busy} className="no-print text-xs text-soft underline underline-offset-4">새 코드</button>
               </div>
             ))}
           </div>

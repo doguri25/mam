@@ -1,6 +1,6 @@
 "use client";
 // 선생님 비밀번호 바꾸기: 숫자 4~12자리. 바꾸면 다른 기기의 선생님 화면은 잠기고, 이 기기만 계속 열려 있다.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Doodle from "../Doodle";
 import { api } from "@/lib/api";
 
@@ -9,6 +9,10 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
   const [next, setNext] = useState("");
   const [again, setAgain] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // 보내는 동안은 다시 받지 않는다: 두 번 누르면 첫 요청이 비밀번호를 바꾼 뒤 둘째 요청이 옛 표로 가서 401
+  // → 바꿨는데도 「선생님 비밀번호를 입력해 주세요」가 뜨고 칸이 비었다. 그려지기 전 두 번째 누름도 막게 ref로
+  const sending = useRef(false);
+  const [busy, setBusy] = useState(false);
   const digits = (v: string) => v.replace(/\D/g, "").slice(0, 12);
   const problem =
     next && next.length < 4 ? "숫자 4자리 이상으로 해 주세요."
@@ -18,6 +22,10 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
 
   async function change(e: React.FormEvent) {
     e.preventDefault();
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setMsg(null);
     try {
       // 이 기기의 휴대폰 알림은 그대로 두고, 다른 기기 알림은 모두 끈다
       const keep = await navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).catch(() => null);
@@ -30,6 +38,8 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
     }
+    sending.current = false;
+    setBusy(false);
   }
 
   const box = (label: string, value: string, set: (v: string) => void, auto: string) => (
@@ -57,7 +67,7 @@ export default function PinCard({ pinSet }: { pinSet: boolean }) {
         {box("새 비밀번호 (숫자 4~12자리)", next, setNext, "new-password")}
         {box("새 비밀번호 한 번 더", again, setAgain, "new-password")}
         <div className="flex flex-wrap items-center gap-3 sm:col-span-3">
-          <button className="btn-main" disabled={!current || next.length < 4 || next !== again || !!problem}>비밀번호 바꾸기</button>
+          <button className="btn-main" disabled={busy || !current || next.length < 4 || next !== again || !!problem}>{busy ? "바꾸는 중…" : "비밀번호 바꾸기"}</button>
           {problem && <span className="text-sm text-alert">{problem}</span>}
           {msg && <span className={`text-sm ${msg.ok ? "text-leaf" : "text-alert"}`}>{msg.text}</span>}
         </div>

@@ -9,11 +9,12 @@ import { api } from "@/lib/api";
 import { label } from "@/lib/date";
 import { PURGE_KO, RETENTIONS, RETENTION_KO, type PurgeLog, type Retention } from "@/lib/retention";
 
-type Info = { cutoff: string; counts: Record<string, number>; logs: PurgeLog[] };
+// held: 기한 앞의 아직 살펴보지 않은 위험 표현 알림 수(있으면 서버가 정리하지 않는다 — 마음 지도에서 먼저 살펴보게). 예전 서버는 보내지 않는다
+type Info = { cutoff: string; counts: Record<string, number>; logs: PurgeLog[]; held?: number };
 const sum = (c: Record<string, number>) => Object.values(c).reduce((a, b) => a + b, 0);
 const full = (d: string) => `${d.slice(0, 4)}년 ${label(d)}`; // 지난해 날짜도 헷갈리지 않게
 
-export default function RetentionCard({ data, reload, onExport, exportMsg }: { data: Overview; reload: Reload; onExport: () => void; exportMsg: string }) {
+export default function RetentionCard({ data, reload, onExport, exportMsg, onAlerts }: { data: Overview; reload: Reload; onExport: () => void; exportMsg: string; onAlerts?: () => void }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [ret, setRet] = useState<Retention>(data.settings.retention);
   const [sure, setSure] = useState(false);
@@ -48,11 +49,21 @@ export default function RetentionCard({ data, reload, onExport, exportMsg }: { d
       await reload();
     } catch (e) {
       setMsg((e as Error).message);
+      // 409(살펴보지 않은 위험 표현이 남음 · 기한이 바뀜): 지금 대상·알림 수를 다시 센다. 남은 알림이 있으면 카드가 그 까닭과 마음 지도로 가는 단추를 보인다
+      if ((e as { status?: number }).status === 409) {
+        setSure(false);
+        const fresh = await api<Info>("teacher", "retentionInfo").catch(() => null);
+        if (fresh) {
+          setInfo(fresh);
+          if (Number(fresh.held) > 0) setMsg("");
+        }
+      }
     }
     setBusy(false);
   }
 
   const total = info ? sum(info.counts) : 0;
+  const held = Number(info?.held) || 0;
   const last = info?.logs.at(-1);
   return (
     <section className="card space-y-3">
@@ -79,7 +90,15 @@ export default function RetentionCard({ data, reload, onExport, exportMsg }: { d
             {total > 0 && (
               <>
                 <p className="text-soft">{Object.entries(info.counts).filter(([, n]) => n).map(([k, n]) => `${PURGE_KO[k] ?? k} ${n}`).join(" · ")}</p>
-                {sure ? (
+                {held > 0 ? (
+                  <div role="status" className="space-y-2 rounded-xl bg-alert-soft px-3 py-2">
+                    <p>
+                      <Doodle name="warning" /> 이 가운데 아직 살펴보지 않은 위험 표현 알림이 <b>{held}건</b> 있어 정리하지 않아요.
+                      마음 지도 「바로 살펴봐 주세요」에서 먼저 「살펴봤어요」를 누른 뒤 정리해 주세요.
+                    </p>
+                    {onAlerts && <button onClick={onAlerts} className="btn-sub min-h-10 text-sm">마음 지도 알림 보기</button>}
+                  </div>
+                ) : sure ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-alert">지운 기록은 되살릴 수 없어요. CSV를 먼저 받으셨나요?</span>
                     <button onClick={purge} disabled={busy} className="btn-sub min-h-10 border-alert text-sm text-alert">{busy ? "지우는 중…" : `${total}건 지우기`}</button>

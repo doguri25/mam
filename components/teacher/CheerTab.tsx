@@ -6,6 +6,7 @@ import StyleNote from "./StyleNote";
 import Notes from "./Notes";
 import { RefPanel, StudentStrip, TwoPane } from "./StudentPick";
 import type { NameOf, Overview, Reload } from "./types";
+import { useAct } from "./useAct";
 import { kday } from "./when";
 import { api } from "@/lib/api";
 import { leaks } from "@/lib/rules";
@@ -18,6 +19,8 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const saving = useAct(); // 「저장하고 복사」를 두 번 눌러 같은 응원이 두 번 남지 않게(남은 응원은 화면에서 지울 수 없어 주간 리포트 수가 늘어남)
+  const [last, setLast] = useState<{ no: number; text: string } | null>(null); // 방금 저장한 응원: 그대로 다시 누르면 복사만
   const s = data.students.find((x) => x.no === no);
   const saved = data.cheers.filter((c) => c.no === no);
   // AI 초안을 기다리는 동안 다른 학생을 고르면 늦게 온 앞 학생 초안은 버린다(다른 아이 칸에 들어가지 않게)
@@ -31,6 +34,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
     setText("");
     setMsg("");
     setBusy(false);
+    saving.setErr("");
   }
 
   async function draft() {
@@ -52,10 +56,20 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
   }
 
   async function save() {
-    await api("teacher", "saveCheer", { no, text });
-    await navigator.clipboard?.writeText(text).catch(() => {});
-    setMsg("저장하고 복사했어요. 쪽지나 알림장에 붙여 전해 주세요.");
-    await reload();
+    const t = text;
+    // 방금 저장한 그 응원이면 다시 남기지 않고 복사만 한다
+    if (last && last.no === no && last.text === t.trim()) {
+      await navigator.clipboard?.writeText(t).catch(() => {});
+      return setMsg("이미 저장한 응원이에요. 다시 복사했어요.");
+    }
+    setMsg("");
+    await saving.run("응원을 저장하지 못했어요", async () => {
+      await api("teacher", "saveCheer", { no, text: t });
+      setLast({ no: no!, text: t.trim() });
+      await navigator.clipboard?.writeText(t).catch(() => {});
+      setMsg("저장하고 복사했어요. 쪽지나 알림장에 붙여 전해 주세요.");
+      await reload();
+    });
   }
 
   return (
@@ -95,8 +109,9 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                   <p className="text-xs text-alert"><Doodle name="warning" /> 「{leaks(text).join("」, 「")}」 — 선생님용 숫자·말은 아이에게 보내기 전에 고쳐 주세요.</p>
                 )}
                 {msg && <p className="text-sm">{msg}</p>}
+                {saving.err && <p role="alert" className="text-sm text-alert">{saving.err}</p>}
                 <div className="flex justify-end">
-                  <button onClick={save} disabled={!text.trim()} className="btn-main">선생님이 확인했어요 · 저장하고 복사</button>
+                  <button onClick={save} disabled={!text.trim() || saving.busy} className="btn-main">{saving.busy ? "저장하는 중…" : "선생님이 확인했어요 · 저장하고 복사"}</button>
                 </div>
               </section>
               {saved.length > 0 && (
@@ -111,7 +126,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
               )}
               <section className="card">
                 <h2 className="mb-2 font-display text-xl"><Doodle name="memo" /> 면담 메모</h2>
-                <Notes no={s.no} notes={data.notes} reload={reload} />
+                <Notes key={s.no} no={s.no} notes={data.notes} reload={reload} />
               </section>
             </>
           }

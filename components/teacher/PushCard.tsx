@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Doodle from "../Doodle";
 import type { Overview, Reload } from "./types";
+import { useAct } from "./useAct";
 import { api } from "@/lib/api";
 
 function keyBytes(base64: string) {
@@ -11,26 +12,40 @@ function keyBytes(base64: string) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
-type State = "checking" | "unsupported" | "ios-install" | "off" | "on" | "denied";
+// lost: 이 브라우저는 구독해 두었는데 서버의 알림 받는 기기 목록에는 없음(다른 기기에서 비밀번호를 바꾸거나
+// 「모든 기기 알림 끄기」를 누르면 빠진다) → 알림이 오지 않으니 꺼진 것으로 보이고 「알림 받기」로 다시 등록한다
+type State = "checking" | "unsupported" | "ios-install" | "off" | "lost" | "on" | "denied";
 
 export default function PushCard({ data, reload }: { data: Overview; reload: Reload }) {
   const [state, setState] = useState<State>("checking");
   const [msg, setMsg] = useState("");
   const [clearing, setClearing] = useState(false);
+  const act = useAct(); // 켜기·끄기·시험·모두 끄기를 두 번 눌러 겹치지 않게
   const { ready, key, devices } = data.push;
 
+  // 처음 열 때와 알림 받는 기기 수가 바뀔 때(다른 기기에서 켜고 끔) 이 기기가 정말 서버 목록에 있는지 다시 본다
   useEffect(() => {
-    (async () => {
+    let live = true;
+    (async (): Promise<State> => {
       const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
       const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-        return setState(ios && !standalone ? "ios-install" : "unsupported");
+        return ios && !standalone ? "ios-install" : "unsupported";
       }
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" });
       const sub = await reg.pushManager.getSubscription();
-      setState(Notification.permission === "denied" ? "denied" : sub ? "on" : "off");
-    })().catch(() => setState("unsupported"));
-  }, []);
+      if (Notification.permission === "denied") return "denied";
+      if (!sub) return "off";
+      try {
+        const r = await api<{ has?: unknown }>("teacher", "pushHas", { endpoint: sub.endpoint });
+        if (typeof r.has === "boolean") return r.has ? "on" : "lost";
+      } catch {
+        // 예전 서버(이 요청을 모름)·끊김: 서버에 알림 받는 기기가 하나도 없으면 이 기기도 빠진 것
+      }
+      return devices > 0 ? "on" : "lost";
+    })().then((st) => live && setState(st), () => live && setState("unsupported"));
+    return () => { live = false; };
+  }, [devices]);
 
   async function turnOn() {
     setMsg("");
@@ -38,7 +53,14 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
       const perm = await Notification.requestPermission();
       if (perm !== "granted") return setState("denied");
       const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+      const opts = { userVisibleOnly: true, applicationServerKey: keyBytes(key) };
+      // 이 브라우저에 남은 구독이 있으면 그대로 다시 등록한다. 알림 키가 바뀌어 그 구독을 쓸 수 없으면 지우고 새로
+      const sub = await reg.pushManager.subscribe(opts).catch(async (e) => {
+        const old = await reg.pushManager.getSubscription();
+        if (!old) throw e;
+        await old.unsubscribe();
+        return reg.pushManager.subscribe(opts);
+      });
       const label = /iPhone|iPad/.test(navigator.userAgent) ? "아이폰" : /Android/.test(navigator.userAgent) ? "안드로이드" : "컴퓨터";
       await api("teacher", "subscribe", { subscription: sub.toJSON(), label });
       setState("on");
@@ -87,7 +109,7 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
         const sub = await reg?.pushManager?.getSubscription();
         await sub?.unsubscribe();
       } catch { /* 이 기기 정리는 못 해도 괜찮다 */ }
-      if (state === "on") setState("off");
+      if (state === "on" || state === "lost") setState("off");
       const n = Number(r.removed) || 0;
       setMsg(n ? `기기 ${n}대의 알림을 모두 껐어요.` : "알림을 받는 기기가 없었어요.");
       await reload();
@@ -96,6 +118,8 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
     }
     setClearing(false);
   }
+
+  const guard = (fn: () => Promise<void>) => () => void act.run("", fn); // 저마다 까닭을 msg에 쓴다
 
   return (
     <section className="card space-y-3">
@@ -120,17 +144,24 @@ export default function PushCard({ data, reload }: { data: Overview; reload: Rel
           {state === "on" ? (
             <>
               <span className="rounded-full bg-leaf-soft px-3 py-1 text-sm font-bold text-leaf">✓ 이 기기에서 받는 중</span>
-              <button onClick={test} className="btn-sub min-h-10 px-3 text-sm">시험 알림 보내기</button>
-              <button onClick={turnOff} className="text-sm text-soft underline">이 기기 알림 끄기</button>
+              <button onClick={guard(test)} disabled={act.busy} className="btn-sub min-h-10 px-3 text-sm">시험 알림 보내기</button>
+              <button onClick={guard(turnOff)} disabled={act.busy} className="text-sm text-soft underline">이 기기 알림 끄기</button>
             </>
           ) : (
-            <button onClick={turnOn} disabled={state === "checking"} className="btn-main">이 기기에서 알림 받기</button>
+            <>
+              {state === "lost" && !data.trial && (
+                <p className="w-full text-sm text-alert">
+                  이 기기는 지금 알림을 받지 않아요. 다른 기기에서 비밀번호를 바꾸거나 「모든 기기 알림 끄기」를 누르면 알림 받는 기기에서 빠져요. 다시 받으려면 아래를 눌러 주세요.
+                </p>
+              )}
+              <button onClick={guard(turnOn)} disabled={state === "checking" || act.busy} className="btn-main">이 기기에서 알림 받기</button>
+            </>
           )}
         </div>
       )}
       {devices > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <button onClick={clearAll} disabled={clearing} className="btn-sub min-h-10 px-3 text-sm">{clearing ? "끄는 중…" : `모든 기기 알림 끄기 (${devices}대)`}</button>
+          <button onClick={guard(clearAll)} disabled={clearing || act.busy} className="btn-sub min-h-10 px-3 text-sm">{clearing ? "끄는 중…" : `모든 기기 알림 끄기 (${devices}대)`}</button>
           <span className="text-xs text-soft">휴대폰을 잃어버렸거나 바꿨을 때 눌러 주세요.</span>
         </div>
       )}
