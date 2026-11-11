@@ -27,7 +27,7 @@ type Me = {
   records: MoodRecord[]; flowers: { date: string; emotion: string }[]; look: BuddyLook;
   words: string[]; unread: number; reflected: boolean; demo: boolean; qtoken?: string;
   space?: string; // 학급(공간): 이 기기에 학생마다 남기는 값(언어)을 반마다 따로
-  selfCheck: { id: string; title: string; done: boolean } | null; // 선생님이 연 마음 점검
+  selfCheck: { id: string; title: string; done: boolean; open: boolean; letter: boolean } | null; // 선생님이 연 마음 점검 · 안 읽은 선생님 말
 };
 type Step = "choose" | "card" | "voice" | "confirm" | "ask" | "done";
 type Tone = { tone: string | null; toneWhy: string; toneBy: string | null; voice: VoiceFeatures | null };
@@ -739,8 +739,8 @@ export default function MePage() {
 
   const friday = new Date(`${me.today}T00:00:00Z`).getUTCDay() >= 5 || new Date(`${me.today}T00:00:00Z`).getUTCDay() === 0;
   const tiles: { href?: string; onClick?: () => void; icon: DoodleName; label: string; badge?: string }[] = [
-    // 선생님이 마음 점검을 열었을 때만 맨 앞에(아직 안 했으면 「!」)
-    ...(me.selfCheck ? [{ href: "/me/check", icon: "clipboard" as DoodleName, label: tt("tileCheck"), badge: me.selfCheck.done ? undefined : "!" }] : []),
+    // 선생님이 마음 점검을 열었을 때(또는 선생님이 보낸 말을 아직 안 읽었을 때)만 맨 앞에. 아직 안 했거나 안 읽은 말이 있으면 「!」
+    ...(me.selfCheck ? [{ href: "/me/check", icon: (me.selfCheck.letter ? "letter" : "clipboard") as DoodleName, label: tt("tileCheck"), badge: (me.selfCheck.open && !me.selfCheck.done) || me.selfCheck.letter ? "!" : undefined }] : []),
     { href: "/me/week", icon: "memo", label: tt("tileWeek"), badge: friday && !me.reflected ? "!" : undefined },
     { href: "/me/game", icon: "dice", label: tt("tileGame") },
     { href: "/me/words", icon: "bookOpen", label: tt("tileWords") },

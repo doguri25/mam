@@ -6,7 +6,7 @@ import { demoExtras, demoRecords, demoRiskActions, demoSelfChecks } from "./demo
 const TODAY = "2026-11-05";
 const iso = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 
-test("체험 기록·쪽지·돌아보기·조치·자기진단 시각은 모두 ISO(Z), 한국 시각 그대로", () => {
+test("체험 기록·쪽지·돌아보기·조치·역량 진단 시각은 모두 ISO(Z), 한국 시각 그대로", () => {
   const recs = demoRecords(TODAY);
   const am = recs.find((r) => r.id === `1_${TODAY}_am`)!;
   assert.equal(am.createdAt, "2026-11-04T23:40:00.000Z"); // 11월 5일 08:40 한국 시각
@@ -16,6 +16,7 @@ test("체험 기록·쪽지·돌아보기·조치·자기진단 시각은 모두
     ...demoExtras(TODAY).reflects.map((r) => r.createdAt),
     ...demoRiskActions(TODAY).map((a) => a.createdAt),
     ...demoSelfChecks(TODAY).answers.map((a) => a.at),
+    ...demoSelfChecks(TODAY).notes.flatMap((n) => [n.at, ...(n.feedback ? [n.feedback.at] : []), ...(n.seenAt ? [n.seenAt] : [])]),
   ];
   for (const t of times) assert.match(t, iso);
   // 늦게 도착한 끊김 기록(같은 날 08:50 한국 시각)은 체험 아침 기록보다 나중 → 글자 비교도 때 비교와 같다

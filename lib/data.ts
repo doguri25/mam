@@ -1,13 +1,12 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
 import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { addDays, monday, today } from "./date.ts";
-import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelChecks, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
+import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
-import type { SelCheck } from "./selcheck.ts";
-import { selfDocId, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
+import { selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, ownBy, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 import { riskSrcOf } from "../components/teacher/alerts.ts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 
 export interface Settings {
@@ -65,12 +64,11 @@ export async function getRoster(): Promise<Student[]> {
 }
 
 // 연습 데이터가 남아 있나: 연습 명단이거나, 명단에 연습용 가짜 학생이 한 명이라도 있으면
-// 연습 명단이 아니어도 연습 회차(자기진단·역량 진단)가 남아 있으면 「연습 데이터만 지우기」를 보여 준다
+// 연습 명단이 아니어도 학급 역량 진단 연습 회차가 남아 있으면 「연습 데이터만 지우기」를 보여 준다
 export async function rosterIsDemo() {
   const doc = await db().get<{ demo?: boolean; students?: Student[] }>("meta", "roster");
   if (doc?.demo === true || doc?.students?.some((s) => s.demo)) return true;
-  const [rounds, sel] = await Promise.all([getSelfRounds(), getSelChecks()]);
-  return rounds.some((r) => r.demo) || sel.some((c) => c.demo);
+  return (await getSelfRounds()).some((r) => r.demo);
 }
 
 // demo: 시연(연습)용 가짜 명단인지 — 교사 화면에 「연습 데이터」 띠를 띄운다
@@ -182,8 +180,8 @@ async function classUse(a: Account): Promise<ClassUse> {
   return inSpace(a.space, async () => {
     const students = (await getRoster()).length;
     if (students) return { ...a, students, data: true };
-    const counts = await Promise.all([...DATED.map(([col, f]) => db().count(col, f, ">=", "")), db().count("meta", "kind", "==", "selfAnswer")]);
-    const lists = await Promise.all(["selChecks", "riskActions", "selfRounds", "lessons"].map((id) => db().get<{ items?: unknown[] }>("meta", id)));
+    const counts = await Promise.all([...DATED.map(([col, f]) => db().count(col, f, ">=", "")), ...["selfAnswer", "selNote"].map((k) => db().count("meta", "kind", "==", k))]);
+    const lists = await Promise.all(["riskActions", "selfRounds", "lessons"].map((id) => db().get<{ items?: unknown[] }>("meta", id)));
     return { ...a, students, data: counts.some((c) => c > 0) || lists.some((d) => !!d?.items?.length) };
   });
 }
@@ -693,15 +691,6 @@ export async function getLessons(): Promise<LessonItem[]> {
   return (await db().get<{ items: LessonItem[] }>("meta", "lessons"))?.items ?? [];
 }
 
-// 학급 사회·정서역량 진단 회차(학생 이름·번호 없음). 한 학급에 많아야 한 해 몇 번이라 문서 하나에 모은다(모음을 늘리지 않음).
-export async function getSelChecks(): Promise<SelCheck[]> {
-  const items = (await db().get<{ items: SelCheck[] }>("meta", "selChecks"))?.items ?? [];
-  return items.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
-}
-export async function saveSelChecks(items: SelCheck[]) {
-  await db().set("meta", "selChecks", { items: items.slice(-80) });
-}
-
 // ── 문서 하나의 크기: 조치 기록·마치지 않은 위험 표현은 문서 하나에 모으므로, Firestore 한 문서 한도(1 MiB)를 넘기 전에 줄인다 ──
 // 저장소마다 여유를 두고 잡은 한도(JSON 바이트로 어림. Firestore 크기 셈보다 조금 크게 나온다). 로컬 파일은 한도가 없다.
 export const DOC_CAP: Record<"mongo" | "firestore" | "local", number> = { firestore: 900_000, mongo: 15_000_000, local: Infinity };
@@ -931,7 +920,7 @@ export async function checkRiskDraft(id: string, seen?: string | null): Promise<
   return res;
 }
 
-// 학생 자기진단: 회차 목록은 문서 하나, 학생 답은 학생마다 문서 하나(meta 모음 안, kind로 찾음)
+// 학급 역량 진단: 회차 목록은 문서 하나, 학생 답·선생님 쪽 기록(관찰·메모·피드백)은 학생마다 문서 하나(meta 모음 안, kind로 찾음)
 // 회차는 한 해 몇 번이라 개수로 잘라 버리지 않는다(문서 크기 걱정 없음). 너무 많으면 여는 쪽(selfOpen)이 분명한 오류를 낸다.
 export const SELF_ROUNDS_MAX = 100;
 export async function getSelfRounds(): Promise<SelfRound[]> {
@@ -969,20 +958,34 @@ export async function setConsent(nos: number[], on: boolean, date = today()): Pr
   return doc?.students ?? [];
 }
 export const getSelfAnswers = () => db().find<SelfAnswer>("meta", "kind", "==", "selfAnswer");
-export async function deleteSelfAnswers(keep: (a: SelfAnswer) => boolean) {
+export const getSelNotes = () => db().find<SelNote>("meta", "kind", "==", "selNote");
+// 학생 답과 선생님 쪽 기록을 함께 지운다(keep이 참인 것만 남김) — 답만 지우고 메모·피드백이 남지 않게
+export async function deleteSelfData(keep: (x: SelfAnswer | SelNote) => boolean) {
   for (const a of await getSelfAnswers()) if (!keep(a)) await db().del("meta", selfDocId(a.round, a.no));
+  for (const n of await getSelNotes()) if (!keep(n)) await db().del("meta", selNoteId(n.round, n.no));
+}
+// 선생님 쪽 기록 고치기(읽고 고쳐 쓰기를 한 번에). 지금 학생이 받기 전(번호를 새 학생에게 주기 전)에 쓴 것이면 앞 학생 것이라 새로 시작한다.
+export async function editSelNote(round: string, st: Student, patch: Partial<Pick<SelNote, "obs" | "paper" | "memo" | "feedback" | "seenAt">>): Promise<SelNote> {
+  const at = new Date().toISOString();
+  const doc = await db().update<SelNote>("meta", selNoteId(round, st.no), (cur) => {
+    const base: SelNote = cur && ownBy(st, cur.at) ? cur : { kind: "selNote", round, no: st.no, at, ...(isDemo() || st.demo ? { demo: true } : {}) };
+    // 학생이 피드백을 읽은 것만 적을 때는 선생님이 고친 시각(at)을 그대로 둔다
+    return { ...base, ...patch, at: cur && base === cur && Object.keys(patch).join() === "seenAt" ? cur.at : at };
+  });
+  return doc!;
 }
 // 연습 회차 넣기: 이미 열린 실제 회차가 있으면 연습 「학기 말」은 닫힌 채로 넣는다(열린 회차는 하나만)
 async function seedSelfChecks(date: string) {
-  await deleteSelfAnswers((a) => !a.demo);
+  await deleteSelfData((a) => !a.demo);
   const real = (await getSelfRounds()).filter((r) => !r.demo);
   const demo = demoSelfChecks(date);
   const openReal = real.some((r) => !r.closedAt);
   await saveSelfRounds([...real, ...demo.rounds.map((r) => (openReal && !r.closedAt ? { ...r, closedAt: date } : r))]);
   await db().setMany("meta", demo.answers.map((a) => [selfDocId(a.round, a.no), { ...a }]));
+  await db().setMany("meta", demo.notes.map((n) => [selNoteId(n.round, n.no), { ...n }]));
 }
 
-// 보관 기한이 지난 것 세기 · 지우기(선생님이 눌러야만). 학급 역량 진단은 학생 이름·번호가 없어 그대로 둔다.
+// 보관 기한이 지난 것 세기 · 지우기(선생님이 눌러야만). 학급 역량 진단의 학생 답과 선생님 쪽 기록도 함께 정리한다.
 const DATED = [["records", "date"], ["cheers", "createdAt"], ["notes", "createdAt"], ["letters", "createdAt"], ["reflects", "createdAt"], ["sheets", "createdAt"]] as const;
 export const cutoffNow = async () => cutoffOf((await getSettings()).retention, today());
 // 기한(cut)은 한국 날짜. 날짜 칸(date)은 그대로 견주고, 만든 시각(UTC ISO)은 그날 한국 자정의 시각과 견준다
@@ -995,6 +998,7 @@ export async function expiredCounts(cut: string) {
   const counts: Record<string, number> = {};
   for (const [col, field] of DATED) counts[col] = await db().count(col, field, "<", cutFor(field, cut));
   counts.self = (await getSelfAnswers()).filter((a) => a.at < cutIso(cut)).length;
+  counts.selNote = (await getSelNotes()).filter((n) => n.at < cutIso(cut)).length;
   counts.risk = (await getRiskActions()).filter((a) => actDate(a) < cut).length;
   counts.drafts = (await getRiskDrafts()).filter((d) => d.date < cut).length;
   return counts;
@@ -1024,11 +1028,12 @@ export async function purgeBefore(cut: string): Promise<PurgeLog> {
   const counts: Record<string, number> = {};
   for (const [col, field] of DATED) counts[col] = await db().delWhere(col, field, "<", cutFor(field, cut));
   const iso = cutIso(cut);
-  const selfs = await getSelfAnswers();
+  const [selfs, notes] = await Promise.all([getSelfAnswers(), getSelNotes()]);
   counts.self = selfs.filter((a) => a.at < iso).length;
-  await deleteSelfAnswers((a) => a.at >= iso);
+  counts.selNote = notes.filter((n) => n.at < iso).length;
+  await deleteSelfData((a) => a.at >= iso);
   const rounds = await getSelfRounds();
-  const left = new Set(selfs.filter((a) => a.at >= iso).map((a) => a.round));
+  const left = new Set([...selfs, ...notes].filter((a) => a.at >= iso).map((a) => a.round));
   const gone = (r: SelfRound) => !!r.closedAt && r.openedAt < cut && !left.has(r.id);
   if (rounds.some(gone)) await editSelfRounds((rs) => rs.filter((r) => !gone(r)));
   const acts = await getRiskActions();
@@ -1046,15 +1051,16 @@ export async function purgeBefore(cut: string): Promise<PurgeLog> {
 }
 
 // 연습 데이터의 판: 연습 데이터에 새 내용(예: 역량 진단 회차)을 더하면 올린다 → 체험 반이 그날 안에도 새 판으로 다시 만들어진다
-export const PRACTICE_VERSION = 4;
+export const PRACTICE_VERSION = 5;
 
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
-// 명단을 연습용으로 바꾸므로 학생 번호에 매인 것(기록·응원·메모·쪽지·돌아보기·활동지 피드백·조치 기록·자기진단 답)은 모두 비운다.
-// (남겨 두면 실제 학생의 조치 기록·자기진단 답이 같은 번호의 가짜 학생에게 붙는다) 반 전체 역량 진단 회차는 그대로 둔다.
+// 명단을 연습용으로 바꾸므로 학생 번호에 매인 것(기록·응원·메모·쪽지·돌아보기·활동지 피드백·조치 기록·역량 진단 답과 관찰·피드백)은 모두 비운다.
+// (남겨 두면 실제 학생의 조치 기록·역량 진단 답이 같은 번호의 가짜 학생에게 붙는다)
 export async function seedPractice() {
   for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
-  await deleteSelfAnswers(() => false);
+  await deleteSelfData(() => false);
   await saveSelfRounds([]);
+  await db().del("meta", "selChecks"); // 예전 「반 전체 역량 진단」 문서(이제 쓰지 않음)
   await saveRiskActions([]);
   await db().del("meta", "riskDrafts"); // 학생 번호에 매인 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
   await db().del("meta", "left"); // 명단에서 뺀 학생 기록도(연습 명단으로 통째로 바뀜)
@@ -1073,13 +1079,11 @@ export async function seedPractice() {
   await db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }]));
   await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
   await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
-  // 역량 진단 연습 회차(실제 반은 선생님이 넣은 회차를 그대로 둔다). 체험 반은 여럿이 함께 쓰므로 앞 사람이 넣은 회차(학교·작성자 이름·메모)도,
-  // 앞 사람이 올린 차시(감정 단어·활동)·만든 주간 요약·정리 기록도 비운다 — 「처음 판으로」 뒤에 다음 사람에게 남지 않게.
+  // 체험 반은 여럿이 함께 쓰므로 앞 사람이 올린 차시(감정 단어·활동)·만든 주간 요약·정리 기록도 비운다 — 「처음 판으로」 뒤에 다음 사람에게 남지 않게.
   const trial = isDemo();
-  await saveSelChecks([...(trial ? [] : (await getSelChecks()).filter((c) => !c.demo)), ...demoSelChecks(date)]);
   if (trial) for (const id of ["lessons", "weekly", "purges"]) await db().del("meta", id);
   await saveRiskActions(demoRiskActions(date)); // 위험 표현 조치 연습 기록
-  await seedSelfChecks(date); // 학생 자기진단 연습 회차(실제 회차는 그대로)
+  await seedSelfChecks(date); // 학급 역량 진단 연습 회차(실제 회차는 그대로)
   // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).
   // 모델 이름도 처음 것으로: 체험은 실제 반의 키를 빌려 쓰므로, 누군가 바꿔 둔 모델(예: 말소리 듣기의 Gemini 모델)로 그 키를 쓰지 않게
   const cur = await getSettings();
@@ -1110,11 +1114,10 @@ export async function clearPractice() {
   const fake = new Set(roster.filter((s) => s.demo || (legacy && practiceNos.has(s.no))).map((s) => s.no));
   await purgePractice((no) => fake.has(no)); // 명단에서 빠진 실제 학생의 지난 기록은 건드리지 않는다
   await db().del("sheets", PRACTICE_SHEET);
-  await saveSelChecks((await getSelChecks()).filter((c) => !c.demo));
-  // 연습 회차와, 그 회차에 실제 학생이 낸 답도 함께(회차가 없어진 답이 남지 않게)
+  // 연습 회차와, 그 회차에 실제 학생이 낸 답·선생님 쪽 기록도 함께(회차가 없어진 답이 남지 않게)
   const gone = new Set((await getSelfRounds()).filter((r) => r.demo).map((r) => r.id));
   await editSelfRounds((rs) => rs.filter((r) => !r.demo));
-  if (gone.size) await deleteSelfAnswers((a) => !gone.has(a.round));
+  if (gone.size) await deleteSelfData((a) => !gone.has(a.round));
   // 명단은 지우는 사이(몇 초) 다른 기기에서 바뀌었을 수 있으니 쓰기 직전에 다시 읽어, 처음 본 그 연습 학생(번호·코드가 같음)만 뺀다.
   // 그사이 실제 학생으로 바꾼 번호는 새 코드를 받으므로 남는다(처음 읽은 명단으로 덮어 그 저장을 잃지 않게).
   if (fake.size || doc?.demo) {
@@ -1150,7 +1153,7 @@ export async function purgePractice(gone: (no: number) => boolean, opt: { onlyTh
     else if (!l.toPractice) await db().update<Letter>("letters", l.id, (cur) => (cur ? { ...cur, toPractice: true } : undefined));
   }
   await editRiskActions((xs) => xs.filter((a) => !hit(a.demo, a.no) && !dropped.has(a.recordId)));
-  await deleteSelfAnswers((a) => !hit(a.demo, a.no));
+  await deleteSelfData((a) => !hit(a.demo, a.no));
   const drafts = await getRiskDrafts();
   if (drafts.some((d) => hit(d.demo, d.no))) await editRiskDrafts((xs) => xs.filter((d) => !hit(d.demo, d.no)));
   const looks = await getLooks();

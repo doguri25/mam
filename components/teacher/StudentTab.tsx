@@ -7,8 +7,7 @@ import BuddyFace from "../BuddyFace";
 import { StudentStrip } from "./StudentPick";
 import Timeline from "./Timeline";
 import { RiskHistory, riskItems } from "./RiskActions";
-import { SEL_COMPS } from "@/lib/selcheck";
-import { selfComps } from "@/lib/selfcheck";
+import { DOMAINS, levelOf, obsMax, obsScores, type SelObs } from "@/lib/selfcheck";
 import type { NameOf, Overview, Reload } from "./types";
 import { kday } from "./when";
 import { api } from "@/lib/api";
@@ -20,7 +19,8 @@ interface All {
   sheets: (SheetItem & { runId: string; date: string })[];
   riskActions: RiskAction[];
   drafts?: RiskDraft[]; // 이 학생의 마치지 않은 위험 표현(살펴본 것도)
-  self: { round: string; title: string; openedAt: string; answers: number[] }[]; // 학생 자기진단(마음 점검) 회차별 답
+  // 학급 역량 진단(학생 화면 「마음 점검」) 회차별: 영역별 점수(학생 답 또는 종이 검사)·선생님 관찰·학생에게 보낸 말
+  self: { round: string; title: string; openedAt: string; scores: number[] | null; paper: boolean; obs: SelObs | null; feedback: { text: string; at: string } | null; seenAt: string | null }[];
 }
 
 const GROUP_IDS = Object.keys(GROUPS) as Group[];
@@ -220,25 +220,41 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
 
       {all.self.length > 0 && (
         <section className="card space-y-2">
-          <h3 className="font-display text-xl"><Doodle name="clipboard" /> 학생 자기진단 <span className="text-sm text-soft">(학생이 스스로 고른 답 · 3점 만점)</span></h3>
+          <h3 className="font-display text-xl"><Doodle name="compass" /> 학급 역량 진단 <span className="text-sm text-soft">(학생이 스스로 답한 점수 · 영역마다 40점 만점, 괄호는 선생님 관찰)</span></h3>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[30rem] text-sm tabular-nums">
+            <table className="w-full min-w-[36rem] text-sm tabular-nums">
               <thead>
                 <tr className="border-b border-line text-left text-xs text-soft">
                   <th className="py-1.5 pr-2 font-normal">회차</th>
-                  {SEL_COMPS.map((c) => <th key={c.key} className="px-1 font-normal" style={{ color: c.color }}>{c.name}</th>)}
+                  {DOMAINS.map((c) => <th key={c.key} className="px-1 font-normal" style={{ color: c.color }}>{c.name}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {all.self.map((x) => (
-                  <tr key={x.round} className="border-b border-line/60">
-                    <td className="whitespace-nowrap py-1.5 pr-2">{x.title} <span className="text-xs text-soft">{label(x.openedAt)}</span></td>
-                    {selfComps(x.answers).map((v, i) => <td key={i} className={`px-1 ${v === 1 ? "font-bold text-alert" : ""}`}>{v.toFixed(1)}</td>)}
-                  </tr>
-                ))}
+                {all.self.map((x) => {
+                  const o = x.obs ? obsScores(x.obs) : null;
+                  return (
+                    <tr key={x.round} className="border-b border-line/60 align-top">
+                      <td className="whitespace-nowrap py-1.5 pr-2">{x.title} <span className="text-xs text-soft">{label(x.openedAt)}{x.paper ? " · 종이" : ""}</span></td>
+                      {DOMAINS.map((_, i) => {
+                        const l = x.scores ? levelOf(x.scores[i]) : null;
+                        return (
+                          <td key={i} className="px-1 py-1.5">
+                            {l ? <><span className="rounded-full px-1.5 py-0.5 text-xs font-bold" style={{ color: l.color, background: l.bg }}>{l.name}</span> {x.scores![i]}</> : <span className="text-soft">–</span>}
+                            {o && x.obs && <span className="block text-xs text-soft">(관찰 {levelOf(o[i], obsMax(x.obs)).name} {o[i]}/{obsMax(x.obs)})</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {all.self.filter((x) => x.feedback).map((x) => (
+            <p key={x.round} className="rounded-2xl bg-[#fffaf0] p-3 text-sm">
+              <b>「{x.title}」 학생에게 보낸 말</b> <span className="text-xs text-soft">{x.seenAt && x.seenAt >= x.feedback!.at ? "· 학생이 읽음" : "· 아직 안 읽음"}</span><br />{x.feedback!.text}
+            </p>
+          ))}
         </section>
       )}
 

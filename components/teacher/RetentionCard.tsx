@@ -1,6 +1,6 @@
 "use client";
 // 기록 보관·정리: 보관 기한을 고르고, 기한이 지난 학생 기록 수를 보고, 먼저 CSV로 내려받은 뒤 선생님이 눌러 지운다.
-// 자동으로 지우지 않는다. 언제 몇 건을 지웠는지는 내용 없이 수만 남긴다(학급 역량 진단은 학생 이름·번호가 없어 남겨 둠).
+// 자동으로 지우지 않는다. 언제 몇 건을 지웠는지는 내용 없이 수만 남긴다.
 import { useEffect, useState } from "react";
 import Doodle from "../Doodle";
 import type { Overview, Reload } from "./types";
@@ -109,7 +109,7 @@ export default function RetentionCard({ data, reload, onExport, exportMsg, onAle
                 )}
               </>
             )}
-            <p className="text-xs text-soft">학급 역량 진단(학생 이름·번호 없음)과 반 명단은 지우지 않아요.</p>
+            <p className="text-xs text-soft">반 명단은 지우지 않아요. 학급 역량 진단 결과는 그 탭의 CSV로 따로 받아 둘 수 있어요.</p>
           </div>
         )}
         {last && <p className="text-xs text-soft">마지막 정리: {full(kday(last.at))} · {full(last.cutoff)} 앞 기록 {sum(last.counts)}건</p>}

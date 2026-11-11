@@ -56,7 +56,7 @@ export default function TryPage() {
             <Link href="/teacher?try" className="card flex flex-col gap-2 hover:border-leaf">
               <BuddyFace look={{ ...DEFAULT_LOOK, color: "#7cc88f", shape: "bean", eyes: "dot", acc: "glasses" }} emotion="기뻐요" size={60} aura={false} />
               <span className="font-display text-2xl">선생님으로 둘러보기</span>
-              <span className="text-sm text-soft">마음 지도 · 학급 역량 진단(누적 기록) · 응원 한마디 · 공감 쪽지 검토 · 상담 의견서 · 주간 리포트 · 가정 소식지</span>
+              <span className="text-sm text-soft">마음 지도 · 학급 역량 진단(학생 답·관찰·피드백) · 응원 한마디 · 공감 쪽지 검토 · 상담 의견서 · 주간 리포트 · 가정 소식지</span>
             </Link>
             <a href="/teacher/tv" target="_blank" rel="noopener" className="card flex flex-col gap-2 hover:border-leaf">
               <Doodle name="tv" size={56} className="block" />

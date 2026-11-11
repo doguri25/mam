@@ -49,7 +49,7 @@ test("정리: 빈 학급의 모음·코드 색인·계정을 지우고 기록을
   await makeClass("c000000a3", {}, () => db().set("records", "1_x", { id: "1_x", no: 1, date: "2026-10-01" })); // 기록 있음(학생은 명단에서 지움)
   await makeClass("c000000a4", { createdAt: ago(5), lastLogin: ago(5) }); // 최근에 만듦
   await makeClass("c000000a5", { lastLogin: ago(3) }); // 최근에 들어옴
-  await makeClass("c000000a6", {}, () => D.saveSelChecks([{ id: "s", date: "2026-10-01", school: "", group: "", rater: "", answers: Array(20).fill(3), memo: "", createdAt: "" }])); // 학급 진단만
+  await makeClass("c000000a6", {}, () => db().set("meta", "selnote_r_1", { kind: "selNote", round: "r", no: 1, memo: "메모", at: ago(30) })); // 역량 진단 선생님 메모만
   await makeClass("c000000a7", { lastLogin: undefined }); // 예전 학급(마지막 로그인 모름)
   await makeClass("c000000a8", {}, () => db().set("letters", "l", { id: "l", createdAt: ago(30) })); // 쪽지만 남음
   await outOfSpace(() => db().set("codes", "ZZZZZZ", { id: "ZZZZZZ", space: "c000000a1", no: 1 })); // 남은 색인

@@ -1,13 +1,13 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, after, type NextRequest } from "next/server";
-import { cheer, ping, referralDraft, translateNotice, weeklySummary } from "@/lib/ai";
-import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelfRounds, noteTeacherLogin, setConsent } from "@/lib/data";
+import { cheer, ping, referralDraft, selFeedback, translateNotice, weeklySummary } from "@/lib/ai";
+import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelNote, editSelfRounds, getSelNotes, noteTeacherLogin, setConsent } from "@/lib/data";
 import { draftText, partsText, reflectEverRisk, reflectSource, riskySource } from "@/components/teacher/alerts";
 import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@/lib/limit";
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getSelChecks, saveSelChecks, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfAnswers, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -15,8 +15,7 @@ import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { countSubs, hasSub, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
-import { cleanCheck } from "@/lib/selcheck";
-import type { SelfRound } from "@/lib/selfcheck";
+import { DOMAINS, SELF_ITEMS, cleanObs, cleanPaper, cleanSelfAnswers, levelOf, obsMax, obsScores, scoresOf, selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "@/lib/selfcheck";
 import { cutoffOf, isRetention } from "@/lib/retention";
 import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, ownBy, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
 
@@ -48,7 +47,7 @@ const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush
 // (아래 handle의 쓰는 일 이름과 하나하나 맞춘 목록 — 「demo」는 resetWait로 따로 막는다)
 const TRIAL_WRITES = new Set([
   "roster", "newCode", "settings", "note", "deleteNote", "saveCheer", "checkFlag", "checkAlert", "riskAction", "riskActionDelete", "letterCheck", "consent",
-  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selSave", "selDelete", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly",
+  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selNote", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly",
 ]);
 const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
@@ -331,7 +330,7 @@ async function handle(req: NextRequest) {
       if (JSON.stringify(nextLeft) !== JSON.stringify(left)) await saveLeft(nextLeft);
       // 오늘 칸의 앞 학생 기록을 옮겼으면 다른 기기 선생님 화면도 예전 id 기록을 버리고 다시 읽게
       if (await startFresh([...fresh])) await touch("wipe");
-      // 마지막 연습 학생까지 바뀌었으면 학생에 매이지 않은 연습 자료(자기진단·역량 진단 연습 회차, 활동지 예시)도 정리
+      // 마지막 연습 학생까지 바뀌었으면 학생에 매이지 않은 연습 자료(역량 진단 연습 회차, 활동지 예시)도 정리
       if (replaced.size && !saved.some((s) => s.demo)) await clearPractice();
       if (replaced.size) await touch("wipe"); // 다른 기기 선생님 화면도 지운 기록을 버리고 다시 읽게
       return NextResponse.json({ students: saved, skipped });
@@ -524,7 +523,7 @@ async function handle(req: NextRequest) {
         db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no),
         db().find<Reflect>("reflects", "no", "==", no), db().all<SheetRun>("sheets"), getRiskActions(),
       ]);
-      const [rounds, selfs, drafts, roster] = await Promise.all([getSelfRounds(), getSelfAnswers(), getRiskDrafts(), getRoster()]);
+      const [rounds, selfs, selNotes, drafts, roster] = await Promise.all([getSelfRounds(), getSelfAnswers(), getSelNotes(), getRiskDrafts(), getRoster()]);
       // 이 번호를 새 학생에게 줬으면(since) 지금 학생 것만 — 앞 학생 것은 위험 표현 알림·CSV 내보내기에 「앞 학생」으로 남는다
       const st = roster.find((x) => x.no === no);
       const own = (at?: string) => ownBy(st, at);
@@ -544,7 +543,13 @@ async function handle(req: NextRequest) {
         sheets: sheets.sort((a, b) => b.date.localeCompare(a.date)),
         riskActions: actions.filter((x) => x.no === no && (ids.has(x.recordId) || (!known.has(x.recordId) && own(x.recordDate || x.date)))),
         drafts: mineDrafts, // 마치지 않은 위험 표현(살펴본 것 포함)
-        self: rounds.flatMap((r) => selfs.filter((a) => a.round === r.id && a.no === no && own(a.at)).map((a) => ({ round: r.id, title: r.title, openedAt: r.openedAt, answers: a.answers }))),
+        // 학급 역량 진단: 회차마다 영역별 점수(학생 답 또는 종이 검사)와 선생님 관찰·보낸 피드백(메모는 화면에서만 — 인쇄물에 남기지 않게 빼고 보냄)
+        self: rounds.flatMap((r) => {
+          const a = selfs.find((x) => x.round === r.id && x.no === no && own(x.at) && cleanSelfAnswers(x.answers));
+          const n = selNotes.find((x) => x.round === r.id && x.no === no && own(x.at));
+          const scores = scoresOf(a, n);
+          return scores || n?.obs || n?.feedback ? [{ round: r.id, title: r.title, openedAt: r.openedAt, scores, paper: !a && !!scores, obs: n?.obs ?? null, feedback: n?.feedback ?? null, seenAt: n?.seenAt ?? null }] : [];
+        }),
       });
     }
 
@@ -565,9 +570,6 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 학급 사회·정서역량 진단: 회차 목록 · 저장(새로 또는 메모 고치기) · 지우기
-    if (body.action === "selChecks") return NextResponse.json({ items: await getSelChecks() });
-
     // ── 기록 보관 기한: 지난 것 세기 / 선생님이 눌러 지우기(화면이 본 기준 날짜와 지금 기준이 같을 때만) ──
     // held: 기한 앞의 살펴보지 않은 위험 표현 알림 수(있으면 정리하지 않는다 — 먼저 살펴보게). counts와 따로 둔다(화면이 counts를 모두 더해 「모두 ○건」으로 보임).
     if (body.action === "retentionInfo") {
@@ -583,11 +585,13 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs(), done: log, held: 0 });
     }
 
-    // ── 학생 자기진단(마음 점검): 회차 열기·닫기·다시 열기·지우기. 열린 회차는 하나만, 학생 화면에 그 회차만 보인다 ──
-    if (body.action === "selfChecks") {
-      const [rounds, answers, sel] = await Promise.all([getSelfRounds(), getSelfAnswers(), getSelChecks()]);
-      return NextResponse.json({ rounds, answers, sel });
-    }
+    // ── 학급 역량 진단(학생 화면 「마음 점검」): 회차 열기·닫기·다시 열기·지우기. 열린 회차는 하나만, 학생 화면에 그 회차만 보인다 ──
+    // 학생 답(32문장)과 선생님 쪽 기록(관찰·종이 검사 점수·메모·피드백)을 함께 보낸다(선생님 화면만 — 메모는 학생 API로 가지 않음)
+    const selfAll = async () => {
+      const [rounds, answers, notes] = await Promise.all([getSelfRounds(), getSelfAnswers(), getSelNotes()]);
+      return { rounds, answers: answers.filter((a) => cleanSelfAnswers(a.answers)), notes };
+    };
+    if (body.action === "selfChecks") return NextResponse.json(await selfAll());
     // 회차 목록은 읽고 고쳐 쓰기를 한 번에(editSelfRounds): 두 기기에서 같은 순간 열어도 열린 회차가 둘이 되지 않는다
     if (["selfOpen", "selfClose", "selfReopen", "selfDelete"].includes(body.action)) {
       const id = String(body.id ?? "");
@@ -603,7 +607,7 @@ async function handle(req: NextRequest) {
         }
         if (body.action === "selfOpen") {
           if (rounds.length >= SELF_ROUNDS_MAX) {
-            out.err = [`자기진단 회차가 ${SELF_ROUNDS_MAX}개로 꽉 찼어요. 지난 회차를 지운 뒤 새로 열어 주세요.`, 409];
+            out.err = [`역량 진단 회차가 ${SELF_ROUNDS_MAX}개로 꽉 찼어요. 지난 회차를 지운 뒤 새로 열어 주세요.`, 409];
             return undefined;
           }
           const r: SelfRound = { id: `self${Date.now()}`, title, openedAt: today(), closedAt: null };
@@ -617,26 +621,62 @@ async function handle(req: NextRequest) {
         return rounds.map((r) => (r.id === id ? { ...r, closedAt: body.action === "selfClose" ? today() : null } : r));
       });
       if (out.err) return bad(...out.err);
-      if (body.action === "selfDelete") await deleteSelfAnswers((a) => a.round !== id); // 회차를 목록에서 뺀 뒤 답을 지운다(그사이 새 답이 남지 않게)
-      return NextResponse.json({ rounds: await getSelfRounds(), answers: await getSelfAnswers() });
+      // 회차를 목록에서 뺀 뒤 답과 선생님 쪽 기록을 지운다(그사이 새 답이 남지 않게)
+      if (body.action === "selfDelete") await deleteSelfData((a) => a.round !== id);
+      return NextResponse.json(await selfAll());
     }
-    if (body.action === "selSave") {
-      const c = cleanCheck(body.check);
-      if (!c) return bad("20문항에 모두 답했는지, 날짜가 맞는지 확인해 주세요.");
-      const items = await getSelChecks();
-      const id = String(body.check?.id ?? "");
-      const old = items.find((x) => x.id === id);
-      const now = new Date().toISOString();
-      // 체험 반에서 넣은 회차는 연습 표시를 붙인다(「처음 판으로」·「연습 데이터만 지우기」가 다음 사람에게 남기지 않게)
-      const saved = old
-        ? { ...old, ...c, updatedAt: now }
-        : { ...c, id: `sel${Date.now().toString(36)}`, createdAt: now, ...(isDemo() ? { demo: true } : {}) };
-      await saveSelChecks(old ? items.map((x) => (x.id === id ? saved : x)) : [...items, saved]);
-      return NextResponse.json({ check: saved, items: await getSelChecks() });
+    // 선생님 쪽 기록 고치기: 관찰(obs) · 종이 검사 점수(paper) · 선생님만 보는 메모(memo) · 학생에게 보낼 피드백(feedback, 빈 글이면 거두기)
+    // 보낸 것만 바꾼다(한 학생 문서를 읽고 고쳐 쓰기를 한 번에 — 다른 기기에서 같은 때 고친 칸을 덮지 않게)
+    if (body.action === "selNote") {
+      const round = String(body.round ?? "");
+      const st = (await getRoster()).find((x) => x.no === Number(body.no));
+      if (!st) return bad("없는 번호예요.");
+      if (!(await getSelfRounds()).some((r) => r.id === round)) return bad("회차를 찾지 못했어요. 다른 기기에서 지웠을 수 있어요.", 404);
+      const patch: Parameters<typeof editSelNote>[2] = {};
+      if ("obs" in body) {
+        const o = body.obs === null ? null : cleanObs(body.obs);
+        if (body.obs !== null && !o) return bad("관찰 문항에 모두 답했는지 확인해 주세요.");
+        patch.obs = o;
+      }
+      if ("paper" in body) {
+        const p = body.paper === null ? null : cleanPaper(body.paper);
+        if (body.paper !== null && !p) return bad("영역마다 8~40점 사이로 넣어 주세요.");
+        patch.paper = p;
+      }
+      if ("memo" in body) patch.memo = String(body.memo ?? "").slice(0, 1000);
+      if ("feedback" in body) {
+        const text = String(body.feedback ?? "").replace(/[\p{Cc}\p{Cf}]/gu, (c) => (c === "\n" ? c : "")).trim().slice(0, 600);
+        patch.feedback = text ? { text, at: new Date().toISOString() } : null;
+      }
+      if (!Object.keys(patch).length) return bad("바꿀 것이 없어요.");
+      const note = await editSelNote(round, st, patch);
+      await touch("other");
+      return NextResponse.json({ note });
     }
-    if (body.action === "selDelete") {
-      await saveSelChecks((await getSelChecks()).filter((x) => x.id !== String(body.id)));
-      return NextResponse.json({ items: await getSelChecks() });
+    // 피드백 초안(AI): 영역별 수준과 학생이 고른 문장만 보낸다 — 이름·번호·선생님 메모는 보내지 않는다
+    if (body.action === "selDraft") {
+      const round = String(body.round ?? ""), no = Number(body.no);
+      const st = (await getRoster()).find((x) => x.no === no);
+      if (!st) return bad("없는 번호예요.");
+      const [ans, note] = await Promise.all([db().get<SelfAnswer>("meta", selfDocId(round, no)), db().get<SelNote>("meta", selNoteId(round, no))]);
+      const a = ans && ownBy(st, ans.at) && cleanSelfAnswers(ans.answers) ? ans : null;
+      const n = note && ownBy(st, note.at) ? note : null;
+      const scores = scoresOf(a, n);
+      if (!scores) return bad("이 학생의 답이 아직 없어요.");
+      const ai = await aiConfig();
+      if (!ai) return bad("피드백 초안은 AI 키가 있어야 만들 수 있어요. 「설정」에서 키를 넣어 주세요.");
+      const o = n?.obs ? obsScores(n.obs) : null;
+      const pick = (ok: (v: number) => boolean) => (a ? SELF_ITEMS.flatMap((it, i) => (ok(a.answers[i]) ? [it.ko] : [])).slice(0, 4) : []);
+      const input = {
+        영역: DOMAINS.map((d, i) => ({ 이름: d.name, 스스로: levelOf(scores[i]).name, ...(o && n?.obs ? { 선생님관찰: levelOf(o[i], obsMax(n.obs)).name } : {}) })),
+        잘한다고고른문장: pick((v) => v === 5),
+        어렵다고고른문장: pick((v) => v <= 2),
+      };
+      try {
+        return NextResponse.json(await selFeedback(ai, input));
+      } catch (e) {
+        return bad(`초안을 만들지 못했어요: ${e instanceof Error ? e.message : e}`.slice(0, 300), 502);
+      }
     }
 
     // 이번 주 우리 반 마음 요약 + 다음 주 활동 추천(이름·번호 없이 모은 숫자만 AI로)
@@ -707,9 +747,9 @@ async function handle(req: NextRequest) {
       else if (mode === "clear") {
         for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
         await db().del("meta", "looks");
-        await db().del("meta", "selChecks");
+        await db().del("meta", "selChecks"); // 예전 「반 전체 역량 진단」 문서(이제 쓰지 않음)
         await db().del("meta", "riskActions");
-        await deleteSelfAnswers(() => false);
+        await deleteSelfData(() => false);
         await db().del("meta", "selfRounds");
         await db().del("meta", "riskDrafts"); // 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
         await db().del("meta", "weekly");

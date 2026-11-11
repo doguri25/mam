@@ -337,6 +337,36 @@ export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab:
   return { drafts, warns: drafts.map((d) => leaks(d).join(", ")), styles: drafts.map((d) => styleHits(d)) };
 }
 
+// ── 학급 역량 진단 피드백 초안: 영역별 수준과 학생이 고른 문장만 보낸다(이름·번호·선생님 메모는 보내지 않음) ──
+const SEL_FEEDBACK_SYSTEM = `너는 초등학교 3학년 담임 선생님이 사회정서역량 「마음 점검」(32문장 자기 점검)을 마친 학생에게 건넬 피드백 초안을 쓰는 도우미야.
+- 「영역」에는 학생이 스스로 답한 수준과, 있으면 선생님이 관찰한 수준이 있어. 「잘한다고고른문장」「어렵다고고른문장」은 학생이 직접 고른 답이야.
+- 잘하고 있는 점 하나를 그 문장에 맞게 구체적으로 알아주고, 더 자랄 점 하나는 함께 해 볼 작은 일로 건네.
+- 수준 이름(아주 잘함, 잘함, 자라나는 중, 도움 필요)·점수·"검사" "진단" "결과" 같은 말은 아이에게 쓰지 마. 다른 친구와 비교하거나 꾸짖지 마.
+- 입력에 없는 사건·장소·감정을 지어내지 마. 「집」 이야기는 꺼내지 마.
+- 선생님이 아이에게 말하는 따뜻한 말투(~구나, ~해 줘서 고마워), 3문장 안팎, 한 문장은 40자 안.
+- praise: 잘하는 점을 알아주는 데 중심을 둔 초안. grow: 함께 해 볼 일을 건네는 데 중심을 둔 초안. 두 초안은 문장이 겹치지 않게.${STYLE_RULES}`;
+const SEL_LEAK = /아주 ?잘함|자라나는 ?중|도움 ?필요|점수|진단|검사|결과|\d+ ?점/g;
+export interface SelDraftInput {
+  영역: { 이름: string; 스스로: string; 선생님관찰?: string }[];
+  잘한다고고른문장: string[];
+  어렵다고고른문장: string[];
+}
+export async function selFeedback(ai: AI, input: SelDraftInput) {
+  const schema = obj({ praise: { type: "string" }, grow: { type: "string" } });
+  const ask = async (extra = "") => {
+    const out = await callJSON(ai, SEL_FEEDBACK_SYSTEM + extra, JSON.stringify(input), "selfeedback", schema);
+    return [out.praise, out.grow].filter((d): d is string => typeof d === "string" && !!d.trim()).map((d) => polish(d.trim()));
+  };
+  const hits = (ds: string[]) => [...new Set(ds.flatMap((d) => d.match(SEL_LEAK) ?? []))];
+  let drafts = await ask();
+  const found = hits(drafts);
+  if (found.length) {
+    const again = await ask(`\n- 지난 초안에 「${found.join("」, 「")}」 같은 말이 들어갔어. 이런 말은 빼고 다시 써.`).catch(() => drafts);
+    if (hits(again).length < found.length) drafts = again;
+  }
+  return { drafts, warns: drafts.map((d) => (d.match(SEL_LEAK) ?? []).join(", ")), styles: drafts.map((d) => styleHits(d)) };
+}
+
 export async function ping(ai: AI) {
   const out = await callJSON(ai, "요청대로 JSON만 답해.", '{"ok": true}를 그대로 돌려줘.', "ping", obj({ ok: { type: "boolean" } }));
   return out.ok === true;

@@ -29,5 +29,5 @@ export interface PurgeLog { at: string; cutoff: string; counts: Record<string, n
 // 정리할 것들의 이름(선생님 화면에 보이는 순서)
 export const PURGE_KO: Record<string, string> = {
   records: "마음 기록", cheers: "응원 한마디", notes: "면담 메모", letters: "공감 쪽지", reflects: "한 주 돌아보기",
-  sheets: "활동지 피드백", self: "학생 자기진단 답", risk: "위험 표현 조치 기록", drafts: "마치지 않은 기록(위험 표현)",
+  sheets: "활동지 피드백", self: "학급 역량 진단 학생 답", selNote: "학급 역량 진단 관찰·메모·보낸 말", risk: "위험 표현 조치 기록", drafts: "마치지 않은 기록(위험 표현)",
 };

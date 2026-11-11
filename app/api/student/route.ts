@@ -4,14 +4,14 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, OTHER_STUDENT, STUDENT_COOKIE, otherStudent, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { addCalm, addLetter, aiConfig, getLooks, getRoster, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
+import { addCalm, addLetter, aiConfig, editSelNote, getLooks, getRoster, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
 import { addRiskDraftSummary, draftKept, dropDoneDrafts, getRiskDrafts, moveRiskActions, nearDraftIds, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
 import { clientIp, codeAttempt, waitText } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
 import { matchRisk } from "@/lib/rules";
-import { cleanSelfAnswers, selfDocId, type SelfAnswer } from "@/lib/selfcheck";
+import { cleanSelfAnswers, scoresOf, selNoteId, selfDocId, tierOf, unread, type SelNote, type SelfAnswer, type SelfRound } from "@/lib/selfcheck";
 import {
   ACC_UNLOCK, CALM_TOOLS, DEFAULT_LOOK, EMOTION_NAMES, FELT, REASON_NAMES, TONES, cleanLook, cleanSaveId, formerAt, isWordOf, ownBy,
   type CalmTool, type Felt, type Letter, type MoodRecord, type Reflect, type RiskDraft, type Student,
@@ -119,17 +119,27 @@ async function handle(req: NextRequest, body: Body) {
     // 이 번호를 새 학생에게 줬으면(since) 그 앞에 이 번호로 남은 기록·쪽지·돌아보기·점검 답은 앞 학생 것 — 보여 주지도 세지도 않는다
     const own = (at?: string) => ownBy(s, at);
     const myRecords = async () => (await recordsOf(s.no)).filter((r) => own(r.createdAt));
+    // 마음 점검: 열린 회차(없으면 마지막 회차)의 내 답·영역별 점수와 선생님이 보낸 피드백(이 번호의 앞 학생 것은 빼고)
+    const myCheck = async () => {
+      const rounds = await getSelfRounds();
+      const round: SelfRound | undefined = rounds.find((r) => !r.closedAt) ?? rounds.at(-1);
+      if (!round) return null;
+      const [ans, note] = await Promise.all([db().get<SelfAnswer>("meta", selfDocId(round.id, s.no)), db().get<SelNote>("meta", selNoteId(round.id, s.no))]);
+      const a = ans && own(ans.at) && cleanSelfAnswers(ans.answers) ? ans : null;
+      const n = note && own(note.at) ? note : null;
+      const scores = scoresOf(a, n);
+      const feedback = n?.feedback && own(n.feedback.at) ? { text: n.feedback.text, at: n.feedback.at } : null;
+      return { round, open: !round.closedAt, answers: a?.answers ?? null, scores, done: !!scores, feedback, letter: !!feedback && unread(n) };
+    };
 
     if (body.action === "me") {
       const date = today();
       const week = monday(date);
-      const [mine, looks, inbox, ref, round] = await Promise.all([
+      const [mine, looks, inbox, ref, check] = await Promise.all([
         myRecords(), getLooks(), db().find<Letter>("letters", "to", "==", s.no).then((ls) => ls.filter((l) => own(l.createdAt))),
         db().get<Reflect>("reflects", `${s.no}_${week}`).then((r) => (r && own(r.createdAt) ? r : null)),
-        getSelfRounds().then((rs) => rs.find((r) => !r.closedAt)),
+        myCheck(),
       ]);
-      const ans = round ? await db().get<SelfAnswer>("meta", selfDocId(round.id, s.no)) : null;
-      const answered = !!ans && own(ans.at);
       // 마음 꽃: 이번 달 기록한 날마다 한 송이(그날 마지막 마음 색)
       const month = new Map<string, string>();
       for (const r of mine.filter((r) => r.date.startsWith(date.slice(0, 7))).sort((a, b) => a.id.localeCompare(b.id))) month.set(r.date, r.emotion);
@@ -141,22 +151,33 @@ async function handle(req: NextRequest, body: Body) {
         words: wordsOf(mine), // 마음 친구 성장: 써 본 서로 다른 감정 단어
         unread: inbox.filter((l) => l.status === "ok" && !l.readAt && !l.toPractice).length, // 받은 쪽지(letters)와 같은 것만 센다
         reflected: !!ref,
-        selfCheck: round ? { id: round.id, title: round.title, done: answered } : null, // 선생님이 연 마음 점검 회차
+        // 마음 점검: 선생님이 연 회차, 또는 닫힌 회차라도 아직 읽지 않은 선생님 피드백이 있으면(letter)
+        selfCheck: check && (check.open || check.letter) ? { id: check.round.id, title: check.round.title, done: check.done, open: check.open, letter: check.letter } : null,
         demo: isDemo(),
         qtoken: queueToken(s.no, s.code, date), // 끊김 대비 그날 표(쿠키로 바로 들어온 날에도)
         space: spaceId(), // 같은 태블릿을 여러 반이 쓸 때 학생 화면 언어 같은 기기 설정을 반마다 따로
       });
     }
 
-    // 마음 점검(학생 자기진단): 열린 회차와 내가 낸 답 / 내기(회차가 열려 있는 동안은 다시 내면 고쳐짐)
-    if (body.action === "selfCheck" || body.action === "selfSave") {
-      const round = (await getSelfRounds()).find((r) => !r.closedAt);
-      if (!round) return body.action === "selfCheck" ? NextResponse.json({ round: null, answers: null }) : bad("지금은 마음 점검을 하는 때가 아니에요.", 409);
-      const id = selfDocId(round.id, s.no);
-      if (body.action === "selfCheck") {
-        const mineAns = await db().get<SelfAnswer>("meta", id);
-        return NextResponse.json({ round: { id: round.id, title: round.title }, answers: mineAns && own(mineAns.at) ? mineAns.answers : null });
+    // 마음 점검(학급 역량 진단): 열린 회차와 내가 낸 답·영역별 이야기 단계(점수는 보내지 않음)·선생님 피드백 / 내기(회차가 열려 있는 동안은 다시 내면 고쳐짐).
+    // 선생님 쪽 기록 가운데 학생에게 가는 것은 피드백 글뿐(관찰·메모·종이 검사 점수는 보내지 않는다).
+    if (body.action === "selfCheck") {
+      const c = await myCheck();
+      if (!c || (!c.open && !c.feedback)) return NextResponse.json({ round: null, answers: null, tiers: null, feedback: null });
+      // 피드백을 보여 주면 읽은 시각을 적는다(선생님 화면에 「읽음」) — 앞 학생에게 쓴 것이면 myCheck가 이미 걸렀다
+      if (c.letter) {
+        await editSelNote(c.round.id, s, { seenAt: new Date().toISOString() });
+        await touch("other");
       }
+      return NextResponse.json({
+        round: { id: c.round.id, title: c.round.title, open: c.open },
+        answers: c.answers, tiers: c.scores ? c.scores.map((v) => tierOf(v)) : null, feedback: c.feedback,
+      });
+    }
+    if (body.action === "selfSave") {
+      const round = (await getSelfRounds()).find((r) => !r.closedAt);
+      if (!round) return bad("지금은 마음 점검을 하는 때가 아니에요.", 409);
+      const id = selfDocId(round.id, s.no);
       // 답하는 사이 선생님이 새 회차를 열었으면 앞 회차 답을 새 회차에 넣지 않고 알린다(화면이 새 회차를 다시 읽는다)
       if (body.round !== round.id) return bad("마음 점검이 새로 열렸어요. 처음부터 다시 해 주세요.", 409);
       const answers = cleanSelfAnswers(body.answers);
@@ -164,7 +185,7 @@ async function handle(req: NextRequest, body: Body) {
       const a: SelfAnswer = { kind: "selfAnswer", round: round.id, no: s.no, answers, at: new Date().toISOString(), ...(isDemo() || s.demo ? { demo: true } : {}) };
       await db().set("meta", id, { ...a });
       await touch("other");
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, tiers: scoresOf(a, null)!.map((v) => tierOf(v)) });
     }
 
     // 마음 다스리기 도구를 써 본 느낌을 이 시간의 기록에 붙인다(선생님이 어떤 도구가 도움이 되는지 보게)

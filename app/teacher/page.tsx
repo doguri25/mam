@@ -13,7 +13,6 @@ import ReferralTab from "@/components/teacher/ReferralTab";
 import MapTab from "@/components/teacher/MapTab";
 import ReportTab from "@/components/teacher/ReportTab";
 import SelCheckTab from "@/components/teacher/SelCheckTab";
-import SelfCheckTab from "@/components/teacher/SelfCheckTab";
 import SheetTab from "@/components/teacher/SheetTab";
 import StudentTab from "@/components/teacher/StudentTab";
 import RosterTab from "@/components/teacher/RosterTab";
@@ -32,11 +31,11 @@ import { formerAt, ownOnly, type MoodRecord } from "@/lib/shared";
 const NAV: { title: string; items: [Tab, DoodleName, string][] }[] = [
   { title: "오늘", items: [["map", "map", "마음 지도"]] },
   { title: "아이 돌보기", items: [["cheer", "letter", "응원 한마디"], ["letters", "envelope", "공감 쪽지"], ["referral", "memo", "상담 의견서"]] },
-  { title: "기록·소통", items: [["student", "notebook", "학생별 누적 기록"], ["sel", "compass", "학급 역량 진단"], ["self", "clipboard", "학생 자기진단"], ["report", "page", "주간 리포트"], ["home", "house", "가정 소식지"]] },
+  { title: "기록·소통", items: [["student", "notebook", "학생별 누적 기록"], ["sel", "compass", "학급 역량 진단"], ["report", "page", "주간 리포트"], ["home", "house", "가정 소식지"]] },
   { title: "수업", items: [["lesson", "books", "교과서 연결"], ["sheet", "crayon", "활동지 피드백"]] },
   { title: "관리", items: [["roster", "key", "학생 코드·QR"], ["settings", "gear", "설정"], ["guide", "book", "사용 설명서"]] },
 ];
-const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "self", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
+const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
 // 교사 기기에 최근 기록을 저장해 두고, 다음에 열 때는 그 뒤에 바뀐 기록만 받는다(Firestore 읽기 줄이기). 잠그면 지운다.
@@ -75,7 +74,8 @@ export default function TeacherPage() {
   const [raw, setRaw] = useState<OverviewRaw | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
   const [tabRaw, setTabRaw] = useLocal("mb_tab"); // 다시 열어도 보던 메뉴 그대로
-  const tab: Tab = (TAB_IDS as readonly string[]).includes(tabRaw) ? (tabRaw as Tab) : "map";
+  // 예전 「학생 자기진단」 메뉴(self)는 「학급 역량 진단」으로 합쳤다
+  const tab: Tab = tabRaw === "self" ? "sel" : (TAB_IDS as readonly string[]).includes(tabRaw) ? (tabRaw as Tab) : "map";
   const [drawer, setDrawer] = useState(false);
   const setTab = (t: Tab) => {
     setTabRaw(t === "map" ? "" : t);
@@ -83,7 +83,7 @@ export default function TeacherPage() {
     window.scrollTo(0, 0);
   };
   const [cheerNo, setCheerNo] = useState<number | null>(null);
-  // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(자기진단·누적 기록)도 다시 불러온다
+  // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(역량 진단·누적 기록)도 다시 불러온다
   const [version, setVersion] = useState(0);
   const demoAct = useAct(); // 위 띠의 「연습 데이터 지우기」(두 번 눌림·실패 알림)
   const names = useNames(raw?.space ?? "");
@@ -445,8 +445,7 @@ export default function TeacherPage() {
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
           {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}
           {tab === "student" && <StudentTab data={data} reload={load} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} version={version} />}
-          {tab === "sel" && <SelCheckTab data={data} />}
-          {tab === "self" && <SelfCheckTab data={data} nameOf={nameOf} version={version} />}
+          {tab === "sel" && <SelCheckTab data={data} nameOf={nameOf} version={version} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
           {tab === "home" && <NewsletterTab data={data} />}
           {tab === "lesson" && <LessonTab data={data} reload={load} />}

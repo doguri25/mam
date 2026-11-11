@@ -1,8 +1,7 @@
 // 시연용 가짜 반: 가명 25명 + 최근 7일 기록. 살펴볼 학생은 3번·11번·17번, 아직 안 살핀 위험 표현은 22번만(17번은 사흘 전 일·조치 기록 있음).
 import { addDays, monday } from "./date.ts";
 import { matchRisk } from "./rules.ts";
-import type { SelCheck } from "./selcheck.ts";
-import type { SelfAnswer, SelfRound } from "./selfcheck.ts";
+import type { SelNote, SelfAnswer, SelfRound } from "./selfcheck.ts";
 import { BUDDY_ACCS, BUDDY_CHEEKS, BUDDY_COLORS, BUDDY_EYES, BUDDY_LIMBS, BUDDY_PATTERNS, BUDDY_SHAPES, DEFAULT_RISK_WORDS, REASON_NAMES, SUB_WORDS, groupOf, type BuddyLook, type CalmTool, type Felt, type Letter, type Reflect, type MoodRecord, type RiskAction, type SheetItem, type SheetRun, type Slot, type Student } from "./shared.ts";
 
 const ALIASES = [
@@ -198,22 +197,6 @@ export function demoSheetRun(today: string): SheetRun {
   };
 }
 
-// 학급 사회·정서역량 진단 연습 회차 3번(약 두 달 동안 정서·공감이 오르고 책임 행동은 제자리인 반)
-export function demoSelChecks(today: string): SelCheck[] {
-  const C = (id: string, d: number, rater: string, answers: number[], memo: string): SelCheck => ({
-    id, date: addDays(today, d), school: "홍북초", group: "3학년 2반", rater, answers, memo,
-    createdAt: kst(addDays(today, d), "15:30"), demo: true,
-  });
-  return [
-    C("selp1", -63, "담임", [3, 2, 2, 3, 3, 3, 4, 2, 3, 3, 2, 3, 3, 4, 3, 2, 2, 3, 3, 3],
-      "학기 초. 속상한 까닭을 말로 하기 어려워하고, 모둠이 바뀌면 어색해함. 감정 단어 카드부터 시작."),
-    C("selp2", -35, "담임", [4, 3, 3, 3, 3, 4, 4, 2, 4, 3, 3, 4, 4, 4, 3, 3, 2, 3, 3, 3],
-      "감정 단어 놀이 뒤로 기분을 말하는 학생이 늘어남. 공감 쪽지 시작."),
-    C("selp3", -3, "담임", [4, 4, 4, 4, 4, 4, 4, 3, 5, 4, 4, 4, 4, 5, 4, 3, 3, 3, 3, 3],
-      "공감 쪽지가 자리 잡아 위로·축하가 자연스러움. 책임 행동은 제자리 — 행동 약속 만들기 해 볼 것."),
-  ];
-}
-
 // 위험 표현 조치 기록 연습: 17번이 사흘 전 「괴롭혀서」라고 남긴 날 이야기 나누고 담당 선생님께 알림 → 다음 날 보호자 연락
 export function demoRiskActions(today: string): RiskAction[] {
   const day = addDays(today, -3);
@@ -227,26 +210,57 @@ export function demoRiskActions(today: string): RiskAction[] {
   ];
 }
 
-// 학생 자기진단 연습: 학기 초(닫힘, 25명 모두) → 학기 말(열려 있음, 20명 답함). 공감·정서는 오르고 책임 행동은 제자리.
-// 3번은 지난 회차보다 크게 내려가고, 17번은 「관계」 두 문항 모두 아니에요 → 먼저 살펴볼 학생.
-export function demoSelfChecks(today: string): { rounds: SelfRound[]; answers: SelfAnswer[] } {
+// 학급 역량 진단 연습: 학기 초(닫힘, 25명 모두) → 학기 말(열려 있음, 20명 답함, 5·8·13·15·24번은 아직).
+// 반 전체로는 자기인식·관리와 소통·협력이 오르고 책임은 제자리. 3번은 학기 초보다 크게 내려가고, 17번은 소통·협력이 「도움 필요」.
+// 선생님 쪽 기록: 17번 관찰·메모·피드백(아직 안 읽음), 3번 관찰·메모(피드백은 아직 — AI 초안을 눌러 보게), 1번 피드백(안 읽음), 2번 피드백(읽음).
+export function demoSelfChecks(today: string): { rounds: SelfRound[]; answers: SelfAnswer[]; notes: SelNote[] } {
   const rounds: SelfRound[] = [
     { id: "selfp1", title: "학기 초", openedAt: addDays(today, -63), closedAt: addDays(today, -56), demo: true },
     { id: "selfp2", title: "학기 말", openedAt: addDays(today, -2), closedAt: null, demo: true },
   ];
-  // 역량 순서: 정서 · 자기관리 · 공감 · 관계 · 책임 (문항 2개씩)
-  const MEAN = { selfp1: [2.0, 2.3, 1.9, 2.3, 2.4], selfp2: [2.5, 2.4, 2.5, 2.5, 2.4] } as const;
-  const rand = rng(20261104);
+  // 영역 순서: 자기인식·관리 · 소통·협력 · 책임 · 마음돌봄 (문항 8개씩, 1~5)
+  const MEAN = { selfp1: [3.2, 3.1, 3.6, 3.3], selfp2: [3.8, 3.7, 3.6, 3.7] } as const;
+  const rand = rng(20261111);
+  const clamp = (v: number) => Math.min(5, Math.max(1, Math.round(v)));
   const answers: SelfAnswer[] = [];
   for (const r of rounds) {
     for (let no = 1; no <= 25; no++) {
       if (r.id === "selfp2" && [5, 8, 13, 15, 24].includes(no)) continue; // 아직 안 한 학생
-      const a = Array.from({ length: 10 }, (_, i) => Math.min(3, Math.max(1, Math.round(MEAN[r.id as keyof typeof MEAN][Math.floor(i / 2)] + (rand() - 0.5) * 1.6))));
-      if (no === 3) a.splice(0, 10, ...(r.id === "selfp1" ? [3, 3, 3, 2, 3, 3, 3, 3, 3, 2] : [2, 1, 2, 2, 2, 2, 2, 2, 2, 2]));
-      if (no === 17 && r.id === "selfp2") a.splice(6, 2, 1, 1);
+      const mean = MEAN[r.id as keyof typeof MEAN];
+      const lift = (rand() - 0.5) * 2; // 학생마다 조금씩 다르게
+      let a = Array.from({ length: 32 }, (_, i) => clamp(mean[Math.floor(i / 8)] + lift + (rand() - 0.5) * 1.8));
+      // 3번 학기 말: 자기인식·관리·책임은 자라나는 중, 소통·협력·마음돌봄은 도움 필요(학기 초보다 모든 영역이 크게 내려감)
+      if (no === 3) a = r.id === "selfp1" ? Array.from({ length: 32 }, (_, i) => [4, 5, 4, 4, 5, 4, 4, 4][i % 8]) : [3, 2, 2, 3, 2, 2, 3, 2, 2, 2, 2, 3, 2, 2, 2, 2, 3, 2, 3, 2, 3, 2, 2, 3, 2, 1, 2, 2, 1, 2, 2, 2];
+      if (no === 17 && r.id === "selfp2") a = a.map((v, i) => (i >= 8 && i < 16 ? [2, 1, 2, 2, 1, 2, 2, 1][i - 8] : v));
       const day = r.id === "selfp1" ? addDays(today, -62) : addDays(today, -1);
       answers.push({ kind: "selfAnswer", round: r.id, no, answers: a, at: kst(day, `09:${String(10 + no).padStart(2, "0")}`), demo: true });
     }
   }
-  return { rounds, answers };
+  const at = (d: number, hm: string) => kst(addDays(today, d), hm);
+  const obs16 = (per: number[][]) => ({ mode: 16 as const, answers: per.flat() });
+  const notes: SelNote[] = [
+    {
+      kind: "selNote", round: "selfp2", no: 17, demo: true, at: at(0, "08:20"),
+      obs: obs16([[3, 3, 4, 3], [2, 2, 1, 2], [4, 3, 3, 3], [3, 3, 3, 2]]),
+      memo: "모둠 활동에서 자주 빠지고 쉬는 시간에 혼자 있는 때가 늘었음. 사흘 전 쉬는 시간 놀이 일로 이야기 나눔. 짝 활동부터, 일주일 동안 쉬는 시간 살펴보기.",
+      feedback: { text: "마음 점검을 끝까지 해 줘서 고마워. 해야 할 일을 스스로 챙기는 모습이 선생님 눈에도 잘 보였어. 이번 주에는 짝꿍이랑 둘이서 하는 활동을 같이 해 보자. 하고 싶은 말이 생기면 언제든 선생님한테 먼저 와 줘.", at: at(0, "08:20") },
+      seenAt: null,
+    },
+    {
+      kind: "selNote", round: "selfp2", no: 3, demo: true, at: at(-1, "15:40"),
+      obs: obs16([[2, 2, 3, 2], [3, 3, 3, 3], [3, 3, 3, 3], [2, 2, 2, 3]]),
+      memo: "학기 말 들어 표정이 어둡고 어려운 과제 앞에서 쉽게 포기함. 보호자 상담 날짜 잡기.",
+    },
+    {
+      kind: "selNote", round: "selfp2", no: 1, demo: true, at: at(-1, "16:05"),
+      feedback: { text: "꼼꼼하게 끝까지 답해 줘서 고마워. 친구 말을 끝까지 들어 주는 모습이 정말 멋졌어. 이번 주에는 모둠에서 친구 생각을 먼저 물어봐 줄래?", at: at(-1, "16:05") },
+      seenAt: null,
+    },
+    {
+      kind: "selNote", round: "selfp2", no: 2, demo: true, at: at(-1, "16:10"),
+      feedback: { text: "약속을 잘 지키는 모습이 반 친구들에게도 힘이 돼. 속상할 때 스스로를 다독이는 방법도 하나씩 같이 찾아보자.", at: at(-1, "16:10") },
+      seenAt: at(0, "08:50"),
+    },
+  ];
+  return { rounds, answers, notes };
 }
