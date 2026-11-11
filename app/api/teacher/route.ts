@@ -601,7 +601,8 @@ async function handle(req: NextRequest) {
       await editSelfRounds((rounds) => {
         out.err = undefined;
         const open = rounds.find((r) => !r.closedAt);
-        if ((body.action === "selfOpen" || body.action === "selfReopen") && open && open.id !== id) {
+        const teacherOnly = body.action === "selfOpen" && body.teacherOnly === true; // 학생 화면에 열지 않는 관찰만 회차는 열린 회차가 있어도 만든다
+        if ((body.action === "selfOpen" || body.action === "selfReopen") && !teacherOnly && open && open.id !== id) {
           out.err = [`「${open.title}」 회차가 열려 있어요. 먼저 닫아 주세요.`, 400];
           return undefined;
         }
@@ -610,7 +611,7 @@ async function handle(req: NextRequest) {
             out.err = [`역량 진단 회차가 ${SELF_ROUNDS_MAX}개로 꽉 찼어요. 지난 회차를 지운 뒤 새로 열어 주세요.`, 409];
             return undefined;
           }
-          const r: SelfRound = { id: `self${Date.now()}`, title, openedAt: today(), closedAt: null };
+          const r: SelfRound = { id: `self${Date.now()}`, title, openedAt: today(), closedAt: teacherOnly ? today() : null, ...(teacherOnly ? { teacherOnly: true } : {}) };
           return [...rounds, r];
         }
         if (!rounds.some((r) => r.id === id)) {
@@ -618,7 +619,13 @@ async function handle(req: NextRequest) {
           return undefined;
         }
         if (body.action === "selfDelete") return rounds.filter((r) => r.id !== id);
-        return rounds.map((r) => (r.id === id ? { ...r, closedAt: body.action === "selfClose" ? today() : null } : r));
+        return rounds.map((r) => {
+          if (r.id !== id) return r;
+          if (body.action === "selfClose") return { ...r, closedAt: today() };
+          const { teacherOnly: _t, ...rest } = r; // 학생 화면에도 열면 「관찰만」 표시를 뗀다
+          void _t;
+          return { ...rest, closedAt: null };
+        });
       });
       if (out.err) return bad(...out.err);
       // 회차를 목록에서 뺀 뒤 답과 선생님 쪽 기록을 지운다(그사이 새 답이 남지 않게)

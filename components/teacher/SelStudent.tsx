@@ -176,53 +176,73 @@ function useSave(round: SelfRound, no: number, onSaved: (n: SelNote) => void) {
 }
 
 // 선생님 관찰: 간이(영역마다 4문항) · 심층(영역마다 8문항). 다 골라야 저장된다.
-function ObsBox({ round, no, obs, onSaved }: { round: SelfRound; no: number; obs: SelObs | null; onSaved: (n: SelNote) => void }) {
-  const [mode, setMode] = useState<16 | 32>(obs?.mode ?? 16);
+// sheet: 「선생님 관찰 검사」 화면에서 쓸 때 — 접지 않고 펼쳐 두고, 선생님만 보는 메모를 함께 저장하고, 저장한 뒤 다음 학생으로(onNext)
+export function ObsBox({ round, no, obs, onSaved, sheet }: {
+  round: SelfRound; no: number; obs: SelObs | null; onSaved: (n: SelNote) => void;
+  sheet?: { memo: string; defaultMode: 16 | 32; onMode: (m: 16 | 32) => void; onNext: (() => void) | null };
+}) {
+  const [mode, setModeRaw] = useState<16 | 32>(obs?.mode ?? sheet?.defaultMode ?? 16);
+  const setMode = (m: 16 | 32) => { setModeRaw(m); sheet?.onMode(m); };
   const [ans, setAns] = useState<Record<number, number[]>>(() => ({ 16: obs?.mode === 16 ? obs.answers : [], 32: obs?.mode === 32 ? obs.answers : [] }));
+  const [memo, setMemo] = useState(sheet?.memo ?? "");
   const s = useSave(round, no, onSaved);
   const items = mode === 16 ? OBS16 : OBS32;
   const cur = ans[mode];
   const filled = items.filter((_, i) => cur[i]).length;
   const per = mode / DOMAINS.length;
   const set = (i: number, v: number) => setAns((a) => { const next = [...a[mode]]; next[i] = v; return { ...a, [mode]: next }; });
+  const patch = () => ({ obs: { mode, answers: items.map((_, i) => cur[i]) }, ...(sheet && memo !== sheet.memo ? { memo } : {}) });
+  const body = (
+    <div className={sheet ? "space-y-4" : "mt-2 space-y-3"}>
+      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="관찰 방식">
+        {([16, 32] as const).map((m) => (
+          <button key={m} role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={`chip min-h-10 px-3 text-sm font-bold ${mode === m ? "chip-on" : ""}`}>{m === 16 ? "간이 16문항" : "심층 32문항"}</button>
+        ))}
+        <span className="text-xs text-soft">평소 모습을 떠올리며 골라 주세요. 학생 화면에는 보이지 않아요.</span>
+      </div>
+      {DOMAINS.map((dom, d) => (
+        <fieldset key={dom.key} className="space-y-2">
+          <legend className="flex items-center gap-1 text-sm font-bold" style={{ color: dom.color }}><Doodle name={dom.icon} size={18} /> {dom.name}</legend>
+          {items.slice(d * per, d * per + per).map((t, k) => {
+            const i = d * per + k;
+            return (
+              <div key={i} className="grid gap-1.5 border-b border-line/60 pb-2 lg:grid-cols-[1fr_auto] lg:items-center">
+                <p className="text-sm"><span className="text-soft">{i + 1}.</span> {t}</p>
+                <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={t}>
+                  {OBS_SCALE.map((lbl, v) => (
+                    <button key={v} role="radio" aria-checked={cur[i] === v + 1} onClick={() => set(i, v + 1)}
+                      className={`min-h-10 rounded-xl border px-2.5 text-xs font-bold ${cur[i] === v + 1 ? "border-transparent text-white" : "border-line bg-card"}`}
+                      style={cur[i] === v + 1 ? { background: dom.color } : undefined}>{v + 1} {lbl}</button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </fieldset>
+      ))}
+      {sheet && (
+        <label className="block">
+          <span className="flex items-center gap-1 font-bold"><Doodle name="lock" /> 선생님만 보는 메모 · 지원 계획</span>
+          <textarea value={memo} onChange={(e) => setMemo(e.target.value.slice(0, 1000))} rows={3} className="field mt-1" placeholder="관찰한 모습이나 지원 계획을 적어 두세요. 학생 화면과 AI로 보내지 않아요." />
+        </label>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="text-sm text-soft">{filled}/{mode} 골랐어요</span>
+        {obs && <button onClick={() => s.save("관찰을 지우지 못했어요", { obs: null }, "관찰을 지웠어요.")} disabled={s.busy} className="btn-sub min-h-10 text-sm">관찰 지우기</button>}
+        <button onClick={() => s.save("관찰을 저장하지 못했어요", patch(), "관찰을 저장했어요.")} disabled={s.busy || filled < mode} className={`${sheet?.onNext ? "btn-sub" : "btn-main"} min-h-10 text-sm`}>관찰 저장</button>
+        {sheet?.onNext && (
+          <button onClick={async () => { if (await s.save("관찰을 저장하지 못했어요", patch(), "관찰을 저장했어요.")) sheet.onNext?.(); }} disabled={s.busy || filled < mode} className="btn-main min-h-10 text-sm">저장하고 다음 학생 →</button>
+        )}
+      </div>
+      {s.msg && <p role="status" className="text-right text-sm text-[#1d7144]">{s.msg}</p>}
+      {s.err && <p role="alert" className="text-right text-sm text-alert">{s.err}</p>}
+    </div>
+  );
+  if (sheet) return body;
   return (
     <details className="rounded-2xl border border-line p-3" open={!obs}>
       <summary className="min-h-10 cursor-pointer font-display text-lg"><Doodle name="eyes" /> 선생님 관찰 {obs && <span className="text-sm text-soft">({obs.mode === 32 ? "심층 32" : "간이 16"} 저장됨)</span>}</summary>
-      <div className="mt-2 space-y-3">
-        <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="관찰 방식">
-          {([16, 32] as const).map((m) => (
-            <button key={m} role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={`chip min-h-10 px-3 text-sm font-bold ${mode === m ? "chip-on" : ""}`}>{m === 16 ? "간이 16문항" : "심층 32문항"}</button>
-          ))}
-          <span className="text-xs text-soft">평소 모습을 떠올리며 골라 주세요. 학생 화면에는 보이지 않아요.</span>
-        </div>
-        {DOMAINS.map((dom, d) => (
-          <fieldset key={dom.key} className="space-y-2">
-            <legend className="text-sm font-bold" style={{ color: dom.color }}>{dom.name}</legend>
-            {items.slice(d * per, d * per + per).map((t, k) => {
-              const i = d * per + k;
-              return (
-                <div key={i} className="grid gap-1.5 lg:grid-cols-[1fr_auto] lg:items-center">
-                  <p className="text-sm">{t}</p>
-                  <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={t}>
-                    {OBS_SCALE.map((lbl, v) => (
-                      <button key={v} role="radio" aria-checked={cur[i] === v + 1} onClick={() => set(i, v + 1)}
-                        className={`min-h-10 rounded-xl border px-2.5 text-xs font-bold ${cur[i] === v + 1 ? "border-transparent text-white" : "border-line bg-card"}`}
-                        style={cur[i] === v + 1 ? { background: dom.color } : undefined}>{v + 1} {lbl}</button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </fieldset>
-        ))}
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="text-sm text-soft">{filled}/{mode} 골랐어요</span>
-          {obs && <button onClick={() => s.save("관찰을 지우지 못했어요", { obs: null }, "관찰을 지웠어요.")} disabled={s.busy} className="btn-sub min-h-10 text-sm">관찰 지우기</button>}
-          <button onClick={() => s.save("관찰을 저장하지 못했어요", { obs: { mode, answers: items.map((_, i) => cur[i]) } }, "관찰을 저장했어요.")} disabled={s.busy || filled < mode} className="btn-main min-h-10 text-sm">관찰 저장</button>
-        </div>
-        {s.msg && <p role="status" className="text-right text-sm text-[#1d7144]">{s.msg}</p>}
-        {s.err && <p role="alert" className="text-right text-sm text-alert">{s.err}</p>}
-      </div>
+      {body}
     </details>
   );
 }

@@ -5,7 +5,7 @@
 // 선생님만 보는 메모·학생에게 보낼 말(AI 초안)을 남긴다(SelStudent).
 import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
-import SelStudent, { Delta, type SelRow } from "./SelStudent";
+import SelStudent, { Delta, ObsBox, type SelRow } from "./SelStudent";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { label, today as todayOf } from "@/lib/date";
@@ -40,6 +40,7 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
   const [sure, setSure] = useState<string | null>(null); // 지우기 한 번 더 묻기
   const [hide, setHide] = useState(false);
   const [pick, setPick] = useState<number | null>(null); // 자세히 보는 학생 번호
+  const [mode, setMode] = useState<"result" | "obs">("result"); // 결과 보기 · 선생님 관찰 검사
   const first = useRef(true); // 처음 불러올 때만 볼 회차·견줄 회차를 골라 준다
   const detail = useRef<HTMLDivElement>(null);
 
@@ -101,7 +102,7 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
       <section className="card space-y-3">
         <p className="text-sm text-soft">
           학생이 스스로 32문장(영역마다 8문장)에 5단계로 답해요. 영역별 점수와 수준은 선생님만 보고, 학생 화면에는 점수 없이 영역별 이야기와 해 볼 일만 보여요.
-          학생을 골라 관찰을 더하고, 지도 가이드를 보며 학생에게 보낼 말을 남겨 주세요.
+          「선생님 관찰 검사」에서 학생마다 관찰(간이 16 · 심층 32문항)을 적고, 「결과 보기」에서 학생을 골라 지도 가이드를 보며 학생에게 보낼 말을 남겨 주세요.
         </p>
         {open ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-leaf-soft p-4">
@@ -124,19 +125,34 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
               <datalist id="self-titles">{TITLES.map((x) => <option key={x} value={x} />)}</datalist>
             </label>
             <button onClick={() => act("selfOpen", { title })} disabled={busy || !title.trim()} className="btn-main">학생 화면에 열기</button>
-            <p className="w-full text-xs text-soft">열면 학생 화면 「더 해 보기」 맨 앞에 「마음 점검」이 생겨요. 다 모이면 닫아 주세요. 닫은 뒤에도 보낸 말은 학생이 읽을 때까지 보여요.</p>
+            <button onClick={async () => { await act("selfOpen", { title, teacherOnly: true }); setMode("obs"); }} disabled={busy || !title.trim()} className="btn-sub"><Doodle name="eyes" /> 선생님 관찰만 하기</button>
+            <p className="w-full text-xs text-soft">
+              「학생 화면에 열기」를 누르면 학생 화면 「더 해 보기」 맨 앞에 「마음 점검」이 생겨요. 다 모이면 닫아 주세요. 닫은 뒤에도 보낸 말은 학생이 읽을 때까지 보여요.
+              「선생님 관찰만 하기」는 학생 화면에 열지 않고 선생님 관찰 검사만 할 회차를 만들어요(나중에 「다시 열기」로 학생에게도 열 수 있어요).
+            </p>
           </div>
         )}
         {err && <p role="alert" className="text-alert">{err}</p>}
         <p className="text-xs text-soft">{SEL_SOURCE} {SEL_CAUTION}</p>
       </section>
 
+      {/* 결과 보기 · 선생님 관찰 검사(원래 앱의 「교사 관찰 체크」를 따로 한 화면으로) */}
+      <div className="no-print grid grid-cols-2 gap-2 rounded-2xl bg-[#f1eee7] p-1.5" role="tablist" aria-label="학급 역량 진단 보기">
+        {([["result", "chart", "결과 보기", "학생이 답한 결과 · 지도 가이드 · 보낼 말"], ["obs", "eyes", "선생님 관찰 검사", `간이 16 · 심층 32문항${round ? ` · ${rows.filter((r) => r.note?.obs).length}/${rows.length}명 관찰` : ""}`]] as const).map(([id, icon, name, sub]) => (
+          <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)}
+            className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-3 py-2 text-left transition ${mode === id ? "bg-card shadow-sm ring-1 ring-line" : "text-soft hover:bg-card/60"}`}>
+            <Doodle name={icon} size={30} />
+            <span><b className={`block font-display text-lg ${mode === id ? "text-ink" : ""}`}>{name}</b><span className="block text-xs">{sub}</span></span>
+          </button>
+        ))}
+      </div>
+
       {d.rounds.length > 0 && (
         <section className="no-print flex flex-wrap items-end gap-3">
           <label className="text-sm">
             <span className="block text-soft">볼 회차</span>
             <select value={view ?? ""} onChange={(e) => { setView(e.target.value); setPick(null); if (e.target.value === base) setBase(null); }} className="field mt-1 min-h-11 py-2">
-              {d.rounds.map((r) => <option key={r.id} value={r.id}>{r.title} · {label(r.openedAt)} ({answeredIn(r.id)}명)</option>)}
+              {d.rounds.map((r) => <option key={r.id} value={r.id}>{r.title} · {label(r.openedAt)} {r.teacherOnly ? "(선생님 관찰만)" : `(${answeredIn(r.id)}명)`}</option>)}
             </select>
           </label>
           <label className="text-sm">
@@ -148,7 +164,7 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
           </label>
           <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} className="size-5 accent-leaf" /> 학생은 번호로만</label>
           <div className="ml-auto flex flex-wrap gap-2">
-            {round?.closedAt && !open && <button onClick={() => act("selfReopen", { id: round.id })} disabled={busy} className="btn-sub min-h-11 text-sm">다시 열기</button>}
+            {round?.closedAt && !open && <button onClick={() => act("selfReopen", { id: round.id })} disabled={busy} className="btn-sub min-h-11 text-sm">{round.teacherOnly ? "학생 화면에도 열기" : "다시 열기"}</button>}
             {round && (sure === round.id
               ? <button onClick={() => act("selfDelete", { id: round.id })} disabled={busy} className="btn-sub min-h-11 border-alert text-sm text-alert">정말 지우기(답·관찰·메모·보낸 말 모두)</button>
               : <button onClick={() => setSure(round.id)} className="btn-sub min-h-11 text-sm">회차 지우기</button>)}
@@ -159,10 +175,14 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
       )}
 
       {!round ? (
-        <div className="card text-soft">아직 회차가 없어요. 위에서 「학기 초」 회차를 열어 보세요.</div>
+        <div className="card text-soft">
+          {mode === "obs" ? "관찰을 적을 회차가 필요해요. 위에서 회차 이름을 쓰고 「선생님 관찰만 하기」를 누르면 학생 화면에 열지 않고 회차를 만들어요." : "아직 회차가 없어요. 위에서 「학기 초」 회차를 열어 보세요."}
+        </div>
+      ) : mode === "obs" ? (
+        <ObsSheet round={round} rows={rows} who={who} onSaved={onSaved} />
       ) : (
         <>
-          {done.length > 0 ? <ClassSummary round={round} base={baseRound} rows={rows} /> : <div className="card text-soft">「{round.title}」에 아직 답한 학생이 없어요. 학생을 골라 종이 검사 점수나 관찰을 먼저 넣을 수도 있어요.</div>}
+          {done.length > 0 ? <ClassSummary round={round} base={baseRound} rows={rows} /> : <div className="card text-soft">「{round.title}」에 아직 답한 학생이 없어요. 「선생님 관찰 검사」에서 관찰을 먼저 하거나, 학생을 골라 종이 검사 점수를 넣을 수도 있어요.</div>}
           <StudentTable rows={rows} base={baseRound} who={who} pick={pick} onPick={choose} />
           <div ref={detail} className="scroll-mt-4">
             {sel && round && (
@@ -235,9 +255,17 @@ function Chip({ score, max = 40, small }: { score: number; max?: number; small?:
 // 학생별: 영역마다 수준·점수(견줄 회차와의 차이), 관찰, 학생에게 보낸 말. 줄을 누르면 아래에 자세히(SelStudent)
 function StudentTable({ rows, base, who, pick, onPick }: { rows: SelRow[]; base: SelfRound | null; who: (no: number, at?: string) => string; pick: number | null; onPick: (no: number | null) => void }) {
   const watch = rows.filter((r) => r.watch.length);
+  const [show, setShow] = useState<"self" | "obs">("self"); // 칸에 보일 것: 학생이 스스로 답한 수준 · 선생님 관찰 수준
   return (
     <section className="card space-y-3">
-      <h3 className="font-display text-xl">학생별 결과 <span className="text-sm text-soft">(선생님만 · 이름을 누르면 관찰·지도 가이드·보낼 말)</span></h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-display text-xl">학생별 결과 <span className="text-sm text-soft">(선생님만 · 이름을 누르면 지도 가이드·보낼 말)</span></h3>
+        <div className="flex gap-1" role="radiogroup" aria-label="표에 보일 것">
+          {([["self", "학생 스스로"], ["obs", "선생님 관찰"]] as const).map(([id, name]) => (
+            <button key={id} role="radio" aria-checked={show === id} onClick={() => setShow(id)} className={`chip min-h-10 px-3 text-sm font-bold ${show === id ? "chip-on" : ""}`}>{name}</button>
+          ))}
+        </div>
+      </div>
       {watch.length > 0 && (
         <div className="space-y-1 rounded-2xl bg-[#fff8e1] p-3 text-sm">
           <p className="font-bold"><Doodle name="dotYellow" /> 먼저 이야기 나눠 볼 학생 (진단이 아닌 살펴보기 신호)</p>
@@ -266,7 +294,9 @@ function StudentTable({ rows, base, who, pick, onPick }: { rows: SelRow[]; base:
                   </button>
                   {!r.answer && r.scores && <span className="ml-1 text-xs text-soft">종이</span>}
                 </td>
-                {r.scores ? r.scores.map((v, i) => (
+                {show === "obs" ? (r.note?.obs ? obsScores(r.note.obs).map((v, i) => (
+                  <td key={i} className="px-1"><Chip score={v} max={obsMax(r.note!.obs!)} /> <span className="text-xs">{v}/{obsMax(r.note!.obs!)}</span></td>
+                )) : <td colSpan={DOMAINS.length} className="px-1 text-xs text-soft">아직 관찰하지 않았어요</td>) : r.scores ? r.scores.map((v, i) => (
                   <td key={i} className="px-1">
                     <Chip score={v} /> <span className="text-xs">{v}</span>
                     {r.before && <Delta v={v - r.before[i]} small />}
@@ -280,6 +310,59 @@ function StudentTable({ rows, base, who, pick, onPick }: { rows: SelRow[]; base:
         </table>
       </div>
       <p className="text-xs text-soft">{base && `작은 ▲▼는 「${base.title}」보다 오르내린 점수예요. `}학생이 스스로 고른 답이라 그날 기분에 따라 달라질 수 있어요. 점수로 견주지 말고 대화를 시작하는 데 써 주세요.</p>
+    </section>
+  );
+}
+
+// 선생님 관찰 검사: 학생을 하나씩 골라 간이 16 · 심층 32문항을 5단계로 고르고 메모와 함께 저장한다(저장하고 다음 학생으로).
+// 학생 답이 없어도 할 수 있고, 학생 화면에는 보이지 않는다. 결과는 「결과 보기」의 표(선생님 관찰)·학생 자세히의 막대·지도 가이드에 함께 보인다.
+function ObsSheet({ round, rows, who, onSaved }: { round: SelfRound; rows: SelRow[]; who: (no: number, at?: string) => string; onSaved: (n: SelNote) => void }) {
+  const [cur, setCur] = useState<number | null>(() => (rows.find((r) => !r.note?.obs) ?? rows[0])?.st.no ?? null);
+  const [defaultMode, setDefaultMode] = useState<16 | 32>(() => rows.find((r) => r.note?.obs)?.note?.obs?.mode ?? 16);
+  const top = useRef<HTMLElement>(null);
+  const row = rows.find((r) => r.st.no === cur) ?? null;
+  const done = rows.filter((r) => r.note?.obs).length;
+  const go = (no: number) => { setCur(no); requestAnimationFrame(() => top.current?.scrollIntoView({ behavior: "smooth", block: "start" })); };
+  const i = row ? rows.indexOf(row) : -1;
+  const next = rows.slice(i + 1).find((r) => !r.note?.obs) ?? rows[i + 1] ?? null;
+  return (
+    <section ref={top} className="card scroll-mt-4 space-y-4">
+      <header className="space-y-1">
+        <h2 className="flex items-center gap-2 font-display text-2xl"><Doodle name="eyes" size={32} /> 「{round.title}」 선생님 관찰 검사 <span className="text-base text-soft">· {done}/{rows.length}명</span></h2>
+        <p className="text-sm text-soft">
+          평소 교실에서 본 모습을 떠올리며 학생마다 골라 주세요. 간이 16문항은 영역마다 4문항(20점 만점), 심층 32문항은 학생 문장을 관찰로 바꾼 8문항(40점 만점)이에요.
+          학생 화면에는 보이지 않고, 「결과 보기」에서 학생이 스스로 답한 것과 나란히 보여요.
+        </p>
+      </header>
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="관찰할 학생">
+        {rows.map((r) => {
+          const on = r.st.no === cur, has = !!r.note?.obs;
+          return (
+            <button key={r.st.no} role="radio" aria-checked={on} onClick={() => go(r.st.no)}
+              className={`min-h-11 rounded-full border px-3 text-sm font-bold ${on ? "border-leaf bg-leaf text-white" : has ? "border-leaf/40 bg-leaf-soft" : "border-line bg-card"}`}>
+              {has && !on && <span aria-hidden>✓ </span>}{who(r.st.no, r.answer?.at)}
+            </button>
+          );
+        })}
+      </div>
+      {row && (
+        <div className="space-y-3 rounded-2xl border-2 border-leaf/40 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-display text-xl">{who(row.st.no, row.answer?.at)}</h3>
+            {row.scores
+              ? DOMAINS.map((x, k) => <span key={x.key} className="text-xs"><span style={{ color: x.color }}>{x.name}</span> <Chip score={row.scores![k]} small /></span>)
+              : <span className="text-sm text-soft">학생 답은 아직 없어요(관찰은 먼저 할 수 있어요)</span>}
+          </div>
+          {row.note?.obs && (
+            <p className="text-sm">
+              <b>저장한 관찰</b> ({row.note.obs.mode === 32 ? "심층" : "간이"}):{" "}
+              {obsScores(row.note.obs).map((v, k) => <span key={k} className="mr-2 whitespace-nowrap">{DOMAINS[k].name} <Chip score={v} max={obsMax(row.note!.obs!)} small /> {v}/{obsMax(row.note!.obs!)}</span>)}
+            </p>
+          )}
+          <ObsBox key={`${round.id}_${row.st.no}`} round={round} no={row.st.no} obs={row.note?.obs ?? null} onSaved={onSaved}
+            sheet={{ memo: row.note?.memo ?? "", defaultMode, onMode: setDefaultMode, onNext: next ? () => go(next.st.no) : null }} />
+        </div>
+      )}
     </section>
   );
 }

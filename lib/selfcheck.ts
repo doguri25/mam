@@ -70,6 +70,7 @@ export interface SelfRound {
   title: string; // 학기 초 · 학기 말 · 선생님이 쓴 이름
   openedAt: string; // YYYY-MM-DD
   closedAt: string | null; // 닫으면 학생 화면에서 사라진다(보내 놓은 피드백을 아직 안 읽었으면 그것만 보인다)
+  teacherOnly?: boolean; // 학생 화면에 열지 않고 선생님 관찰 검사만 하려고 만든 회차(닫힌 채로 만든다 — 「학생 화면에도 열기」를 누르면 지운다)
   demo?: boolean;
 }
 export interface SelfAnswer {
