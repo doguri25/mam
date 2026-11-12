@@ -293,7 +293,7 @@ export function ownOnly<T>(xs: T[], students: Pick<Student, "no" | "since">[], n
   return by.size ? xs.filter((x) => ownBy(by.get(no(x)), at(x))) : xs;
 }
 
-// 위험 표현 조치 기록: 「살펴봤어요」를 누를 때와 그 뒤에 선생님이 한 일(선생님만 봄, AI에는 AI 도우미에 그 학생을 물을 때만)
+// 위험 표현 조치 기록: 「살펴봤어요」를 누를 때와 그 뒤에 선생님이 한 일(선생님만 봄, AI에 보내지 않음)
 export const RISK_ACTIONS = ["talk", "parent", "wee", "admin", "watch", "none"] as const;
 export type RiskActionKind = (typeof RISK_ACTIONS)[number];
 export const RISK_ACTION_KO: Record<RiskActionKind, string> = {
@@ -393,7 +393,7 @@ export interface Cheer {
   demo?: boolean; // 연습용 가짜 학생에게 쓴 것(메모도 같은 모양)
 }
 
-// 면담 메모: 교사만 본다. AI에는 선생님이 AI 도우미에 그 학생을 물을 때만 함께 간다(app/api/teacher/assist)
+// 면담 메모: 교사만 보고 AI에는 보내지 않는다
 export type Note = Cheer;
 
 // 말투: 기기 분석은 앞의 셋, Gemini는 넷 중 하나

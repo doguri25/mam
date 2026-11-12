@@ -1,11 +1,11 @@
 // 선생님 도우미(AI 챗봇): 물음에 맞춰 학생 기록·할 일·자료·위기 대응 안내를 모아 AI에 묻는다.
 // 학생은 번호·가명으로만 보낸다(실명은 선생님 기기에만 있고, 화면이 보내기 전에 번호로 바꾼다).
-// 면담 메모·위험 표현 조치 기록도 물은 학생 것만 보낸다(선생님이 고른 방식). 역량 진단의 선생님 메모는 보내지 않는다.
+// 면담 메모, 위험 표현 조치 기록, 역량 진단의 선생님 메모는 보내지 않는다(개인정보 안내·보호자 동의서의 약속).
 // 대화는 학급 저장소에 남기고 마지막으로 쓴 날부터 30일 지나면 지운다. 체험 반(여럿이 함께 씀)에는 남기지 않는다.
 import { NextResponse, type NextRequest } from "next/server";
 import { assistReply, inTime } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
-import { aiConfig, getPin, getRiskActions, getRiskDrafts, getRoster, getSelNotes, getSelfAnswers, getSelfRounds, getSettings, recordsFrom, recordsOf, riskyRecords, withOpenRisks } from "@/lib/data";
+import { aiConfig, getPin, getRiskDrafts, getRoster, getSelNotes, getSelfAnswers, getSelfRounds, getSettings, recordsFrom, recordsOf, riskyRecords, withOpenRisks } from "@/lib/data";
 import { addDays, today } from "@/lib/date";
 import { db, inSpace, isDemo } from "@/lib/db";
 import { clientIp, trialEditWait, waitText } from "@/lib/limit";
@@ -20,7 +20,7 @@ import {
   cleanAssist, cleanContacts, cleanDocText, cleanDue, cleanTitle, isClassWide, meansThis, mentionedNos, saysTodo, searchDocs, sortTodos, threadTitle, wantsTodo,
   type AppTodo, type ChatMsg, type ChatThread, type Contact, type DocKind, type DocMeta, type Todo,
 } from "@/lib/assist";
-import { RISK_ACTION_KO, ownBy, type Cheer, type Letter, type MoodRecord, type Note, type Reflect, type Student } from "@/lib/shared";
+import { ownBy, type Cheer, type Letter, type MoodRecord, type Reflect, type Student } from "@/lib/shared";
 
 export const maxDuration = 60;
 const BUDGET_MS = (maxDuration - 8) * 1000;
@@ -209,9 +209,9 @@ async function appTodos(): Promise<AppTodo[]> {
 async function studentBlock(s: Student, date: string): Promise<string> {
   const no = s.no;
   const own = (at?: string) => ownBy(s, at);
-  const [records, notes, cheers, sent, got, actions, rounds, answers, selNotes] = await Promise.all([
-    recordsOf(no), db().find<Note>("notes", "no", "==", no), db().find<Cheer>("cheers", "no", "==", no),
-    db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no), getRiskActions(),
+  const [records, cheers, sent, got, rounds, answers, selNotes] = await Promise.all([
+    recordsOf(no), db().find<Cheer>("cheers", "no", "==", no),
+    db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no),
     getSelfRounds(), getSelfAnswers(), getSelNotes(),
   ]);
   const from = addDays(date, -30);
@@ -225,10 +225,6 @@ async function studentBlock(s: Student, date: string): Promise<string> {
   const flags = watchFlags(recs, date).find((f) => f.no === no);
   if (flags) lines.push(`앱이 본 신호(최근 7일): ${flags.reasons.join(", ")}`);
   const mine = <T extends { createdAt: string }>(xs: T[]) => xs.filter((x) => own(x.createdAt)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const ns = mine(notes).slice(0, 8);
-  if (ns.length) lines.push("면담 메모(선생님만):", ...ns.map((n) => `- ${n.createdAt.slice(0, 10)} ${clip(n.text, 240)}`));
-  const acts = actions.filter((a) => a.no === no && own(a.recordDate || a.date)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8);
-  if (acts.length) lines.push("위험 표현 조치 기록:", ...acts.map((a) => `- ${a.date} ${a.kinds.map((k) => RISK_ACTION_KO[k]).join("·")}${a.note ? ` — ${clip(a.note, 160)}` : ""}`));
   const cs = mine(cheers).slice(0, 3);
   if (cs.length) lines.push(`보낸 응원 한마디: ${cs.map((c) => `${c.createdAt.slice(0, 10)} "${clip(c.text, 60)}"`).join(" / ")}`);
   const recent = (l: Letter) => l.createdAt.slice(0, 10) >= from;

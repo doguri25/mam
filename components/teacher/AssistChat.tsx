@@ -196,7 +196,7 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
         <button type="submit" disabled={busy || !text.trim()} className="btn-main min-h-12 shrink-0 px-4">보내기</button>
       </form>
       <p className="mt-2 text-xs text-soft">
-        AI 답은 틀릴 수 있어요. 위기 상황은 학교 절차와 담당자를 먼저 따라 주세요. 물은 학생의 기록(면담 메모·조치 기록 포함)이 번호·가명으로 AI에 가요.
+        AI 답은 틀릴 수 있어요. 위기 상황은 학교 절차와 담당자를 먼저 따라 주세요. 물은 학생의 마음 기록이 번호·가명으로 AI에 가요(면담 메모와 조치 기록은 보내지 않아요).
         {saved ? " 대화는 학급 저장소에 30일 동안 남아요." : " 체험 반에서는 대화를 남기지 않아요."}
       </p>
     </div>

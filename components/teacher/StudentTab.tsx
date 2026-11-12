@@ -260,7 +260,7 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
 
       {riskItems(risks).length > 0 && (
         <section className="card space-y-3">
-          <h3 className="font-display text-xl"><Doodle name="warning" /> 위험 표현과 조치 <span className="text-sm text-soft">(선생님만 · AI 도우미에 물을 때만 AI로 감)</span></h3>
+          <h3 className="font-display text-xl"><Doodle name="warning" /> 위험 표현과 조치 <span className="text-sm text-soft">(선생님만 · AI에 보내지 않음)</span></h3>
           {/* 살펴본 뒤에는 기록의 「살펴봄」도 바뀌므로 조치 기록만 바꾸지 않고 선생님 화면 전체를 새로 읽는다(메뉴의 빨간 수·마음 지도 알림·
               쪽지 탭의 조치 기록이 20초 동안 어긋나지 않게). 다시 읽으면 version이 바뀌어 이 학생 것도 다시 불러온다 */}
           <RiskHistory {...risks} today={data.today} nameOf={nameOf} onStale={reload}

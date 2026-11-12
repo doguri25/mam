@@ -85,7 +85,7 @@ export default function GuideTab() {
           <section className="rounded-2xl border border-line p-3">
             <h3 className="mb-1 font-bold"><Doodle name="lock" /> 지켜 주세요</h3>
             <ul className="list-disc pl-5">
-              <li>명단에는 가명, AI에는 번호·가명만 가요. 면담 메모·조치 기록은 AI 도우미에 그 학생을 물을 때만 함께 가요.</li>
+              <li>명단에는 가명, AI에는 가명만 가요. 면담 메모는 AI에 쓰이지 않아요.</li>
               <li>자리를 비울 때는 「잠그기」. 이 기기 휴대폰 알림을 계속 받을지 물어봐요. 비밀번호는 다른 사람과 나누지 않아요.</li>
               <li>말투(목소리 기운)는 참고일 뿐 감정을 단정하지 않아요.</li>
               <li>학년도가 끝나면 「설정」 → CSV 내보내기 후 「모두 지우기」.</li>
