@@ -17,7 +17,7 @@ import { CRISIS, crisisOf, crisisText, type CrisisId } from "@/lib/crisis";
 import { DOMAINS, levelOf, obsMax, obsScores, scoresOf, cleanSelfAnswers } from "@/lib/selfcheck";
 import {
   ASK_MAX, CHAT_DAYS, CHAT_MAX, DOC_CHARS, DOC_KINDS, DOC_MAX, DOC_TOTAL, GO_TABS, MSG_MAX, TODO_MAX,
-  cleanAssist, cleanContacts, cleanDocText, cleanDue, cleanTitle, isClassWide, meansThis, mentionedNos, searchDocs, sortTodos, threadTitle, wantsTodo,
+  cleanAssist, cleanContacts, cleanDocText, cleanDue, cleanTitle, isClassWide, meansThis, mentionedNos, saysTodo, searchDocs, sortTodos, threadTitle, wantsTodo,
   type AppTodo, type ChatMsg, type ChatThread, type Contact, type DocKind, type DocMeta, type Todo,
 } from "@/lib/assist";
 import { RISK_ACTION_KO, ownBy, type Cheer, type Letter, type MoodRecord, type Note, type Reflect, type Student } from "@/lib/shared";
@@ -336,6 +336,7 @@ async function ask(body: Record<string, unknown>) {
     return bad(late ? "대답을 만드는 데 시간이 너무 걸렸어요. 물음을 조금 짧게 해서 다시 해 주세요." : `대답을 만들지 못했어요: ${e instanceof Error ? e.message : e}`.slice(0, 300), late ? 504 : 502, { crisis });
   }
   if (!out.reply) return bad("AI 답이 비어 있어요. 다시 해 주세요.", 502, { crisis });
+  if (!saysTodo(text)) out.todos = [];
 
   const at = new Date().toISOString();
   const me: ChatMsg = { role: "me", text, at };

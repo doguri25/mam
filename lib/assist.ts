@@ -113,6 +113,8 @@ export function mentionedNos(text: string, students: { no: number; alias: string
 export const meansThis = (text: string) => /(이|그|요)\s?(학생|아이|친구)|얘|이\s?녀석|지금\s?보는/.test(text);
 export const isClassWide = (text: string) => /우리\s?반|반\s?(아이|애|학생|전체|분위기)|학생들|아이들|누가|누구|전체\s?(학생|적)|요즘\s?반|학급\s?(분위기|전체)|살펴볼\s?학생/.test(text);
 export const wantsTodo = (text: string) => /할\s?일|업무|해야|마감|일정|언제까지|챙길|잊지|오늘\s?(뭐|무엇)|이번\s?주/.test(text);
+// 선생님이 할 일·마감을 말했을 때만 「할 일로 적어 둘까요?」를 띄운다(AI가 앱이 찾은 일을 그대로 다시 권하지 않게)
+export const saysTodo = (text: string) => /까지|마감|제출|챙겨|적어\s?(둬|줘|놔)|기억해|할\s?일에|잊지|\d+\s?월\s?\d+\s?일|다음\s?주|내일|모레/.test(text);
 
 // ── 앱이 찾은 할 일 ──
 export interface AppTodo { key: string; text: string; tab: GoTab; no?: number; urgent?: boolean }

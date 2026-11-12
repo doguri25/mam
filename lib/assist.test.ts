@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { KB, searchKb } from "./kb.ts";
 import { CRISIS, crisisOf, crisisText } from "./crisis.ts";
-import { chunks, cleanAssist, cleanContacts, cleanDocText, dueLabel, hideNames, isClassWide, mentionedNos, searchDocs, sortTodos, type DocMeta, type Todo } from "./assist.ts";
+import { chunks, cleanAssist, saysTodo, cleanContacts, cleanDocText, dueLabel, hideNames, isClassWide, mentionedNos, searchDocs, sortTodos, type DocMeta, type Todo } from "./assist.ts";
 
 test("기본 자료 찾기: 물음에 맞는 카드가 먼저", () => {
   assert.equal(searchKb("3학년 사회정서 성취기준 알려줘")[0].id, "sel-std34");
@@ -76,5 +76,7 @@ test("할 일: 마치지 않은 일·이른 마감 먼저, 남은 날 글", () =
   assert.deepEqual(sortTodos([t("c", ""), t("a", "2026-11-20"), t("d", "2026-11-01", true), t("b", "2026-11-13")]).map((x) => x.id), ["b", "a", "c", "d"]);
   assert.deepEqual(dueLabel("2026-11-10", "2026-11-12"), { text: "2일 지남", late: true });
   assert.equal(dueLabel("2026-11-13", "2026-11-12").text, "내일");
+  assert.ok(saysTodo("다음 주 금요일까지 결과 보고 내야 해"));
+  assert.ok(!saysTodo("3번 학생 요즘 어때?"));
   assert.deepEqual(cleanContacts([{ label: "Wee클래스", num: "041-000-0000" }, { label: "", num: "1" }, null]), [{ label: "Wee클래스", num: "041-000-0000" }]);
 });
