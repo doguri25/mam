@@ -96,7 +96,7 @@ function kicked() {
   }
 }
 
-export async function api<T = Record<string, unknown>>(who: "student" | "teacher" | "try", action: string, body: Record<string, unknown> = {}, opt: ApiOpts = {}): Promise<T> {
+export async function api<T = Record<string, unknown>>(who: "student" | "teacher" | "teacher/assist" | "try", action: string, body: Record<string, unknown> = {}, opt: ApiOpts = {}): Promise<T> {
   const student = who === "student";
   if (student && left) throw otherError();
   // 쫓겨난 탭에서 브라우저 뒤로 가기로 학생 화면(/me)을 다시 열면, 새로 읽는 me는 지금 이 기기에 들어온 다른 친구다.

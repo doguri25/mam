@@ -165,7 +165,7 @@ export async function eachPage(file: File, longSide: number, max: number, each: 
   }
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-  const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
+  const task = pdfjs.getDocument({ data: await file.arrayBuffer(), cMapUrl: "/pdfjs-cmaps/", cMapPacked: true });
   const doc = await task.promise;
   const total = Math.min(doc.numPages, max);
   for (let i = 1; i <= total; i++) {
@@ -197,7 +197,7 @@ export async function fileToCanvases(file: File, longSide: number, max = 80, onP
   }
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-  const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
+  const task = pdfjs.getDocument({ data: await file.arrayBuffer(), cMapUrl: "/pdfjs-cmaps/", cMapPacked: true });
   const doc = await task.promise;
   const total = Math.min(doc.numPages, max);
   const pages: HTMLCanvasElement[] = [];

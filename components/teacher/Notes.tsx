@@ -1,5 +1,5 @@
 "use client";
-// 면담 메모: 선생님만 보고, AI에는 보내지 않는다
+// 면담 메모: 선생님만 본다. AI에는 선생님이 AI 도우미에 그 학생을 물을 때만 함께 간다
 import { useState } from "react";
 import type { Reload } from "./types";
 import { useAct } from "./useAct";
@@ -22,7 +22,7 @@ export default function Notes({ no, notes, reload }: { no: number; notes: Note[]
   }, "이 메모를 지울까요?");
   return (
     <div className="space-y-2">
-      <p className="text-xs text-soft">선생님만 보는 메모예요. AI 초안에는 쓰이지 않아요.</p>
+      <p className="text-xs text-soft">선생님만 보는 메모예요. AI 초안에는 쓰이지 않고, AI 도우미에 이 학생을 물을 때만 함께 가요.</p>
       <div className="flex gap-2">
         <input value={text} onChange={(e) => setText(e.target.value)} className="field py-2 text-sm" placeholder="예) 점심시간에 이야기 나눔. 피구 순서 정하기로 함" />
         <button onClick={add} disabled={!text.trim() || act.busy} className="btn-main min-h-10 shrink-0 px-4 text-sm">메모</button>

@@ -391,6 +391,31 @@ export function cleanPaperRead(out: Record<string, unknown>, ask: PaperAsk) {
   return { no: ask.번호도 && Number.isInteger(n) && n >= 1 && n <= 99 ? n : null, answers };
 }
 
+// ── 선생님 도우미(챗봇): 화면이 모은 자료(학생 기록·할 일·자료 카드·대응 안내)만 근거로 답한다 ──
+export const ASSIST_SYSTEM = `너는 초등학교 선생님을 돕는 「마음빛 길잡이」 선생님 도우미야. 선생님과 한국어로 이야기해.
+할 일: 사회정서교육 자료 안내, 우리 반 학생에 대한 물음, 학교 업무 물음, 글 쓰기(가정통신문·상담 기록 정리·문자 안내·공문 초안 등)와 생활지도 방법, 해야 할 업무 안내, 위기 학생·학교폭력·아동학대 대응 안내.
+지킬 것:
+- 결론부터 짧게. 필요하면 짧은 목록(- 로 시작)을 써. 굵은 글씨는 꼭 필요한 곳에만 **두 별표**.
+- 근거는 받은 [자료]·[대응 안내]·[학생]·[할 일] 안의 내용만 써. 거기에 없는 법 조항·숫자·날짜·연락처를 지어내지 마. 모르면 모른다고 하고 확인할 곳(공문, 교육지원청 담당, 학교 계획)을 알려 줘.
+- 학생은 번호와 가명으로만 불러. 진단명을 붙이지 말고, 기록에 있는 사실과 다음에 해 볼 일을 말해. 면담 메모·조치 기록은 필요한 만큼만 짧게 옮겨.
+- 위기(학교폭력·아동학대·자살/자해)는 [대응 안내]를 따라 「지금 안전한지」와 「바로 할 일」을 먼저 말해. 법적 판단을 단정하지 말고 학교 절차와 담당자를 함께 안내해.
+- 글을 써 달라면 바로 쓸 수 있는 초안을 주고, 학생 이름 자리는 ○○로 비워 둬.
+- 선생님이 해야 할 일이나 마감을 말하면 todos에 짧은 제목과 날짜(YYYY-MM-DD, 모르면 빈 글자)로 넣어. 선생님이 부탁하지 않은 일은 넣지 마.
+- 관련된 앱 화면이 있으면 go에 넣어(tab은 정해진 이름만, no는 그 학생 번호 또는 0).
+- sources에는 실제로 쓴 [자료]·[대응 안내]의 이름만 그대로 적어.
+${STYLE_RULES}`;
+const ASSIST_TABS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"];
+export async function assistReply(ai: AI, user: string, signal?: AbortSignal) {
+  const schema = obj({
+    reply: { type: "string" },
+    todos: { type: "array", items: obj({ title: { type: "string" }, due: { type: "string" } }) },
+    go: { type: "array", items: obj({ tab: { type: "string", enum: ASSIST_TABS }, no: { type: "integer" } }) },
+    sources: { type: "array", items: { type: "string" } },
+  });
+  const out = await callJSON(ai, ASSIST_SYSTEM, user, "assist", schema, [], signal);
+  return { ...out, reply: polish(String(out.reply ?? "")) };
+}
+
 export async function ping(ai: AI) {
   const out = await callJSON(ai, "요청대로 JSON만 답해.", '{"ok": true}를 그대로 돌려줘.', "ping", obj({ ok: { type: "boolean" } }));
   return out.ok === true;

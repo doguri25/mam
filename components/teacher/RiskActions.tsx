@@ -1,6 +1,6 @@
 "use client";
 // 위험 표현 조치 기록: 「살펴봤어요」 때 한 일(여럿 고름)·한 날·짧은 메모를 남기고, 그 뒤에 더 한 일도 같은 기록에 이어 적는다.
-// 선생님만 보고 AI에는 보내지 않는다. 학생별 누적 기록·상담 의견서·주간 리포트에 함께 보인다.
+// 선생님만 본다(AI에는 선생님이 AI 도우미에 그 학생을 물을 때만 함께 감). 학생별 누적 기록·상담 의견서·주간 리포트에 함께 보인다.
 // 살펴보는 것: 마음 기록 · 마치지 않은 기록(draft:) · 한 주 돌아보기(reflect:) · 공감 쪽지(letter:)
 import { useState } from "react";
 import Doodle from "../Doodle";
@@ -140,7 +140,7 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, init,
           <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} className="field mt-1 min-h-10 py-1.5" />
         </label>
         <label className="text-sm">
-          <span className="text-soft">메모 (선생님만 봐요 · AI에는 보내지 않아요)</span>
+          <span className="text-soft">메모 (선생님만 봐요 · AI 도우미에 이 학생을 물을 때만 함께 가요)</span>
           <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} rows={2} className="field mt-1" placeholder="예: 쉬는 시간에 따로 이야기 나눔. 집에서도 지켜보기로 보호자와 약속" />
         </label>
       </div>

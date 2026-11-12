@@ -265,7 +265,7 @@ async function handle(req: NextRequest) {
       });
     }
 
-    // 면담 메모: 교사만 보고 AI에는 보내지 않는다
+    // 면담 메모: 교사만 본다(AI에는 AI 도우미에 그 학생을 물을 때만 — app/api/teacher/assist)
     if (body.action === "note") {
       const text = String(body.text ?? "").trim().slice(0, 1000);
       if (!text) return bad("메모가 비어 있어요.");

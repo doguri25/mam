@@ -17,25 +17,28 @@ import SheetTab from "@/components/teacher/SheetTab";
 import StudentTab from "@/components/teacher/StudentTab";
 import RosterTab from "@/components/teacher/RosterTab";
 import SettingsTab from "@/components/teacher/SettingsTab";
+import { AssistTab } from "@/components/teacher/AssistTab";
+import { AssistChat } from "@/components/teacher/AssistChat";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
 import { riskAlertCount } from "@/components/teacher/alerts";
 import { useAct } from "@/components/teacher/useAct";
 import { whileRosterChanges } from "@/components/teacher/rosterBusy";
 import { api } from "@/lib/api";
 import { addDays, today as kToday } from "@/lib/date";
-import { useLocal, useNames } from "@/lib/local";
+import { parseNames, useLocal, useNames } from "@/lib/local";
+import type { Go } from "@/lib/assist";
 import { absentStudents, watchFlags } from "@/lib/rules";
 import { formerAt, ownOnly, type MoodRecord } from "@/lib/shared";
 
 // 메뉴 묶음: [탭, 그림, 이름]. 세로 화면에서도 한눈에 다 보이게 모두 펼쳐 둔다.
 const NAV: { title: string; items: [Tab, DoodleName, string][] }[] = [
-  { title: "오늘", items: [["map", "map", "마음 지도"]] },
+  { title: "오늘", items: [["map", "map", "마음 지도"], ["assist", "sparkle", "AI 도우미"]] },
   { title: "아이 돌보기", items: [["cheer", "letter", "응원 한마디"], ["letters", "envelope", "공감 쪽지"], ["referral", "memo", "상담 의견서"]] },
   { title: "기록·소통", items: [["student", "notebook", "학생별 누적 기록"], ["sel", "compass", "학급 역량 진단"], ["report", "page", "주간 리포트"], ["home", "house", "가정 소식지"]] },
   { title: "수업", items: [["lesson", "books", "교과서 연결"], ["sheet", "crayon", "활동지 피드백"]] },
   { title: "관리", items: [["roster", "key", "학생 코드·QR"], ["settings", "gear", "설정"], ["guide", "book", "사용 설명서"]] },
 ];
-const TAB_IDS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
+const TAB_IDS = ["map", "assist", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
 // 교사 기기에 최근 기록을 저장해 두고, 다음에 열 때는 그 뒤에 바뀐 기록만 받는다(Firestore 읽기 줄이기). 잠그면 지운다.
@@ -83,6 +86,9 @@ export default function TeacherPage() {
     window.scrollTo(0, 0);
   };
   const [cheerNo, setCheerNo] = useState<number | null>(null);
+  // 오른쪽 아래 「AI 도우미」: 한 번 연 뒤에는 닫아도 대화가 남게 숨기기만 한다
+  const [fab, setFab] = useState(false);
+  const [fabUsed, setFabUsed] = useState(false);
   // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(역량 진단·누적 기록)도 다시 불러온다
   const [version, setVersion] = useState(0);
   const demoAct = useAct(); // 위 띠의 「연습 데이터 지우기」(두 번 눌림·실패 알림)
@@ -312,6 +318,12 @@ export default function TeacherPage() {
     if (former !== null) return former ? `앞 학생 ${former}` : "앞 학생";
     return names.name(no, s?.alias ?? "(명단에 없음)");
   };
+  const nameMap = parseNames(names.raw); // 도우미가 보내기 전에 실명을 번호로 바꿀 때만 쓴다
+  const go = (g: Go) => {
+    if (g.no) setCheerNo(g.no);
+    setFab(false);
+    setTab(g.tab as Tab);
+  };
 
   const clearDemo = () => demoAct.run("연습 데이터를 지우지 못했어요", async () => {
     await whileRosterChanges(() => api("teacher", "demo", { mode: "clearDemo" })); // 그동안 「명단 저장」은 막는다
@@ -453,7 +465,28 @@ export default function TeacherPage() {
           {tab === "roster" && <RosterTab data={data} reload={load} />}
           {tab === "settings" && <SettingsTab data={data} reload={load} onAlerts={() => setTab("map")} />}
           {tab === "guide" && <GuideTab />}
+          {tab === "assist" && <AssistTab data={data} ctx={{ tab, no: cheerNo }} names={nameMap} onGo={go} />}
         </main>
+        {tab !== "assist" && (
+          <>
+            <button
+              onClick={() => { setFab(true); setFabUsed(true); }}
+              className="no-print fixed bottom-4 right-4 z-30 inline-flex min-h-14 items-center gap-2 rounded-full bg-leaf px-4 font-bold text-white shadow-lg hover:brightness-110 sm:bottom-6 sm:right-6"
+              aria-label="AI 도우미 열기"
+              hidden={fab}
+            >
+              <Doodle name="sparkle" size={28} /><span className="hidden sm:inline">AI 도우미</span>
+            </button>
+            {fabUsed && (
+              <div hidden={!fab} className="no-print fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="AI 도우미">
+                <button className="absolute inset-0 hidden bg-black/30 sm:block" aria-label="AI 도우미 닫기" onClick={() => setFab(false)} />
+                <aside className="absolute inset-0 flex flex-col bg-card p-4 sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[460px] sm:border-l sm:border-line sm:shadow-xl">
+                  <AssistChat compact data={data} ctx={{ tab, no: cheerNo }} names={nameMap} onGo={go} onClose={() => setFab(false)} />
+                </aside>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
