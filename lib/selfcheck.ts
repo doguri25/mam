@@ -79,6 +79,7 @@ export interface SelfAnswer {
   no: number;
   answers: number[]; // 32개, 1~5
   at: string;
+  src?: "paper"; // 종이 검사지를 스캔하거나 선생님이 옮겨 넣은 답(없으면 학생이 화면에서 냄)
   demo?: boolean;
 }
 // 선생님 관찰(간이 16 · 심층 32문항, 5단계)

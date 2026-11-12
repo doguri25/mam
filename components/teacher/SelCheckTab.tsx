@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import SelStudent, { Delta, ObsBox, type SelRow } from "./SelStudent";
+import SelPaper from "./SelPaper";
 import type { NameOf, Overview } from "./types";
 import { api } from "@/lib/api";
 import { label, today as todayOf } from "@/lib/date";
@@ -40,7 +41,7 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
   const [sure, setSure] = useState<string | null>(null); // 지우기 한 번 더 묻기
   const [hide, setHide] = useState(false);
   const [pick, setPick] = useState<number | null>(null); // 자세히 보는 학생 번호
-  const [mode, setMode] = useState<"result" | "obs">("result"); // 결과 보기 · 선생님 관찰 검사
+  const [mode, setMode] = useState<"result" | "obs" | "paper">("result"); // 결과 보기 · 선생님 관찰 검사 · 서면 검사
   const first = useRef(true); // 처음 불러올 때만 볼 회차·견줄 회차를 골라 준다
   const detail = useRef<HTMLDivElement>(null);
 
@@ -137,8 +138,8 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
       </section>
 
       {/* 결과 보기 · 선생님 관찰 검사(원래 앱의 「교사 관찰 체크」를 따로 한 화면으로) */}
-      <div className="no-print grid grid-cols-2 gap-2 rounded-2xl bg-[#f1eee7] p-1.5" role="tablist" aria-label="학급 역량 진단 보기">
-        {([["result", "chart", "결과 보기", "학생이 답한 결과 · 지도 가이드 · 보낼 말"], ["obs", "eyes", "선생님 관찰 검사", `간이 16 · 심층 32문항${round ? ` · ${rows.filter((r) => r.note?.obs).length}/${rows.length}명 관찰` : ""}`]] as const).map(([id, icon, name, sub]) => (
+      <div className="no-print grid gap-2 rounded-2xl bg-[#f1eee7] p-1.5 sm:grid-cols-3" role="tablist" aria-label="학급 역량 진단 보기">
+        {([["result", "chart", "결과 보기", "학생이 답한 결과 · 지도 가이드 · 보낼 말"], ["obs", "eyes", "선생님 관찰 검사", `간이 16 · 심층 32문항${round ? ` · ${rows.filter((r) => r.note?.obs).length}/${rows.length}명 관찰` : ""}`], ["paper", "printer", "서면 검사", "검사지 인쇄 · 스캔본 자동 기록 · 점수 표"]] as const).map(([id, icon, name, sub]) => (
           <button key={id} role="tab" aria-selected={mode === id} onClick={() => setMode(id)}
             className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-3 py-2 text-left transition ${mode === id ? "bg-card shadow-sm ring-1 ring-line" : "text-soft hover:bg-card/60"}`}>
             <Doodle name={icon} size={30} />
@@ -178,6 +179,8 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
         <div className="card text-soft">
           {mode === "obs" ? "관찰을 적을 회차가 필요해요. 위에서 회차 이름을 쓰고 「선생님 관찰만 하기」를 누르면 학생 화면에 열지 않고 회차를 만들어요." : "아직 회차가 없어요. 위에서 「학기 초」 회차를 열어 보세요."}
         </div>
+      ) : mode === "paper" ? (
+        <SelPaper round={round} rows={rows} data={data} who={who} onData={setD} />
       ) : mode === "obs" ? (
         <ObsSheet round={round} rows={rows} who={who} onSaved={onSaved} />
       ) : (
@@ -292,7 +295,7 @@ function StudentTable({ rows, base, who, pick, onPick }: { rows: SelRow[]; base:
                     {who(r.st.no, r.answer?.at)}
                     {r.note?.memo?.trim() && <span className="ml-1" title="선생님 메모 있음"><Doodle name="memo" size={18} /></span>}
                   </button>
-                  {!r.answer && r.scores && <span className="ml-1 text-xs text-soft">종이</span>}
+                  {(r.answer?.src === "paper" || (!r.answer && r.scores)) && <span className="ml-1 text-xs text-soft">종이</span>}
                 </td>
                 {show === "obs" ? (r.note?.obs ? obsScores(r.note.obs).map((v, i) => (
                   <td key={i} className="px-1"><Chip score={v} max={obsMax(r.note!.obs!)} /> <span className="text-xs">{v}/{obsMax(r.note!.obs!)}</span></td>
@@ -373,7 +376,7 @@ function downloadCsv(round: SelfRound, rows: SelRow[]) {
   const body = rows.filter((r) => r.scores || r.note?.obs).map((r): (string | number)[] => {
     const o = r.note?.obs ? obsScores(r.note.obs) : null;
     return [
-      r.st.no, r.st.alias, r.answer ? "화면" : r.scores ? "종이" : "",
+      r.st.no, r.st.alias, r.answer ? (r.answer.src === "paper" ? "종이(32문장)" : "화면") : r.scores ? "종이(영역 점수)" : "",
       ...DOMAINS.flatMap((_, i): (string | number)[] => (r.scores ? [r.scores[i], levelOf(r.scores[i]).name] : ["", ""])),
       r.note?.obs ? `${r.note.obs.mode === 32 ? "심층" : "간이"}(영역 만점 ${obsMax(r.note.obs)})` : "",
       ...DOMAINS.map((_, i) => (o ? o[i] : "")),

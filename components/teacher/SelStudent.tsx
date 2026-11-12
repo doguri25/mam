@@ -46,7 +46,7 @@ export default function SelStudent({ round, base, row, who, onSaved, onClose, on
         <div>
           <h3 id="sel-who" className="font-display text-2xl">{who} · 「{round.title}」</h3>
           <p className="text-sm text-soft">
-            {answer ? `학생 화면에서 답함 · ${when(answer.at)}` : scores ? "종이 검사 점수(선생님이 넣음)" : "아직 답하지 않았어요 · 관찰이나 종이 검사 점수를 먼저 넣을 수 있어요"}
+            {answer ? `${answer.src === "paper" ? "종이 검사지 32문장(스캔·옮겨 넣음)" : "학생 화면에서 답함"} · ${when(answer.at)}` : scores ? "종이 검사 점수(선생님이 넣음)" : "아직 답하지 않았어요 · 관찰이나 종이 검사 점수를 먼저 넣을 수 있어요"}
           </p>
         </div>
         <div className="no-print flex gap-2">

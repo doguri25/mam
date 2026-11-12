@@ -1,7 +1,7 @@
 // AI 답 읽기: 울타리·잘린 JSON·null 항목·영어 오류를 견디고, 되묻기 질문과 보기는 같은 곳에서
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { BAD_JSON, aiError, callJSON, cleanLesson, cleanSheet, cleanWeekly, docError, extractJSON, inTime, parseJSON, reflectReply, shape, type AI } from "./ai.ts";
+import { BAD_JSON, aiError, callJSON, cleanLesson, cleanPaperRead, cleanSheet, cleanWeekly, docError, extractJSON, inTime, parseJSON, reflectReply, shape, type AI } from "./ai.ts";
 import { SKIP, fallbackFor } from "./i18n.ts";
 
 test("JSON 꺼내기: 울타리·앞뒤 설명 글을 걷어 내고 가장 바깥 객체를", () => {
@@ -141,4 +141,13 @@ test("AI 오류는 선생님이 읽을 한국어로", async (t) => {
   await assert.rejects(callJSON(AI_UP, "s", "u", "n", {}), /키가 맞지 않아요/);
   fakeChat('{"a": [1, 2');
   await assert.rejects(callJSON(AI_UP, "s", "u", "n", {}), { message: BAD_JSON });
+});
+
+test("종이 검사지 읽기: 물은 문장의 1~5만, 번호는 물었을 때만", () => {
+  const ask = { 읽을문장: [{ 번호: 3, 글: "가" }, { 번호: 17, 글: "나" }], 번호도: false };
+  const out = { no: 12, answers: [{ item: 3, value: 4 }, { item: 17, value: 6 }, { item: 5, value: 2 }, { item: "17", value: "2" }, null] };
+  assert.deepEqual(cleanPaperRead(out, ask), { no: null, answers: { 3: 4, 17: 2 } });
+  assert.equal(cleanPaperRead({ no: 12, answers: [] }, { ...ask, 번호도: true }).no, 12);
+  assert.equal(cleanPaperRead({ no: 0 }, { ...ask, 번호도: true }).no, null);
+  assert.equal(cleanPaperRead({ no: "열둘" }, { ...ask, 번호도: true }).no, null);
 });

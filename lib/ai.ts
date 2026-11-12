@@ -367,6 +367,30 @@ export async function selFeedback(ai: AI, input: SelDraftInput) {
   return { drafts, warns: drafts.map((d) => (d.match(SEL_LEAK) ?? []).join(", ")), styles: drafts.map((d) => styleHits(d)) };
 }
 
+// ── 서면 검사지 읽기: 기기가 확신하지 못한 문장의 체크 칸, 빈 검사지의 손글씨 번호(이름 등 다른 글은 옮기지 않음) ──
+const PAPER_SYSTEM = `너는 초등학교 선생님이 학생이 손으로 표시한 종이 검사지를 옮겨 적도록 돕는 도우미야.
+검사지는 문장마다 다섯 칸(1 전혀 그렇지 않아요 · 2 그렇지 않아요 · 3 보통이에요 · 4 그래요 · 5 매우 그래요) 가운데 하나에 학생이 ✔·○·×·색칠 같은 표시를 한 것이야.
+- 받은 「읽을문장」(문장 번호와 글)마다 학생이 표시한 칸을 1~5로 적어. 표시가 없거나, 두 칸 이상이라 고를 수 없거나, 알아볼 수 없으면 0.
+- 「번호도」가 true면 검사지의 번호 칸(손글씨)이나 찍힌 번호를 숫자로 적고, 알아볼 수 없으면 0.
+- 보이는 것만 옮겨. 짐작해서 채우지 말고, 이름 같은 다른 글은 옮기지 마.`;
+export interface PaperAsk { 읽을문장: { 번호: number; 글: string }[]; 번호도: boolean }
+export async function readPaper(ai: AI, ask: PaperAsk, images: string[], parsed?: string, signal?: AbortSignal) {
+  const schema = obj({ no: { type: "integer" }, answers: { type: "array", items: obj({ item: { type: "integer" }, value: { type: "integer" } }) } });
+  const system = PAPER_SYSTEM + (parsed ? "\n- 그림 대신 검사지를 글로 읽은 결과(마크다운)가 온다. 표의 칸에 남은 ✔·V·O·● 같은 글자로 표시를 판단해." : "");
+  const out = await callJSON(ai, system, JSON.stringify({ ...ask, ...(parsed ? { 검사지글: parsed.slice(0, 12000) } : {}) }), "paper", schema, parsed ? [] : images, signal);
+  return cleanPaperRead(out, ask);
+}
+export function cleanPaperRead(out: Record<string, unknown>, ask: PaperAsk) {
+  const want = new Set(ask.읽을문장.map((x) => x.번호));
+  const answers: Record<number, number> = {};
+  for (const a of objs(out.answers)) {
+    const i = Number(a.item), v = Number(a.value);
+    if (want.has(i) && Number.isInteger(v) && v >= 1 && v <= 5) answers[i] = v;
+  }
+  const n = Number(out.no);
+  return { no: ask.번호도 && Number.isInteger(n) && n >= 1 && n <= 99 ? n : null, answers };
+}
+
 export async function ping(ai: AI) {
   const out = await callJSON(ai, "요청대로 JSON만 답해.", '{"ok": true}를 그대로 돌려줘.', "ping", obj({ ok: { type: "boolean" } }));
   return out.ok === true;

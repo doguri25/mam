@@ -17,7 +17,7 @@ import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
 import { DOMAINS, SELF_ITEMS, cleanObs, cleanPaper, cleanSelfAnswers, levelOf, obsMax, obsScores, scoresOf, selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "@/lib/selfcheck";
 import { cutoffOf, isRetention } from "@/lib/retention";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, ownBy, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, ownBy, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun, type Student } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
@@ -47,7 +47,7 @@ const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush
 // (아래 handle의 쓰는 일 이름과 하나하나 맞춘 목록 — 「demo」는 resetWait로 따로 막는다)
 const TRIAL_WRITES = new Set([
   "roster", "newCode", "settings", "note", "deleteNote", "saveCheer", "checkFlag", "checkAlert", "riskAction", "riskActionDelete", "letterCheck", "consent",
-  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selNote", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly",
+  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selNote", "selPaperSave", "selPaperScores", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly",
 ]);
 const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
@@ -659,6 +659,44 @@ async function handle(req: NextRequest) {
       const note = await editSelNote(round, st, patch);
       await touch("other");
       return NextResponse.json({ note });
+    }
+    // 서면 검사: 스캔해서 읽거나 옮겨 넣은 32문장 답을 학생 답으로 저장(src: paper). 학생이 화면에서 이미 낸 답은 overwrite일 때만 덮는다.
+    if (body.action === "selPaperSave") {
+      const round = String(body.round ?? "");
+      if (!(await getSelfRounds()).some((r) => r.id === round)) return bad("회차를 찾지 못했어요. 다른 기기에서 지웠을 수 있어요.", 404);
+      const items = Array.isArray(body.items) ? body.items.slice(0, 60) : [];
+      const roster = await getRoster();
+      const saved: number[] = [], kept: number[] = [];
+      const at = new Date().toISOString();
+      for (const it of items) {
+        const st = roster.find((x) => x.no === Number(it?.no));
+        const answers = cleanSelfAnswers(it?.answers);
+        if (!st || !answers) return bad("번호와 32문장 답을 모두 확인해 주세요.");
+        const id = selfDocId(round, st.no);
+        const cur = await db().get<SelfAnswer>("meta", id);
+        if (cur && ownBy(st, cur.at) && cur.src !== "paper" && body.overwrite !== true) { kept.push(st.no); continue; }
+        await db().set("meta", id, { kind: "selfAnswer", round, no: st.no, answers, at, src: "paper", ...(isDemo() || st.demo ? { demo: true } : {}) });
+        saved.push(st.no);
+      }
+      if (saved.length) await touch("other");
+      return NextResponse.json({ saved, kept, ...(await selfAll()) });
+    }
+    // 서면 검사 영역 점수(8~40 네 개)를 반 전체 한 표로: 바뀐 학생만 보낸다(null이면 지움)
+    if (body.action === "selPaperScores") {
+      const round = String(body.round ?? "");
+      if (!(await getSelfRounds()).some((r) => r.id === round)) return bad("회차를 찾지 못했어요. 다른 기기에서 지웠을 수 있어요.", 404);
+      const items = Array.isArray(body.items) ? body.items.slice(0, 60) : [];
+      const roster = await getRoster();
+      const todo: [Student, number[] | null][] = [];
+      for (const it of items) {
+        const st = roster.find((x) => x.no === Number(it?.no));
+        const p = it?.paper === null ? null : cleanPaper(it?.paper);
+        if (!st || (it?.paper !== null && !p)) return bad(`${Number(it?.no) || ""}번: 영역마다 8~40점 사이로 넣어 주세요.`);
+        todo.push([st, p]);
+      }
+      for (const [st, paper] of todo) await editSelNote(round, st, { paper });
+      if (todo.length) await touch("other");
+      return NextResponse.json(await selfAll());
     }
     // 피드백 초안(AI): 영역별 수준과 학생이 고른 문장만 보낸다 — 이름·번호·선생님 메모는 보내지 않는다
     if (body.action === "selDraft") {
