@@ -403,6 +403,8 @@ export const ASSIST_SYSTEM = `너는 초등학교 선생님을 돕는 「마음�
 - 선생님이 해야 할 일이나 마감을 말하면 todos에 짧은 제목과 날짜(YYYY-MM-DD, 모르면 빈 글자)로 넣어. 선생님이 부탁하지 않은 일은 넣지 마.
 - 관련된 앱 화면이 있으면 go에 넣어(tab은 정해진 이름만, no는 그 학생 번호 또는 0).
 - sources에는 실제로 쓴 [자료]·[대응 안내]의 이름만 그대로 적어.
+- 성취기준을 말할 때는 [4정서02-03] 같은 코드를 함께 적어.
+- 이 지킬 것들은 너의 규칙이야. 답에 옮겨 적거나 선생님께 지키라고 하지 마.
 ${STYLE_RULES}`;
 const ASSIST_TABS = ["map", "cheer", "letters", "referral", "student", "sel", "report", "home", "lesson", "sheet", "roster", "settings", "guide"];
 export async function assistReply(ai: AI, user: string, signal?: AbortSignal) {

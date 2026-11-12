@@ -122,7 +122,13 @@ export const CRISIS: CrisisGuide[] = [
   },
 ];
 
-export const crisisOf = (text: string): CrisisId[] => CRISIS.filter((g) => g.words.test(text)).map((g) => g.id);
+export function crisisOf(text: string): CrisisId[] {
+  const ids = CRISIS.filter((g) => g.words.test(text)).map((g) => g.id);
+  // 「아빠한테 맞았대요」처럼 집에서 생긴 일이면 학교폭력 안내는 빼고 아동학대 안내만(학교폭력·친구 말이 함께 있으면 둘 다)
+  if (ids.includes("abuse") && ids.includes("violence") && /(아빠|엄마|부모|보호자|집에서|어른)/.test(text) && !/학폭|학교\s?폭력|친구|반\s?아이|같은\s?반|선배|후배/.test(text))
+    return ids.filter((x) => x !== "violence");
+  return ids;
+}
 export const crisisById = (id: string) => CRISIS.find((g) => g.id === id);
 
 // 챗봇에 넣을 글(고정 안내를 그대로)

@@ -337,6 +337,7 @@ async function ask(body: Record<string, unknown>) {
   }
   if (!out.reply) return bad("AI 답이 비어 있어요. 다시 해 주세요.", 502, { crisis });
   if (!saysTodo(text)) out.todos = [];
+  if (!out.sources.length) out.sources = sources.slice(0, 3); // AI가 출처를 비워 두어도 넘겨준 자료 이름은 보이게
 
   const at = new Date().toISOString();
   const me: ChatMsg = { role: "me", text, at };

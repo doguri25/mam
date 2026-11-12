@@ -19,6 +19,8 @@ test("위기 안내 고르기: 학교폭력·아동학대·자살 위험 말에 
   assert.deepEqual(crisisOf("우리 반 아이가 단체방에서 따돌림을 당한대요"), ["violence"]);
   assert.deepEqual(crisisOf("아이 몸에 멍이 자주 보여요. 학대가 의심돼요"), ["abuse"]);
   assert.deepEqual(crisisOf("학생이 죽고 싶다고 썼어요"), ["suicide"]);
+  assert.deepEqual(crisisOf("아이가 아빠한테 맞았다고 했어. 몸에 멍도 있어"), ["abuse"]);
+  assert.deepEqual(crisisOf("친구한테 맞았대요"), ["violence"]);
   assert.deepEqual(crisisOf("마음의 상처를 다루는 수업 아이디어"), []);
   assert.deepEqual(crisisOf("가정통신문 써 줘"), []);
   assert.deepEqual(crisisOf("학교폭력예방 교육주간 결과 보고는 언제까지야?"), []); // 업무 물음
