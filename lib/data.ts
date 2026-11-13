@@ -1,12 +1,12 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
-import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
+import { decrypt, isTeacher, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { addDays, monday, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import { selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, ownBy, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { CONTACT_EMAIL, DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, ownBy, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 import { riskSrcOf } from "../components/teacher/alerts.ts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 
 export interface Settings {
@@ -77,9 +77,13 @@ export async function rosterIsDemo() {
 interface CodeRow { id: string; space: string; no: number }
 export async function saveRoster(students: Student[], demo = false) {
   const sp = spaceId();
-  const index = await outOfSpace(() => db().all<CodeRow>("codes"));
+  // 코드 색인과 홍북초·체험 명단(색인 전에 만든 코드)을 한꺼번에 읽는다
+  const [index, ...olds] = await Promise.all([
+    outOfSpace(() => db().all<CodeRow>("codes")),
+    ...["", "demo"].filter((old) => old !== sp).map((old) => inSpace(old, getRoster)),
+  ]);
   const others = new Set(index.filter((x) => x.space !== sp).map((x) => x.id));
-  for (const old of ["", "demo"]) if (old !== sp) for (const s of await inSpace(old, getRoster)) others.add(s.code); // 색인 전에 만든 코드
+  for (const s of olds.flat()) others.add(s.code);
   const taken = new Set([...others, ...students.map((s) => s.code)]);
   const list = [...students].sort((a, b) => a.no - b.no).map((s) => {
     if (!others.has(s.code)) return s;
@@ -90,7 +94,7 @@ export async function saveRoster(students: Student[], demo = false) {
   await db().set("meta", "roster", { students: list, demo });
   const mine = new Set(list.map((s) => s.code));
   await outOfSpace(async () => {
-    for (const x of index) if (x.space === sp && !mine.has(x.id)) await db().del("codes", x.id);
+    await Promise.all(index.filter((x) => x.space === sp && !mine.has(x.id)).map((x) => db().del("codes", x.id)));
     await db().setMany("codes", list.map((s): [string, Record<string, unknown>] => [s.code, { id: s.code, space: sp, no: s.no }]));
   });
   await touch("other");
@@ -139,7 +143,7 @@ export async function createAccount(name: string, className: string, password: s
     const gone = await cleanupEmptyClasses().catch((e) => (console.error("빈 학급 정리 실패", e), [])); // 정리가 안 돼도 가입은 이어서
     if (gone.length) n = await classes();
   }
-  if (n >= max) return { error: "더 만들 수 있는 학급 수를 넘었어요. 관리하시는 선생님께 알려 주세요." };
+  if (n >= max) return { error: `더 만들 수 있는 학급 수를 넘었어요. 운영 선생님(${CONTACT_EMAIL})께 알려 주세요.` };
   if (opts.ip !== undefined) {
     const limited = await signupSlot(opts.ip);
     if (limited) return { error: limited, status: 429 };
@@ -221,6 +225,26 @@ export async function noteTeacherLogin(acc: Account, now = new Date()) {
   if (acc.space) await outOfSpace(() => db().update<Account>("accounts", acc.id, (cur) => (cur ? { ...cur, lastLogin: now.toISOString() } : undefined)));
   await tidyLimits(now.getTime());
   if (await claimOnce("cleanup", today(now))) await cleanupEmptyClasses(now);
+}
+
+// 운영 선생님(처음 반 홍북초)으로 들어온 선생님 표인가(관리 화면 /admin/db를 실제 배포에서 열 때)
+export const isOwner = (cookie: string | undefined) => inSpace("", async () => isTeacher(cookie, (await getPin())?.v ?? 0, ""));
+
+// ── 운영자(처음 반 홍북초 선생님)만 보는 학급 목록: 누가 어떤 학급을 만들었고 쓰고 있는지(학생 글·이름은 보지 않음) ──
+export interface ClassRow { name: string; className: string; space: string; createdAt: string; lastLogin: string; students: number; records: number; recent: number }
+export async function listClasses(now = new Date()): Promise<{ items: ClassRow[]; max: number }> {
+  const accounts = await outOfSpace(() => db().all<Account>("accounts"));
+  const week = addDays(today(now), -6);
+  // 학급마다 반 이름·학생 수·기록 수(전체·최근 7일)를 한꺼번에 센다
+  const items = await Promise.all(accounts.map((a) => inSpace(a.space, async () => {
+    const [settings, roster, records, recent] = await Promise.all([
+      db().get<{ className?: string }>("meta", "settings"), getRoster(),
+      db().count("records", "date", ">=", ""), db().count("records", "date", ">=", week),
+    ]);
+    return { name: a.name, className: settings?.className ?? "", space: a.space, createdAt: a.createdAt, lastLogin: a.lastLogin ?? a.seen ?? "", students: roster.length, records, recent };
+  })));
+  items.sort((a, b) => (b.lastLogin || b.createdAt).localeCompare(a.lastLogin || a.createdAt));
+  return { items, max: Number(process.env.MAX_CLASSES) || 40 };
 }
 
 // 화면 위에 보일 계정 이름
@@ -541,6 +565,8 @@ export interface RecordSave {
   alertNew: boolean; // 선생님이 아직 보지 않은 위험한 글이 있다(알림을 새로 연다)
   seenChecked?: string; // 선생님이 이미 살펴본 마치지 않은 글을 이어받으면 그 살펴본 시각
   queued: boolean; // 끊겼을 때 담아 둔 기록(만든 때 madeAt을 앎)
+  // 변경 표시(touch)를 응답 뒤로 미룰 때(API: next/server의 after). 기록을 쓴 다음에 하므로 차례는 그대로다.
+  defer?: (task: () => Promise<unknown>) => void;
 }
 // 지금 저장된 기록(cur)에 새 기록을 합친 것. null = 같은 기록이 이미 있다(그대로 둔다 — 앞 기록·살펴볼 판(riskAt)·휴대폰 알림을 다시 만들지 않게).
 // · 같은 칸에 다시 남기면 새 기록으로 바꾸되 앞 기록은 prev에 모은다. 아직 살펴보지 않은 위험 표시·마음 다스리기 기록은 새 기록에도 남긴다.
@@ -605,7 +631,10 @@ export async function saveMoodRecord(s: RecordSave): Promise<{ record: MoodRecor
     same = next === null;
     return next ? { ...next, updatedAt: Date.now() } : undefined;
   });
-  if (!same) await touch("records");
+  if (!same) {
+    if (s.defer) s.defer(() => touch("records"));
+    else await touch("records");
+  }
   return { record: out!, same };
 }
 // 마음 다스리기를 써 본 느낌을 그 기록에 붙인다(한 번에 — 그사이 끼어든 저장의 위험한 글을 덮지 않게). 기록이 없으면 null
@@ -693,7 +722,8 @@ export async function getLessons(): Promise<LessonItem[]> {
 
 // ── 문서 하나의 크기: 조치 기록·마치지 않은 위험 표현은 문서 하나에 모으므로, Firestore 한 문서 한도(1 MiB)를 넘기 전에 줄인다 ──
 // 저장소마다 여유를 두고 잡은 한도(JSON 바이트로 어림. Firestore 크기 셈보다 조금 크게 나온다). 로컬 파일은 한도가 없다.
-export const DOC_CAP: Record<"mongo" | "firestore" | "local", number> = { firestore: 900_000, mongo: 15_000_000, local: Infinity };
+// turso: 한 줄(문서)이 크면 요청 하나가 무거워지므로 몽고보다 낮게
+export const DOC_CAP: Record<"mongo" | "firestore" | "local" | "turso", number> = { firestore: 900_000, mongo: 15_000_000, turso: 5_000_000, local: Infinity };
 const bytes = (x: unknown) => Buffer.byteLength(JSON.stringify(x));
 export const DOC_FULL = "위험 표현 기록이 너무 많이 쌓였어요. 「설정 → 기록 보관·정리」에서 지난 기록을 내려받은 뒤 정리해 주세요.";
 
@@ -961,8 +991,11 @@ export const getSelfAnswers = () => db().find<SelfAnswer>("meta", "kind", "==", 
 export const getSelNotes = () => db().find<SelNote>("meta", "kind", "==", "selNote");
 // 학생 답과 선생님 쪽 기록을 함께 지운다(keep이 참인 것만 남김) — 답만 지우고 메모·피드백이 남지 않게
 export async function deleteSelfData(keep: (x: SelfAnswer | SelNote) => boolean) {
-  for (const a of await getSelfAnswers()) if (!keep(a)) await db().del("meta", selfDocId(a.round, a.no));
-  for (const n of await getSelNotes()) if (!keep(n)) await db().del("meta", selNoteId(n.round, n.no));
+  const [answers, notes] = await Promise.all([getSelfAnswers(), getSelNotes()]);
+  await Promise.all([
+    ...answers.filter((a) => !keep(a)).map((a) => db().del("meta", selfDocId(a.round, a.no))),
+    ...notes.filter((n) => !keep(n)).map((n) => db().del("meta", selNoteId(n.round, n.no))),
+  ]);
 }
 // 선생님 쪽 기록 고치기(읽고 고쳐 쓰기를 한 번에). 지금 학생이 받기 전(번호를 새 학생에게 주기 전)에 쓴 것이면 앞 학생 것이라 새로 시작한다.
 export async function editSelNote(round: string, st: Student, patch: Partial<Pick<SelNote, "obs" | "paper" | "memo" | "feedback" | "seenAt">>): Promise<SelNote> {
@@ -1056,40 +1089,46 @@ export const PRACTICE_VERSION = 5;
 // 연습 데이터 새로 만들기: 기록·응원·메모·쪽지·돌아보기를 비우고 가명 25명과 최근 7일 기록을 한꺼번에 넣는다
 // 명단을 연습용으로 바꾸므로 학생 번호에 매인 것(기록·응원·메모·쪽지·돌아보기·활동지 피드백·조치 기록·역량 진단 답과 관찰·피드백)은 모두 비운다.
 // (남겨 두면 실제 학생의 조치 기록·역량 진단 답이 같은 번호의 가짜 학생에게 붙는다)
+// 서로 다른 문서를 쓰는 일은 한꺼번에 한다(먼 저장소에서 하나씩 기다리면 몇 초씩 걸림). 비우기 → 채우기 → 표시 차례만 지킨다.
 export async function seedPractice() {
-  for (const col of ["records", "cheers", "notes", "letters", "reflects", "sheets"] as const) await db().clear(col);
-  await deleteSelfData(() => false);
-  await saveSelfRounds([]);
-  await db().del("meta", "selChecks"); // 예전 「반 전체 역량 진단」 문서(이제 쓰지 않음)
-  await saveRiskActions([]);
-  await db().del("meta", "riskDrafts"); // 학생 번호에 매인 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
-  await db().del("meta", "left"); // 명단에서 뺀 학생 기록도(연습 명단으로 통째로 바뀜)
   const date = today();
-  const taken = new Set<string>();
-  // 보호자 동의서: 3명(4·12·19번)만 아직 받지 않은 반
-  await saveRoster(demoStudents(() => {
-    const c = newCode(taken);
-    taken.add(c);
-    return c;
-  }).map((s) => ({ ...s, demo: true, ...([4, 12, 19].includes(s.no) ? {} : { consent: addDays(date, -60) }) })), true);
-  await saveLooks(demoLooks());
-  const now = Date.now();
-  await db().setMany("records", demoRecords(date).map((r) => [r.id, { ...r, updatedAt: now }]));
-  const extra = demoExtras(date);
-  await db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }]));
-  await db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }]));
-  await db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }); // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
   // 체험 반은 여럿이 함께 쓰므로 앞 사람이 올린 차시(감정 단어·활동)·만든 주간 요약·정리 기록도 비운다 — 「처음 판으로」 뒤에 다음 사람에게 남지 않게.
   const trial = isDemo();
-  if (trial) for (const id of ["lessons", "weekly", "purges"]) await db().del("meta", id);
-  await saveRiskActions(demoRiskActions(date)); // 위험 표현 조치 연습 기록
-  await seedSelfChecks(date); // 학급 역량 진단 연습 회차(실제 회차는 그대로)
-  // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).
-  // 모델 이름도 처음 것으로: 체험은 실제 반의 키를 빌려 쓰므로, 누군가 바꿔 둔 모델(예: 말소리 듣기의 Gemini 모델)로 그 키를 쓰지 않게
-  const cur = await getSettings();
-  await saveSettings(isDemo() ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} });
-  await db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION });
-  await touch("wipe");
+  // 1) 비우기
+  await Promise.all([
+    ...(["records", "cheers", "notes", "letters", "reflects", "sheets"] as const).map((col) => db().clear(col)),
+    deleteSelfData(() => false),
+    saveSelfRounds([]),
+    db().del("meta", "selChecks"), // 예전 「반 전체 역량 진단」 문서(이제 쓰지 않음)
+    saveRiskActions([]),
+    db().del("meta", "riskDrafts"), // 학생 번호에 매인 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
+    db().del("meta", "left"), // 명단에서 뺀 학생 기록도(연습 명단으로 통째로 바뀜)
+    ...(trial ? ["lessons", "weekly", "purges"].map((id) => db().del("meta", id)) : []),
+  ]);
+  const taken = new Set<string>();
+  const now = Date.now();
+  const extra = demoExtras(date);
+  // 2) 채우기
+  await Promise.all([
+    // 보호자 동의서: 3명(4·12·19번)만 아직 받지 않은 반
+    saveRoster(demoStudents(() => {
+      const c = newCode(taken);
+      taken.add(c);
+      return c;
+    }).map((s) => ({ ...s, demo: true, ...([4, 12, 19].includes(s.no) ? {} : { consent: addDays(date, -60) }) })), true),
+    saveLooks(demoLooks()),
+    db().setMany("records", demoRecords(date).map((r) => [r.id, { ...r, updatedAt: now }])),
+    db().setMany("letters", extra.letters.map((l) => [l.id, { ...l }])),
+    db().setMany("reflects", extra.reflects.map((r) => [r.id, { ...r }])),
+    db().set("sheets", PRACTICE_SHEET, { ...demoSheetRun(date) }), // 활동지 피드백 예시(실제 반은 같은 id로 덮어씀)
+    saveRiskActions(demoRiskActions(date)), // 위험 표현 조치 연습 기록
+    seedSelfChecks(date), // 학급 역량 진단 연습 회차(실제 회차는 그대로)
+    // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).
+    // 모델 이름도 처음 것으로: 체험은 실제 반의 키를 빌려 쓰므로, 누군가 바꿔 둔 모델(예: 말소리 듣기의 Gemini 모델)로 그 키를 쓰지 않게
+    getSettings().then((cur) => saveSettings(trial ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} })),
+  ]);
+  // 3) 다 만든 뒤에 「오늘 만듦」 표시와 변경 표시
+  await Promise.all([db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION }), touch("wipe")]);
   await touch("records");
 }
 

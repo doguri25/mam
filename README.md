@@ -182,7 +182,9 @@ npm test           # 살펴볼 학생·위험 표현 규칙 테스트
 
 ## 저장소
 
-- 고르는 순서: `MONGODB_URI`가 있으면 MongoDB Atlas(데이터베이스 이름 `MONGODB_DB`, 기본 `maeumbit`), 없고 `FIREBASE_SERVICE_ACCOUNT`가 있으면 Firestore(`maeumbit-gil`, 서울), 둘 다 없으면 `.data/db.json`.
+- 고르는 순서: `TURSO_DATABASE_URL`(+`TURSO_AUTH_TOKEN`)이 있으면 Turso(libSQL), 없고 `MONGODB_URI`가 있으면 MongoDB Atlas(데이터베이스 이름 `MONGODB_DB`, 기본 `maeumbit`), 없고 `FIREBASE_SERVICE_ACCOUNT`가 있으면 Firestore(`maeumbit-gil`, 서울), 모두 없으면 `.data/db.json`.
+- Turso(`lib/turso.ts`): 모든 모음을 표 하나 `docs(col, id, data JSON, v)`에 둔다. `col`은 몽고 모음 이름과 같다(`maeumbit_<공간>_records` 등). 찾는 칸(`no`·`date`·`createdAt` 등, `INDEXED`)마다 (col, 칸) 식 색인. 새 칸으로 `find`·`count`·`delWhere`를 하게 되면 `INDEXED`에 더한다. `update`는 표 `v`로 비교 후 쓰기, `setField`·`bump`는 SQL 한 문장. Turso에는 서울 지역이 없어(가장 가까운 곳이 도쿄, 한 번 오가는 데 40ms쯤) 같은 순간(이벤트 한 바퀴)에 들어온 읽기·쓰기를 각각 요청 하나로 묶고, 방금 읽은 판은 `update`가 처음 한 번 그대로 써 본다. 화면 코드도 서로 기다릴 필요 없는 읽기는 함께 시작한다(선생님 화면 7→2번, 학생 화면 4→2번, 저장은 응답까지 2번). `TURSO_SIM_MS=40 TURSO_DEBUG=1`로 로컬에서 먼 저장소를 흉내 내 몇 번 오가는지 볼 수 있다. 시험: `TURSO_DATABASE_URL=file:t.db npm test`로 모든 시험을 Turso로 한 번 더 돌릴 수 있다.
+- 몽고 → Turso 옮기기·속도 재기: 미리보기 주소의 `/admin/db`(실제 배포에서는 404, 미리보기는 Vercel 로그인한 사람만). 「복사하기」는 그 배포의 `MONGODB_DB`에서 `maeumbit_`로 시작하는 모음을 모두 옮기고 모음마다 수·내용을 맞춰 본다(몽고는 읽기만). 「속도 재기」는 두 저장소의 `bench` 공간에 같은 일을 시켜 시간을 견주고 지운다.
 - PR 미리보기(Vercel Preview)는 실제와 같은 클러스터의 다른 데이터베이스를 쓴다: Preview에만 `MONGODB_DB=maeumbit_preview`. Preview에 `MONGODB_URI`를 넣어야 MongoDB로 돌고, 없으면 Firestore로 돈다. 미리보기에서 무엇을 눌러도 실제 반 기록·계정과 섞이지 않는다.
 - MongoDB Atlas 무료(M0)는 하루 읽기 한도가 없다(저장 512MB). Vercel에서 붙으려면 Atlas 「Network Access」에 `0.0.0.0/0`을 허용해야 한다(Vercel 서버 주소가 바뀌므로). 그래서 DB 사용자 비밀번호를 길고 무작위로 둔다.
 - Firestore에서 옮기기: `FIREBASE_SERVICE_ACCOUNT=… MONGODB_URI=… node scripts/copy-to-mongo.mjs maeumbit_` (같은 `SESSION_SECRET`이면 넣어 둔 AI 키도 그대로 풀린다).

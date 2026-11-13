@@ -36,6 +36,15 @@ function alertTeacher(no: number, what: string, tag: string) {
   after(() => notifyTeachers({ title: "⚠️ 바로 살펴봐 주세요", body: `${no}번 학생 ${what}에 위험 표현이 있어요. 선생님 화면에서 확인해 주세요.`, url: "/teacher", tag }));
 }
 
+// 학생 첫 화면(me)에서 읽는 그 학생 것(기록·꾸미기·받은 쪽지·이번 주 돌아보기·마음 점검 회차)
+function meReads(no: number) {
+  const r = {
+    mine: recordsOf(no), looks: getLooks(), inbox: db().find<Letter>("letters", "to", "==", no),
+    ref: db().get<Reflect>("reflects", `${no}_${monday(today())}`), rounds: getSelfRounds(),
+  };
+  for (const p of Object.values(r)) (p as Promise<unknown>).catch(() => {}); // 확인에 실패해 쓰지 않으면 오류도 버린다
+  return r;
+}
 const wordsOf = (rs: MoodRecord[]) => [...new Set(rs.map((r) => r.word).filter((w): w is string => !!w))];
 
 export async function POST(req: NextRequest) {
@@ -113,15 +122,23 @@ async function handle(req: NextRequest, body: Body) {
       return NextResponse.json({ error: OTHER_STUDENT, code: "otherStudent" }, { status: 409 });
     }
 
+    // 명단(로그인 확인)과 설정을 한꺼번에 읽는다(Turso는 같은 순간의 읽기를 요청 하나로 묶는다). 설정은 확인한 뒤에만 쓴다.
+    const settingsP = getSettings();
+    settingsP.catch(() => {});
+    // 서명이 맞는 쿠키의 번호로 그 학생 것도 같은 순간에 읽기 시작한다(저장소에 한 번 덜 오감). 명단으로 확인한 뒤에만 쓴다.
+    const signedNo = Number(unsign(req.cookies.get(STUDENT_COOKIE)?.value)?.split(":")[0]) || 0;
+    const early = body.action === "me" && signedNo ? meReads(signedNo) : null;
+    // 저장: 그 칸의 기록을 미리 읽어 두면 아래 「읽고 고쳐 쓰기」가 처음 한 번 그것으로 쓴다(그사이 바뀌었으면 다시 읽음)
+    if (body.action === "save" && signedNo && ["am", "pm"].includes(body.record?.slot)) db().get("records", `${signedNo}_${today()}_${body.record.slot}`).catch(() => {});
     const s = await me(req);
     if (!s) return bad("다시 들어와 주세요.", 401);
-    const settings = await getSettings();
+    const settings = await settingsP;
     // 이 번호를 새 학생에게 줬으면(since) 그 앞에 이 번호로 남은 기록·쪽지·돌아보기·점검 답은 앞 학생 것 — 보여 주지도 세지도 않는다
     const own = (at?: string) => ownBy(s, at);
     const myRecords = async () => (await recordsOf(s.no)).filter((r) => own(r.createdAt));
     // 마음 점검: 열린 회차(없으면 마지막 회차)의 내 답·영역별 점수와 선생님이 보낸 피드백(이 번호의 앞 학생 것은 빼고)
-    const myCheck = async () => {
-      const rounds = await getSelfRounds();
+    const myCheck = async (roundsP?: Promise<SelfRound[]>) => {
+      const rounds = await (roundsP ?? getSelfRounds());
       const round: SelfRound | undefined = rounds.find((r) => !r.closedAt) ?? rounds.at(-1);
       if (!round) return null;
       const [ans, note] = await Promise.all([db().get<SelfAnswer>("meta", selfDocId(round.id, s.no)), db().get<SelNote>("meta", selNoteId(round.id, s.no))]);
@@ -135,10 +152,11 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "me") {
       const date = today();
       const week = monday(date);
+      const e = early && s.no === signedNo ? early : meReads(s.no);
       const [mine, looks, inbox, ref, check] = await Promise.all([
-        myRecords(), getLooks(), db().find<Letter>("letters", "to", "==", s.no).then((ls) => ls.filter((l) => own(l.createdAt))),
-        db().get<Reflect>("reflects", `${s.no}_${week}`).then((r) => (r && own(r.createdAt) ? r : null)),
-        myCheck(),
+        e.mine.then((rs) => rs.filter((r) => own(r.createdAt))), e.looks, e.inbox.then((ls) => ls.filter((l) => own(l.createdAt))),
+        e.ref.then((r) => (r && own(r.createdAt) && r.id === `${s.no}_${week}` ? r : null)),
+        myCheck(e.rounds),
       ]);
       // 마음 꽃: 이번 달 기록한 날마다 한 송이(그날 마지막 마음 색)
       const month = new Map<string, string>();
@@ -484,7 +502,8 @@ async function saveRecord(s: Student, r: any, settings: Settings, opt: { date?: 
     ...(saveId ? { saveId } : {}), // Firestore는 undefined를 받지 않으므로 없으면 칸을 넣지 않는다
     ...(isDemo() || s.demo ? { demo: true } : {}),
   };
-  const { record: saved, same } = await saveMoodRecord({ rec, own, alertNew, seenChecked: seen?.checked ?? undefined, queued: opt.madeAt !== undefined });
+  // 변경 표시는 응답을 보낸 뒤에(학생은 저장이 끝나는 대로 다음 화면으로 — 선생님 화면은 20초마다 표시를 본다)
+  const { record: saved, same } = await saveMoodRecord({ rec, own, alertNew, seenChecked: seen?.checked ?? undefined, queued: opt.madeAt !== undefined, defer: (t) => after(t) });
   const reply = hits.length ? { reply: RISK_REPLY[lang] } : {};
   // 같은 기록이 이미 있었으면 저장해 둔 그대로 돌려준다(위험한 글이면 같은 고맙다는 말). 조치 기록 옮기기·마치지 않은 글 정리·휴대폰 알림도 하지 않는다
   // (다시 정리하며 새로 남긴 마치지 않은 글이 있으면 그 알림은 그대로 둔다).

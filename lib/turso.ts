@@ -1,0 +1,221 @@
+// Turso(libSQL) 저장소: 모든 모음을 표 하나(docs)에 둔다. col = 앞이름까지 붙인 모음 이름(몽고 모음 이름과 같다), data = 문서 JSON.
+// find·count·delWhere에 쓰는 칸은 (col, 그 칸) 식 색인으로 찾는다. 색인 없는 칸도 되지만 그 모음을 다 훑는다.
+// v: 쓸 때마다 새로 다는 표. update는 읽은 때의 표가 그대로일 때만 바꿔 써서 사이에 낀 쓰기를 덮지 않는다(몽고의 _v와 같음).
+// @libsql/client는 이 저장소를 쓸 때만 불러온다(몽고로 도는 배포에는 들어가지 않게).
+import type { Client, InArgs, InStatement, InValue, ResultSet } from "@libsql/client";
+import type { BumpOpts, Col, Store } from "./db.ts";
+
+type Doc = Record<string, unknown>;
+type Op = "==" | ">" | ">=" | "<";
+type Val = string | number | boolean;
+
+// 찾을 때 쓰는 칸(lib·app에서 find·count·delWhere에 넘기는 칸). 새 칸으로 찾게 되면 여기에 더한다.
+export const INDEXED = ["no", "space", "from", "to", "risk", "status", "kind", "date", "updatedAt", "createdAt", "weekStart", "exp"] as const;
+
+const BUSY = "저장이 한꺼번에 몰렸어요. 잠시 뒤 다시 해 주세요.";
+const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// 칸 이름은 SQL 글자로 들어간다(색인과 같은 식이어야 색인을 탄다). 코드에 적힌 이름만 오지만 그래도 거른다.
+const ex = (field: string) => {
+  if (!NAME.test(field)) throw new Error(`찾을 수 없는 칸 이름: ${field}`);
+  return `json_extract(data, '$.${field}')`;
+};
+const ty = (field: string) => `json_type(data, '$.${field}')`;
+// 몽고·로컬처럼 같은 종류 값끼리만 견준다(글자 칸에 숫자 조건이 맞지 않게). 참·거짓은 1·0으로 견주고 종류로 가린다.
+const cond = (field: string, op: Op, value: Val): [string, InValue] => {
+  const kind = typeof value === "string" ? "('text')" : typeof value === "number" ? "('integer','real')" : "('true','false')";
+  return [`${ex(field)} ${op === "==" ? "=" : op} ? AND ${ty(field)} IN ${kind}`, typeof value === "boolean" ? (value ? 1 : 0) : value];
+};
+// 점으로 이은 칸 이름 → JSON 경로 $."items"."3"
+const jpath = (p: string) => "$" + p.split(".").map((k) => `."${k.replace(/"/g, "")}"`).join("");
+const json = (v: unknown) => JSON.stringify(v ?? null);
+const tok = () => crypto.randomUUID();
+const wait = (i: number) => new Promise((r) => setTimeout(r, Math.random() * 15 * (i + 1)));
+const parse = <T,>(row: Record<string, unknown>) => JSON.parse(String(row.data)) as T;
+// 시험용: TURSO_SIM_MS로 요청마다 늦춰 먼 저장소를 흉내 내고, TURSO_DEBUG로 요청을 하나씩 적는다(배포에는 넣지 않는다)
+const lag = async (what: string) => {
+  if (process.env.TURSO_DEBUG) console.log(`[turso] ${what}`);
+  const ms = Number(process.env.TURSO_SIM_MS) || 0;
+  if (ms) await new Promise((r) => setTimeout(r, ms));
+};
+// TURSO_DEBUG: 요청마다 걸린 시간도 적는다(미리보기에서 어디서 느린지 보려고)
+const timed = async <R,>(what: string, fn: () => Promise<R>): Promise<R> => {
+  if (!process.env.TURSO_DEBUG) return fn();
+  const t = performance.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[turso-ms] ${what} ${Math.round(performance.now() - t)}`);
+  }
+};
+
+export const SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS docs (col TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (col, id))",
+  // 그 칸이 있는 문서만 색인에 넣는다(없는 문서까지 넣으면 쓸 때마다 색인 줄이 늘어난다)
+  ...INDEXED.map((f) => `CREATE INDEX IF NOT EXISTS docs_${f} ON docs (col, ${ex(f)}) WHERE ${ex(f)} IS NOT NULL`),
+];
+
+export async function connect(url: string, authToken?: string): Promise<Client> {
+  // 이 컴퓨터의 파일(file:, 시험)만 SQLite 본체(네이티브)를 쓰고, 서버의 Turso는 fetch만 쓰는 웹 판으로(배포에 네이티브 모듈이 없어도 되게)
+  // libsql://는 웹소켓 대신 HTTPS로(서버리스에서 요청마다 연결을 붙잡지 않게)
+  const { createClient } = url.startsWith("file:") ? await import("@libsql/client") : await import("@libsql/client/web");
+  return createClient({ url: url.replace(/^libsql:/, "https:"), authToken });
+}
+
+export function turso(url: string, authToken: string | undefined, prefix: () => string): Store {
+  const ready = connect(url, authToken).then(async (c) => {
+    await c.batch(SCHEMA, "write");
+    return c;
+  });
+  ready.catch(() => {}); // 처음 부를 때 오류를 돌려준다
+  // 같은 순간(이벤트 한 바퀴)에 들어온 요청을 모아 하나로 보낸다. 서울 서버 ↔ 도쿄 Turso는 오갈 때마다 40ms쯤이라
+  // 화면 하나에 여러 번 읽는 것, 연습 데이터처럼 한꺼번에 쓰는 것을 묶으면 그만큼 빨라진다(Turso는 쓰기를 한 줄로 처리하므로 동시에 여러 요청을 보내면 오히려 기다린다).
+  // 읽기는 읽기끼리(읽기 전용 묶음), 쓰기는 쓰기끼리 들어온 차례대로. 쓰기 묶음이 실패하면 하나씩 다시 보내 서로의 실패가 번지지 않게 한다.
+  type Job = { stmt: InStatement; ok: (r: ResultSet) => void; fail: (e: unknown) => void };
+  const queues: Record<"read" | "write", Job[]> = { read: [], write: [] };
+  const flush = async (mode: "read" | "write") => {
+    const q = queues[mode];
+    queues[mode] = [];
+    let c: Client;
+    try {
+      c = await ready;
+    } catch (e) {
+      return q.forEach((x) => x.fail(e));
+    }
+    await lag(`${mode} ${q.length}`);
+    try {
+      const rs = await timed(`${mode} ${q.length} ${String((q[0].stmt as { sql: string }).sql).slice(0, 24)}`, async () => (q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), mode)));
+      q.forEach((x, i) => x.ok(rs[i]));
+    } catch (e) {
+      if (q.length === 1 || mode === "read") return q.forEach((x) => x.fail(e));
+      for (const x of q) await c.execute(x.stmt).then(x.ok, x.fail);
+    }
+  };
+  const send = (mode: "read" | "write") => (sql: string, args: InArgs = []) =>
+    new Promise<ResultSet>((ok, fail) => {
+      if (!queues[mode].length) setImmediate(() => flush(mode));
+      queues[mode].push({ stmt: { sql, args }, ok, fail });
+    });
+  const read = send("read");
+  const run = send("write");
+  const name = (col: Col) => prefix() + col;
+  // 방금 읽은 문서(표 v 포함). update가 처음 한 번만 이것으로 쓰기를 해 본다 — 그사이 바뀌었으면 v가 달라 쓰기가 되지 않고 다시 읽는다.
+  // (get으로 미리 읽어 두면 읽고 고쳐 쓰기에서 저장소에 한 번 덜 오간다.) 다른 읽기는 이것을 쓰지 않는다.
+  const recent = new Map<string, { row: Record<string, unknown> | undefined; at: number }>();
+  const one = async (col: Col, id: string) => {
+    const key = `${name(col)}\u0000${id}`;
+    const row = (await read("SELECT data, v FROM docs WHERE col = ? AND id = ?", [name(col), id])).rows[0];
+    recent.set(key, { row, at: Date.now() });
+    if (recent.size > 300) recent.delete(recent.keys().next().value!);
+    return row;
+  };
+  const forget = (col: Col, id?: string) => (id === undefined ? recent.clear() : recent.delete(`${name(col)}\u0000${id}`));
+  const justRead = (col: Col, id: string) => {
+    const key = `${name(col)}\u0000${id}`;
+    const hit = recent.get(key);
+    recent.delete(key);
+    return hit && Date.now() - hit.at < 2000 ? hit : null;
+  };
+
+  return {
+    kind: "turso",
+    get prefix() { return prefix(); },
+    // rowid 차례 = 처음 넣은 차례(몽고·로컬과 같은 차례로 돌려준다)
+    all: async <T,>(col: Col) => (await read("SELECT data FROM docs WHERE col = ? ORDER BY rowid", [name(col)])).rows.map(parse<T>),
+    find: async <T,>(col: Col, field: string, op: Op, value: Val) => {
+      const [w, a] = cond(field, op, value);
+      return (await read(`SELECT data FROM docs WHERE col = ? AND ${w} ORDER BY rowid`, [name(col), a])).rows.map(parse<T>);
+    },
+    count: async (col, field, op, value) => {
+      const [w, a] = cond(field, op, value);
+      return Number((await read(`SELECT count(*) AS n FROM docs WHERE col = ? AND ${w}`, [name(col), a])).rows[0].n);
+    },
+    get: async <T,>(col: Col, id: string) => {
+      const r = await one(col, id);
+      return r ? parse<T>(r) : null;
+    },
+    set: async (col, id, data) =>
+      void (forget(col, id), await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v", [name(col), id, json(data), tok()])),
+    setMany: async (col, items) => {
+      forget(col);
+      const c = await ready;
+      const n = name(col);
+      for (let i = 0; i < items.length; i += 200) {
+        await lag("write many");
+        await c.batch(items.slice(i, i + 200).map(([id, data]) => ({
+          sql: "INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v",
+          args: [n, id, json(data), tok()],
+        })), "write");
+      }
+    },
+    del: async (col, id) => void (forget(col, id), await run("DELETE FROM docs WHERE col = ? AND id = ?", [name(col), id])),
+    clear: async (col) => void (forget(col), await run("DELETE FROM docs WHERE col = ?", [name(col)])),
+    delWhere: async (col, field, op, value) => {
+      const [w, a] = cond(field, op, value);
+      forget(col);
+      return (await run(`DELETE FROM docs WHERE col = ? AND ${w}`, [name(col), a])).rowsAffected;
+    },
+    drop: async (col) => void (forget(col), await run("DELETE FROM docs WHERE col = ?", [name(col)])),
+    update: async <T,>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined) => {
+      const n = name(col);
+      for (let i = 0; i < 20; i++) {
+        const hit = i === 0 ? justRead(col, id) : null;
+        const cur = hit ? hit.row : await one(col, id);
+        const before = cur ? parse<T>(cur) : null;
+        const next = fn(before);
+        if (next === undefined) return before;
+        let done: boolean;
+        if (next === null) done = !cur || (await run("DELETE FROM docs WHERE col = ? AND id = ? AND v = ?", [n, id, cur.v as InValue])).rowsAffected === 1;
+        else if (!cur) done = (await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO NOTHING", [n, id, json(next), tok()])).rowsAffected === 1;
+        else done = (await run("UPDATE docs SET data = ?, v = ? WHERE col = ? AND id = ? AND v = ?", [json(next), tok(), n, id, cur.v as InValue])).rowsAffected === 1;
+        forget(col, id); // 쓰기를 해 봤으면(되든 안 되든) 읽어 둔 판은 버린다
+        if (done) return next;
+        await wait(i);
+      }
+      throw new Error(BUSY);
+    },
+    // 한 문장으로(읽지 않고) 그 칸만 바꾼다. 없는 문서·중간 칸은 만든다.
+    setField: async (col, id, p, value) => {
+      forget(col, id);
+      const jp = jpath(p);
+      await run(
+        "INSERT INTO docs (col, id, data, v) VALUES (?1, ?2, json_set('{}', ?3, json(?4)), ?5) ON CONFLICT (col, id) DO UPDATE SET data = json_set(data, ?3, json(?4)), v = excluded.v",
+        [name(col), id, jp, json(value), tok()],
+      );
+    },
+    // 한 문장으로 세기: 같은 구간이면 n + by(max 안일 때만), 구간이 바뀌었거나 문서가 없으면 by부터. 올리지 못하면 돌려받는 줄이 없다.
+    bump: async (col, id, win, { max = Infinity, by = 1, extra = {} }: BumpOpts = {}) => {
+      forget(col, id);
+      const n = name(col);
+      const N = "coalesce(json_extract(data, '$.n'), 0)";
+      const now = async () => {
+        const d = await one(col, id);
+        const doc = d ? parse<Doc>(d) : null;
+        return doc?.date === win ? Number(doc.n) || 0 : 0;
+      };
+      const got = (rows: Record<string, unknown>[]) => (rows.length ? { ok: true, n: Number(rows[0].n) } : null);
+      if (by < 0) {
+        const r = await run(
+          `UPDATE docs SET data = json_set(data, '$.n', ${N} + CAST(?1 AS INTEGER)), v = ?2 WHERE col = ?3 AND id = ?4 AND json_extract(data, '$.date') = ?5 AND ${N} >= CAST(?6 AS INTEGER) RETURNING json_extract(data, '$.n') AS n`,
+          [by, tok(), n, id, win, -by],
+        );
+        return got(r.rows) ?? { ok: false, n: await now() };
+      }
+      if (by > max) return { ok: false, n: await now() };
+      const keys = Object.keys(extra).filter((k) => !["date", "n"].includes(k));
+      for (const k of keys) if (!NAME.test(k)) throw new Error(`쓸 수 없는 칸 이름: ${k}`);
+      const withExtra = keys.reduce((acc, k, i) => `json_set(${acc}, '${jpath(k)}', json(?${8 + i}))`, "data");
+      const r = await run(
+        `INSERT INTO docs (col, id, data, v) VALUES (?1, ?2, json_set(json(?3), '$.date', ?4, '$.n', CAST(?5 AS INTEGER)), ?6)
+         ON CONFLICT (col, id) DO UPDATE SET
+           data = CASE WHEN json_extract(data, '$.date') IS ?4
+             THEN json_set(${withExtra}, '$.n', ${N} + CAST(?5 AS INTEGER))
+             ELSE json_set(${withExtra}, '$.date', ?4, '$.n', CAST(?5 AS INTEGER)) END,
+           v = excluded.v
+         WHERE json_extract(data, '$.date') IS NOT ?4 OR ${N} + CAST(?5 AS INTEGER) <= CAST(?7 AS INTEGER)
+         RETURNING json_extract(data, '$.n') AS n`,
+        [n, id, json(extra), win, by, tok(), Number.isFinite(max) ? max : Number.MAX_SAFE_INTEGER, ...keys.map((k) => json(extra[k]))],
+      );
+      return got(r.rows) ?? { ok: false, n: await now() };
+    },
+  };
+}

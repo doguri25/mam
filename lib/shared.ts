@@ -5,6 +5,9 @@ import type { VoiceFeatures } from "./tone.ts";
 export type Group = "joy" | "calm" | "sad" | "angry" | "fear";
 export type Slot = "am" | "pm";
 
+// 앱을 쓰다 문제가 생겼을 때 연락할 곳(운영 선생님)
+export const CONTACT_EMAIL = "raccoon@ai.cne.go.kr";
+
 export const EMOTIONS = [
   { name: "기뻐요", group: "joy" },
   { name: "신나요", group: "joy" },

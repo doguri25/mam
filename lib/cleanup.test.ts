@@ -61,8 +61,10 @@ test("정리: 빈 학급의 모음·코드 색인·계정을 지우고 기록을
   const ids = (await outOfSpace(() => db().all<Acc>("accounts"))).map((a) => a.id).sort();
   assert.deepEqual(ids, ["c000000a2", "c000000a3", "c000000a4", "c000000a5", "c000000a6", "c000000a7", "c000000a8"]);
   for (const col of SPACE_COLS) assert.deepEqual(await inSpace("c000000a1", () => db().all(col)), [], col);
-  const file = JSON.parse(fs.readFileSync(".data/db.json", "utf8")) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(file).filter((k) => k.startsWith("c000000a1_")), []); // 모음째 사라짐
+  if (db().kind === "local") { // 로컬 파일을 직접 본다(Turso로 시험할 때는 위의 all로 본다)
+    const file = JSON.parse(fs.readFileSync(".data/db.json", "utf8")) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(file).filter((k) => k.startsWith("c000000a1_")), []); // 모음째 사라짐
+  }
   assert.equal(await outOfSpace(() => db().get("codes", "ZZZZZZ")), null);
   assert.ok(await inSpace("demo", () => db().get("meta", "roster"))); // 체험은 그대로
   assert.ok(await inSpace("c000000a2", () => D.getPin()));
@@ -114,6 +116,7 @@ test("가입: 학급 수 한도 가까이면 빈 학급을 먼저 정리해 자�
 test("가입: 같은 이름이 같은 순간 둘 와도 계정은 하나, 진 쪽 공간은 지운다", async () => {
   for (const a of await outOfSpace(() => db().all<Acc>("accounts"))) await outOfSpace(() => db().del("accounts", a.id));
   const spaces = () => {
+    if (db().kind !== "local") return []; // 로컬 파일을 직접 본다(Turso로 시험할 때는 건너뜀)
     const file = JSON.parse(fs.readFileSync(".data/db.json", "utf8")) as Record<string, Record<string, unknown>>;
     return Object.keys(file).filter((k) => /^c[0-9a-f]{8}_meta$/.test(k) && Object.keys(file[k]).length).map((k) => k.slice(0, 9));
   };
@@ -123,5 +126,5 @@ test("가입: 같은 이름이 같은 순간 둘 와도 계정은 하나, 진 �
   assert.equal(ok.length, 1);
   assert.match(JSON.stringify(rs.find((r) => "error" in r)), /이미 있는 이름/);
   assert.deepEqual((await outOfSpace(() => db().all<Acc>("accounts"))).map((a) => a.space), [ok[0].space]);
-  assert.deepEqual(spaces().filter((sp) => !before.has(sp)), [ok[0].space]); // 진 쪽이 만든 공간은 남지 않음
+  if (db().kind === "local") assert.deepEqual(spaces().filter((sp) => !before.has(sp)), [ok[0].space]); // 진 쪽이 만든 공간은 남지 않음
 });
