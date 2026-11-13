@@ -114,10 +114,10 @@ test("선생님 비밀번호: 한 학급에 한 시간 50번 넘게 틀리면 IP
   assert.equal((await L.passwordAttempt("22.0.0.1", sp, now)).wait, 0);
 });
 
-test("새 학급: IP마다 하루 3개, 모두 합쳐 하루 15개", async () => {
+test("새 학급: IP마다 하루 10개, 모두 합쳐 하루 40개", async () => {
   const day1 = Date.UTC(2026, 10, 10, 3);
   for (let i = 0; i < L.SIGNUP_PER_IP; i++) assert.equal(await L.signupSlot("30.0.0.1", day1), null);
-  assert.match((await L.signupSlot("30.0.0.1", day1))!, /하루 3개/);
+  assert.match((await L.signupSlot("30.0.0.1", day1))!, /하루 10개/);
   for (let i = 0; i < L.SIGNUP_PER_DAY - L.SIGNUP_PER_IP; i++) assert.equal(await L.signupSlot(`31.0.0.${i}`, day1), null);
   assert.match((await L.signupSlot("32.0.0.1", day1))!, /학급 수를 다 채웠어요/);
   // 전체 한도에 걸리면 그 IP 몫은 돌려준다(못 만든 것을 세지 않음)

@@ -95,7 +95,7 @@ test("선생님이 들어오면 마지막 로그인을 적고, 빈 학급 정리
   assert.equal(await outOfSpace(() => db().get("accounts", "홍북초")), null);
 });
 
-test("가입: 학급 수 한도 가까이면 빈 학급을 먼저 정리해 자리를 내고, IP마다 하루 3개까지(429)", async () => {
+test("가입: 학급 수 한도 가까이면 빈 학급을 먼저 정리해 자리를 내고, IP마다 하루 한도까지(429)", async () => {
   for (const a of await outOfSpace(() => db().all<Acc>("accounts"))) await outOfSpace(() => db().del("accounts", a.id));
   for (let i = 1; i <= 7; i++) await makeClass(`c000000c${i}`, { lastLogin: ago(1, new Date()) }, () => D.saveRoster([{ no: 1, alias: "가", code: `CCCCC${i}` }]));
   await makeClass("c000000c8", { createdAt: ago(30, new Date()), lastLogin: ago(30, new Date()) }); // 빈 학급 → 정리됨
@@ -105,12 +105,16 @@ test("가입: 학급 수 한도 가까이면 빈 학급을 먼저 정리해 자�
   // 꽉 참: 한도 오류(정리할 빈 학급 없음)
   const full = await D.createAccount("또 다른 반", "3학년 2반", "1234", { ip: "50.0.0.1" });
   assert.match("error" in full ? full.error : "", /학급 수를 넘었어요/);
-  // IP 한도: 자리를 만들고 같은 IP로 세 번 더(이미 한 번 만듦)
-  for (const id of ["c000000c1", "c000000c2", "c000000c3"]) await outOfSpace(() => db().del("accounts", id));
-  assert.ok("space" in (await D.createAccount("반 둘", "x", "1234", { ip: "50.0.0.1" })));
-  assert.ok("space" in (await D.createAccount("반 셋", "x", "1234", { ip: "50.0.0.1" })));
-  const over = await D.createAccount("반 넷", "x", "1234", { ip: "50.0.0.1" });
-  assert.deepEqual("error" in over ? over.status : 0, 429);
+  // IP 한도: 학급 수 한도를 넉넉히 두고 같은 IP로 하루 한도까지(이미 한 번 만듦 — 꽉 찬 때는 IP 몫을 쓰지 않는다)
+  const { SIGNUP_PER_IP } = await import("./limit.ts");
+  process.env.MAX_CLASSES = "100";
+  try {
+    for (let i = 2; i <= SIGNUP_PER_IP; i++) assert.ok("space" in (await D.createAccount(`반 ${i}`, "x", "1234", { ip: "50.0.0.1" })), String(i));
+    const over = await D.createAccount("반 하나 더", "x", "1234", { ip: "50.0.0.1" });
+    assert.deepEqual("error" in over ? over.status : 0, 429);
+  } finally {
+    process.env.MAX_CLASSES = "8";
+  }
 });
 
 test("가입: 같은 이름이 같은 순간 둘 와도 계정은 하나, 진 쪽 공간은 지운다", async () => {

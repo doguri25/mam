@@ -129,14 +129,16 @@ export async function findAccount(name: string): Promise<Account | null> {
 
 // opts.ip가 있으면 IP마다·하루 전체 만들 수 있는 수를 센다(signupSlot). 한도에 걸린 오류는 status 429.
 const DUP_NAME = "이미 있는 이름이에요. 학교·학년·반을 붙여 다르게 써 주세요(예: 홍북초 3-2 김민지).";
+// 학급 수 한도: MongoDB는 학급마다 모음이 8개 생겨 무료(모음 500개) 한도 안에서 40, Turso는 모음 수 한도가 없어
+// 무료 저장 5GB 안에서 넉넉히 200(학급 하나가 한 해 몇 MB). MAX_CLASSES로 바꿀 수 있다.
+export const maxClasses = () => Number(process.env.MAX_CLASSES) || (db().kind === "turso" ? 200 : 40);
 export async function createAccount(name: string, className: string, password: string, opts: { ip?: string } = {}): Promise<{ space: string; v: number } | { error: string; status?: number }> {
   const clean = tidy(name);
   if (!validName(clean)) return { error: "이름은 2~20자 글자·숫자로 써 주세요." };
   if (!validPin(password)) return { error: "비밀번호는 숫자 4~12자리로 해 주세요." };
   if (await findAccount(clean)) return { error: DUP_NAME };
-  // 학급마다 모음이 8개 생겨 MongoDB 무료(모음 500개) 한도를 넘지 않게 학급 수를 막는다(MAX_CLASSES로 바꿈).
-  // 한도 가까이 오면 먼저 빈 학급을 정리해 자리를 낸다(10분에 한 번까지).
-  const max = Number(process.env.MAX_CLASSES) || 40;
+  // 학급 수 한도(maxClasses). 한도 가까이 오면 먼저 빈 학급을 정리해 자리를 낸다(10분에 한 번까지).
+  const max = maxClasses();
   const classes = async () => (await outOfSpace(() => db().all("accounts"))).length;
   let n = await classes();
   if (n >= max - 3 && (await claimOnce("cleanup:signup", String(Math.floor(Date.now() / 600_000))))) {
@@ -244,7 +246,7 @@ export async function listClasses(now = new Date()): Promise<{ items: ClassRow[]
     return { name: a.name, className: settings?.className ?? "", space: a.space, createdAt: a.createdAt, lastLogin: a.lastLogin ?? a.seen ?? "", students: roster.length, records, recent };
   })));
   items.sort((a, b) => (b.lastLogin || b.createdAt).localeCompare(a.lastLogin || a.createdAt));
-  return { items, max: Number(process.env.MAX_CLASSES) || 40 };
+  return { items, max: maxClasses() };
 }
 
 // 화면 위에 보일 계정 이름
