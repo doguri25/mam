@@ -67,32 +67,36 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
     return c;
   });
   ready.catch(() => {}); // 처음 부를 때 오류를 돌려준다
-  // 쓰기는 하나씩 바로 보낸다
-  const run = async (sql: string, args: InArgs = []) => {
-    const c = await ready;
-    await lag("write");
-    return timed(`write ${sql.slice(0, 30)}`, () => c.execute({ sql, args }));
-  };
-  // 읽기는 같은 순간(이벤트 한 바퀴)에 들어온 것을 모아 요청 하나로 보낸다.
-  // 서울 서버 ↔ 도쿄 Turso는 오갈 때마다 40ms쯤이라, 화면 하나에 여러 번 읽는 것을 한 번에 묶으면 그만큼 빨라진다.
-  let queue: { stmt: InStatement; ok: (r: ResultSet) => void; fail: (e: unknown) => void }[] = [];
-  const flush = async () => {
-    const q = queue;
-    queue = [];
+  // 같은 순간(이벤트 한 바퀴)에 들어온 요청을 모아 하나로 보낸다. 서울 서버 ↔ 도쿄 Turso는 오갈 때마다 40ms쯤이라
+  // 화면 하나에 여러 번 읽는 것, 연습 데이터처럼 한꺼번에 쓰는 것을 묶으면 그만큼 빨라진다(Turso는 쓰기를 한 줄로 처리하므로 동시에 여러 요청을 보내면 오히려 기다린다).
+  // 읽기는 읽기끼리(읽기 전용 묶음), 쓰기는 쓰기끼리 들어온 차례대로. 쓰기 묶음이 실패하면 하나씩 다시 보내 서로의 실패가 번지지 않게 한다.
+  type Job = { stmt: InStatement; ok: (r: ResultSet) => void; fail: (e: unknown) => void };
+  const queues: Record<"read" | "write", Job[]> = { read: [], write: [] };
+  const flush = async (mode: "read" | "write") => {
+    const q = queues[mode];
+    queues[mode] = [];
+    let c: Client;
     try {
-      const c = await ready;
-      await lag(`read ${q.length}`);
-      const rs = await timed(`read ${q.length}`, async () => (q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), "read")));
+      c = await ready;
+    } catch (e) {
+      return q.forEach((x) => x.fail(e));
+    }
+    await lag(`${mode} ${q.length}`);
+    try {
+      const rs = await timed(`${mode} ${q.length} ${String((q[0].stmt as { sql: string }).sql).slice(0, 24)}`, async () => (q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), mode)));
       q.forEach((x, i) => x.ok(rs[i]));
     } catch (e) {
-      q.forEach((x) => x.fail(e));
+      if (q.length === 1 || mode === "read") return q.forEach((x) => x.fail(e));
+      for (const x of q) await c.execute(x.stmt).then(x.ok, x.fail);
     }
   };
-  const read = (sql: string, args: InArgs = []) =>
+  const send = (mode: "read" | "write") => (sql: string, args: InArgs = []) =>
     new Promise<ResultSet>((ok, fail) => {
-      if (!queue.length) setImmediate(flush);
-      queue.push({ stmt: { sql, args }, ok, fail });
+      if (!queues[mode].length) setImmediate(() => flush(mode));
+      queues[mode].push({ stmt: { sql, args }, ok, fail });
     });
+  const read = send("read");
+  const run = send("write");
   const name = (col: Col) => prefix() + col;
   // 방금 읽은 문서(표 v 포함). update가 처음 한 번만 이것으로 쓰기를 해 본다 — 그사이 바뀌었으면 v가 달라 쓰기가 되지 않고 다시 읽는다.
   // (get으로 미리 읽어 두면 읽고 고쳐 쓰기에서 저장소에 한 번 덜 오간다.) 다른 읽기는 이것을 쓰지 않는다.

@@ -77,9 +77,13 @@ export async function rosterIsDemo() {
 interface CodeRow { id: string; space: string; no: number }
 export async function saveRoster(students: Student[], demo = false) {
   const sp = spaceId();
-  const index = await outOfSpace(() => db().all<CodeRow>("codes"));
+  // 코드 색인과 홍북초·체험 명단(색인 전에 만든 코드)을 한꺼번에 읽는다
+  const [index, ...olds] = await Promise.all([
+    outOfSpace(() => db().all<CodeRow>("codes")),
+    ...["", "demo"].filter((old) => old !== sp).map((old) => inSpace(old, getRoster)),
+  ]);
   const others = new Set(index.filter((x) => x.space !== sp).map((x) => x.id));
-  for (const old of ["", "demo"]) if (old !== sp) for (const s of await inSpace(old, getRoster)) others.add(s.code); // 색인 전에 만든 코드
+  for (const s of olds.flat()) others.add(s.code);
   const taken = new Set([...others, ...students.map((s) => s.code)]);
   const list = [...students].sort((a, b) => a.no - b.no).map((s) => {
     if (!others.has(s.code)) return s;
@@ -90,7 +94,7 @@ export async function saveRoster(students: Student[], demo = false) {
   await db().set("meta", "roster", { students: list, demo });
   const mine = new Set(list.map((s) => s.code));
   await outOfSpace(async () => {
-    for (const x of index) if (x.space === sp && !mine.has(x.id)) await db().del("codes", x.id);
+    await Promise.all(index.filter((x) => x.space === sp && !mine.has(x.id)).map((x) => db().del("codes", x.id)));
     await db().setMany("codes", list.map((s): [string, Record<string, unknown>] => [s.code, { id: s.code, space: sp, no: s.no }]));
   });
   await touch("other");
