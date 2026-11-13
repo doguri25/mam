@@ -62,3 +62,35 @@ test("찾는 칸마다 색인을 탄다(모음을 다 훑지 않음)", async () 
   }
   c.close();
 });
+
+test("미리 읽은 판으로 고쳐 쓰기: 그사이 바뀌었으면 다시 읽어 잃지 않는다", async () => {
+  await inSpace("ct4", async () => {
+    await s.set("records", "r", { n: 1 });
+    await s.get("records", "r"); // 미리 읽어 둠(update가 처음 한 번 이 판을 씀)
+    const other = tursoStore(URL); // 다른 서버가 그사이 고침
+    await inSpace("ct4", () => other.update<{ n: number }>("records", "r", (c) => ({ n: c!.n + 10 })));
+    let calls = 0;
+    await s.update<{ n: number }>("records", "r", (c) => (calls++, { n: c!.n + 1 }));
+    assert.deepEqual(await s.get("records", "r"), { n: 12 });
+    assert.equal(calls, 2); // 낡은 판으로 한 번, 다시 읽어 한 번
+    // 쓴 뒤에는 읽어 둔 판을 버린다: 바로 다음 고쳐 쓰기는 한 번에
+    calls = 0;
+    await s.update<{ n: number }>("records", "r", (c) => (calls++, { n: c!.n + 1 }));
+    assert.equal(calls, 1);
+    assert.deepEqual(await s.get("records", "r"), { n: 13 });
+  });
+});
+
+test("같은 순간의 읽기는 요청 하나로 묶인다", async () => {
+  const logs: string[] = [];
+  const orig = console.log;
+  process.env.TURSO_DEBUG = "1";
+  console.log = (m: string) => void logs.push(String(m));
+  try {
+    await Promise.all([s.get("meta", "a"), s.all("records"), s.count("records", "no", "==", 1), s.find("meta", "kind", "==", "x")]);
+  } finally {
+    console.log = orig;
+    delete process.env.TURSO_DEBUG;
+  }
+  assert.deepEqual(logs.filter((l) => l.startsWith("[turso] ")), ["[turso] read 4"]);
+});

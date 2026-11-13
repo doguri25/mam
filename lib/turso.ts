@@ -94,7 +94,23 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
       queue.push({ stmt: { sql, args }, ok, fail });
     });
   const name = (col: Col) => prefix() + col;
-  const one = async (col: Col, id: string) => (await read("SELECT data, v FROM docs WHERE col = ? AND id = ?", [name(col), id])).rows[0];
+  // 방금 읽은 문서(표 v 포함). update가 처음 한 번만 이것으로 쓰기를 해 본다 — 그사이 바뀌었으면 v가 달라 쓰기가 되지 않고 다시 읽는다.
+  // (get으로 미리 읽어 두면 읽고 고쳐 쓰기에서 저장소에 한 번 덜 오간다.) 다른 읽기는 이것을 쓰지 않는다.
+  const recent = new Map<string, { row: Record<string, unknown> | undefined; at: number }>();
+  const one = async (col: Col, id: string) => {
+    const key = `${name(col)}\u0000${id}`;
+    const row = (await read("SELECT data, v FROM docs WHERE col = ? AND id = ?", [name(col), id])).rows[0];
+    recent.set(key, { row, at: Date.now() });
+    if (recent.size > 300) recent.delete(recent.keys().next().value!);
+    return row;
+  };
+  const forget = (col: Col, id?: string) => (id === undefined ? recent.clear() : recent.delete(`${name(col)}\u0000${id}`));
+  const justRead = (col: Col, id: string) => {
+    const key = `${name(col)}\u0000${id}`;
+    const hit = recent.get(key);
+    recent.delete(key);
+    return hit && Date.now() - hit.at < 2000 ? hit : null;
+  };
 
   return {
     kind: "turso",
@@ -114,8 +130,9 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
       return r ? parse<T>(r) : null;
     },
     set: async (col, id, data) =>
-      void (await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v", [name(col), id, json(data), tok()])),
+      void (forget(col, id), await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v", [name(col), id, json(data), tok()])),
     setMany: async (col, items) => {
+      forget(col);
       const c = await ready;
       const n = name(col);
       for (let i = 0; i < items.length; i += 200) {
@@ -126,24 +143,27 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
         })), "write");
       }
     },
-    del: async (col, id) => void (await run("DELETE FROM docs WHERE col = ? AND id = ?", [name(col), id])),
-    clear: async (col) => void (await run("DELETE FROM docs WHERE col = ?", [name(col)])),
+    del: async (col, id) => void (forget(col, id), await run("DELETE FROM docs WHERE col = ? AND id = ?", [name(col), id])),
+    clear: async (col) => void (forget(col), await run("DELETE FROM docs WHERE col = ?", [name(col)])),
     delWhere: async (col, field, op, value) => {
       const [w, a] = cond(field, op, value);
+      forget(col);
       return (await run(`DELETE FROM docs WHERE col = ? AND ${w}`, [name(col), a])).rowsAffected;
     },
-    drop: async (col) => void (await run("DELETE FROM docs WHERE col = ?", [name(col)])),
+    drop: async (col) => void (forget(col), await run("DELETE FROM docs WHERE col = ?", [name(col)])),
     update: async <T,>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined) => {
       const n = name(col);
       for (let i = 0; i < 20; i++) {
-        const cur = await one(col, id);
+        const hit = i === 0 ? justRead(col, id) : null;
+        const cur = hit ? hit.row : await one(col, id);
         const before = cur ? parse<T>(cur) : null;
         const next = fn(before);
         if (next === undefined) return before;
         let done: boolean;
-        if (next === null) done = !cur || (await run("DELETE FROM docs WHERE col = ? AND id = ? AND v = ?", [n, id, cur.v])).rowsAffected === 1;
+        if (next === null) done = !cur || (await run("DELETE FROM docs WHERE col = ? AND id = ? AND v = ?", [n, id, cur.v as InValue])).rowsAffected === 1;
         else if (!cur) done = (await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO NOTHING", [n, id, json(next), tok()])).rowsAffected === 1;
-        else done = (await run("UPDATE docs SET data = ?, v = ? WHERE col = ? AND id = ? AND v = ?", [json(next), tok(), n, id, cur.v])).rowsAffected === 1;
+        else done = (await run("UPDATE docs SET data = ?, v = ? WHERE col = ? AND id = ? AND v = ?", [json(next), tok(), n, id, cur.v as InValue])).rowsAffected === 1;
+        forget(col, id); // 쓰기를 해 봤으면(되든 안 되든) 읽어 둔 판은 버린다
         if (done) return next;
         await wait(i);
       }
@@ -151,6 +171,7 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
     },
     // 한 문장으로(읽지 않고) 그 칸만 바꾼다. 없는 문서·중간 칸은 만든다.
     setField: async (col, id, p, value) => {
+      forget(col, id);
       const jp = jpath(p);
       await run(
         "INSERT INTO docs (col, id, data, v) VALUES (?1, ?2, json_set('{}', ?3, json(?4)), ?5) ON CONFLICT (col, id) DO UPDATE SET data = json_set(data, ?3, json(?4)), v = excluded.v",
@@ -159,6 +180,7 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
     },
     // 한 문장으로 세기: 같은 구간이면 n + by(max 안일 때만), 구간이 바뀌었거나 문서가 없으면 by부터. 올리지 못하면 돌려받는 줄이 없다.
     bump: async (col, id, win, { max = Infinity, by = 1, extra = {} }: BumpOpts = {}) => {
+      forget(col, id);
       const n = name(col);
       const N = "coalesce(json_extract(data, '$.n'), 0)";
       const now = async () => {

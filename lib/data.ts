@@ -541,6 +541,8 @@ export interface RecordSave {
   alertNew: boolean; // 선생님이 아직 보지 않은 위험한 글이 있다(알림을 새로 연다)
   seenChecked?: string; // 선생님이 이미 살펴본 마치지 않은 글을 이어받으면 그 살펴본 시각
   queued: boolean; // 끊겼을 때 담아 둔 기록(만든 때 madeAt을 앎)
+  // 변경 표시(touch)를 응답 뒤로 미룰 때(API: next/server의 after). 기록을 쓴 다음에 하므로 차례는 그대로다.
+  defer?: (task: () => Promise<unknown>) => void;
 }
 // 지금 저장된 기록(cur)에 새 기록을 합친 것. null = 같은 기록이 이미 있다(그대로 둔다 — 앞 기록·살펴볼 판(riskAt)·휴대폰 알림을 다시 만들지 않게).
 // · 같은 칸에 다시 남기면 새 기록으로 바꾸되 앞 기록은 prev에 모은다. 아직 살펴보지 않은 위험 표시·마음 다스리기 기록은 새 기록에도 남긴다.
@@ -605,7 +607,10 @@ export async function saveMoodRecord(s: RecordSave): Promise<{ record: MoodRecor
     same = next === null;
     return next ? { ...next, updatedAt: Date.now() } : undefined;
   });
-  if (!same) await touch("records");
+  if (!same) {
+    if (s.defer) s.defer(() => touch("records"));
+    else await touch("records");
+  }
   return { record: out!, same };
 }
 // 마음 다스리기를 써 본 느낌을 그 기록에 붙인다(한 번에 — 그사이 끼어든 저장의 위험한 글을 덮지 않게). 기록이 없으면 null
