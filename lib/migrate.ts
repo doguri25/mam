@@ -124,6 +124,7 @@ export async function bench(store: Store, rounds = 8) {
       "학생 한 명 기록 찾기(find no)": await time(rounds, (i) => store.find("records", "no", "==", (i % 25) + 1)),
       "기간으로 세기(count date)": await time(rounds, () => store.count("records", "date", ">=", "2026-11-15")),
       "기록 300개 모두 읽기(all)": await time(rounds, () => store.all("records")),
+      "문서 16개 한꺼번에 읽기": await time(rounds, () => Promise.all(Array.from({ length: 16 }, (_, i) => store.get("meta", `note${i % rounds}`)))),
       // 선생님 화면을 열 때처럼 여러 개를 한꺼번에
       "화면 열기처럼 6개 한꺼번에": await time(rounds, () => Promise.all([
         store.get("meta", "settings"), store.get("meta", "looks"), store.get("meta", "counter"),

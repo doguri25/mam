@@ -37,6 +37,16 @@ const lag = async (what: string) => {
   const ms = Number(process.env.TURSO_SIM_MS) || 0;
   if (ms) await new Promise((r) => setTimeout(r, ms));
 };
+// TURSO_DEBUG: 요청마다 걸린 시간도 적는다(미리보기에서 어디서 느린지 보려고)
+const timed = async <R,>(what: string, fn: () => Promise<R>): Promise<R> => {
+  if (!process.env.TURSO_DEBUG) return fn();
+  const t = performance.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[turso-ms] ${what} ${Math.round(performance.now() - t)}`);
+  }
+};
 
 export const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS docs (col TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (col, id))",
@@ -61,7 +71,7 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
   const run = async (sql: string, args: InArgs = []) => {
     const c = await ready;
     await lag("write");
-    return c.execute({ sql, args });
+    return timed(`write ${sql.slice(0, 30)}`, () => c.execute({ sql, args }));
   };
   // 읽기는 같은 순간(이벤트 한 바퀴)에 들어온 것을 모아 요청 하나로 보낸다.
   // 서울 서버 ↔ 도쿄 Turso는 오갈 때마다 40ms쯤이라, 화면 하나에 여러 번 읽는 것을 한 번에 묶으면 그만큼 빨라진다.
@@ -72,7 +82,7 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
     try {
       const c = await ready;
       await lag(`read ${q.length}`);
-      const rs = q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), "read");
+      const rs = await timed(`read ${q.length}`, async () => (q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), "read")));
       q.forEach((x, i) => x.ok(rs[i]));
     } catch (e) {
       q.forEach((x) => x.fail(e));
