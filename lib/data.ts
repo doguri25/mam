@@ -693,7 +693,8 @@ export async function getLessons(): Promise<LessonItem[]> {
 
 // ── 문서 하나의 크기: 조치 기록·마치지 않은 위험 표현은 문서 하나에 모으므로, Firestore 한 문서 한도(1 MiB)를 넘기 전에 줄인다 ──
 // 저장소마다 여유를 두고 잡은 한도(JSON 바이트로 어림. Firestore 크기 셈보다 조금 크게 나온다). 로컬 파일은 한도가 없다.
-export const DOC_CAP: Record<"mongo" | "firestore" | "local", number> = { firestore: 900_000, mongo: 15_000_000, local: Infinity };
+// turso: 한 줄(문서)이 크면 요청 하나가 무거워지므로 몽고보다 낮게
+export const DOC_CAP: Record<"mongo" | "firestore" | "local" | "turso", number> = { firestore: 900_000, mongo: 15_000_000, turso: 5_000_000, local: Infinity };
 const bytes = (x: unknown) => Buffer.byteLength(JSON.stringify(x));
 export const DOC_FULL = "위험 표현 기록이 너무 많이 쌓였어요. 「설정 → 기록 보관·정리」에서 지난 기록을 내려받은 뒤 정리해 주세요.";
 

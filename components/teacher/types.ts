@@ -20,7 +20,7 @@ export interface Stamp {
 export interface OverviewRaw {
   today: string;
   weekStart: string;
-  storage: "mongo" | "firestore" | "local";
+  storage: "mongo" | "firestore" | "local" | "turso";
   dataPrefix: string;
   stamp: Stamp;
   partial?: boolean;

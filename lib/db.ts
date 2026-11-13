@@ -1,4 +1,4 @@
-// 저장소: MONGODB_URI가 있으면 MongoDB, FIREBASE_SERVICE_ACCOUNT가 있으면 Firestore, 없으면 로컬 파일(.data/db.json)
+// 저장소: TURSO_DATABASE_URL이 있으면 Turso(libSQL), MONGODB_URI가 있으면 MongoDB, FIREBASE_SERVICE_ACCOUNT가 있으면 Firestore, 없으면 로컬 파일(.data/db.json)
 // MongoDB·Firestore는 서버(관리자 SDK)에서만 읽고 쓴다 — 브라우저는 API로만 닿는다.
 // DATA_PREFIX로 모음 이름 앞을 바꾼다: 배포는 maeumbit_, 이 컴퓨터는 maeumbit_dev_ → 연습하다 실제 반 기록을 건드리지 않게.
 // 학급마다 공간이 따로다: inSpace(공간)이면 그 요청 동안 앞이름에 「공간_」을 더한다.
@@ -10,6 +10,7 @@ import path from "node:path";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { FieldPath, getFirestore, type Firestore } from "firebase-admin/firestore";
 import { MongoClient, type UpdateFilter } from "mongodb";
+import { turso } from "./turso.ts";
 
 // sys: 모든 학급이 함께 쓰는 셈(너무 잦은 시도 막기·하루 한 번 정리). accounts·codes처럼 공간 밖(outOfSpace)에서만 쓴다.
 export type Col = "meta" | "records" | "cheers" | "notes" | "subs" | "reflects" | "letters" | "sheets" | "accounts" | "codes" | "sys";
@@ -19,8 +20,8 @@ type Doc = Record<string, unknown>;
 type Op = "==" | ">" | ">=" | "<";
 export interface BumpOpts { max?: number; by?: number; extra?: Doc }
 
-interface Store {
-  kind: "mongo" | "firestore" | "local";
+export interface Store {
+  kind: "mongo" | "firestore" | "local" | "turso";
   prefix: string;
   all<T>(col: Col): Promise<T[]>;
   // 한 필드 조건으로 좁혀 읽기(Firestore 단일 필드 색인만 써서 따로 색인을 만들 필요 없음)
@@ -148,7 +149,7 @@ function firestore(sa: string): Store {
 
 // 문서 id는 _id로 두고, 읽을 때는 떼어 Firestore·로컬과 같은 모양으로 돌려준다
 // _v: 쓸 때마다 새로 다는 표. update는 읽은 때의 표가 그대로일 때만 바꿔 써서(비교 후 쓰기) 사이에 낀 쓰기를 덮지 않는다.
-function mongo(uri: string): Store {
+export function mongo(uri: string): Store {
   type MDoc = Doc & { _id: string };
   const client = new MongoClient(uri, { maxPoolSize: 5 }); // 서버리스 인스턴스마다 연결을 조금만
   const ready = client.connect();
@@ -310,9 +311,14 @@ function local(): Store {
   };
 }
 
+// 옮기기·속도 재기에서 정한 저장소를 따로 만들 때(앞이름·공간은 db()와 같게 따른다)
+export const tursoStore = (url: string, token?: string) => turso(url, token, prefix);
+
 let store: Store | undefined;
 export function db(): Store {
   if (store) return store;
+  const tu = process.env.TURSO_DATABASE_URL;
+  if (tu) return (store = tursoStore(tu, process.env.TURSO_AUTH_TOKEN));
   const uri = process.env.MONGODB_URI;
   if (uri) return (store = mongo(uri));
   const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
