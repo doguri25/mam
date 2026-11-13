@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 type T = { median: number; p90: number };
 type Run = Record<string, unknown> & { kind: string; connectMs: number };
 type Bench = { region: string; mongo: Run[]; turso: Run[] };
-type Copy = { ok: boolean; collections: number; docs: number; ms: number; mongoDb: string; cols: { name: string; mongo: number; turso: number; same: boolean; odd: number }[]; tursoOnly: { name: string; turso: number }[] };
-type Status = { ready: boolean; need?: string[]; error?: string; mongoDb?: string; mongo?: Record<string, number>; turso?: Record<string, number> };
+type Copy = { ok: boolean; collections: number; docs: number; ms: number; from: string; cols: { name: string; mongo: number; turso: number; same: boolean; odd: number }[]; skipped: string[]; removed: string[] };
+type Status = { ready: boolean; need?: string[]; error?: string; practiceDb?: string; liveDb?: string; practice?: Record<string, number>; live?: Record<string, number>; turso?: Record<string, number> };
 
-const post = async <R,>(action: string): Promise<R> => {
-  const r = await fetch("/api/admin/db", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+const post = async <R,>(action: string, source?: string): Promise<R> => {
+  const r = await fetch("/api/admin/db", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, source }) });
   const j = await r.json().catch(() => ({ error: `오류 ${r.status}` }));
   if (!r.ok) throw new Error(j.error ?? `오류 ${r.status}`);
   return j as R;
@@ -29,13 +29,16 @@ export default function AdminDb() {
   const load = () => fetch("/api/admin/db").then(async (r) => (r.status === 404 ? setSt({ ready: false, error: "실제 배포에서는 쓸 수 없어요." }) : setSt(await r.json()))).catch((e) => setSt({ ready: false, error: String(e) }));
   useEffect(() => { load(); }, []);
 
-  const go = async (action: "copy" | "bench") => {
-    if (action === "copy" && !confirm(`몽고DB(${st?.mongoDb})의 모든 모음을 Turso로 복사할까요? Turso 쪽 같은 모음은 지우고 새로 넣어요. 몽고는 그대로예요.`)) return;
+  const go = async (action: "practice" | "live" | "bench") => {
+    if (action !== "bench") {
+      const what = action === "live" ? `실제 반(${st?.liveDb})을 읽기만 해서 복사본으로` : `연습 데이터(${st?.practiceDb})를`;
+      if (!confirm(`${what} Turso 시험 데이터베이스에 옮길까요? Turso 쪽은 이 원본과 똑같게 지우고 새로 넣어요. 몽고DB는 그대로예요.`)) return;
+    }
     setBusy(action);
     setErr("");
     try {
-      if (action === "copy") setCopy(await post<Copy>("copy"));
-      else setBench(await post<Bench>("bench"));
+      if (action === "bench") setBench(await post<Bench>("bench"));
+      else setCopy(await post<Copy>("copy", action));
       load();
     } catch (e) {
       setErr((e as Error).message);
@@ -45,12 +48,15 @@ export default function AdminDb() {
   };
 
   const keys = bench ? Object.keys(bench.mongo[0]).filter((k) => !["kind", "connectMs"].includes(k)) : [];
-  const names = st?.mongo || st?.turso ? [...new Set([...Object.keys(st.mongo ?? {}), ...Object.keys(st.turso ?? {})])].sort() : [];
+  const names = st?.ready ? [...new Set([...Object.keys(st.practice ?? {}), ...Object.keys(st.live ?? {}), ...Object.keys(st.turso ?? {})])].sort() : [];
+  const btn = (k: string, label: string, busyLabel: string, main = false) => (
+    <button className={main ? "btn-main" : "btn-sub"} disabled={!st?.ready || !!busy} onClick={() => go(k as "practice" | "live" | "bench")}>{busy === k ? busyLabel : label}</button>
+  );
 
   return (
     <main className="mx-auto max-w-3xl space-y-4 p-4 sm:p-8">
       <h1 className="font-display text-2xl">저장소 옮기기 · 속도 재기</h1>
-      <p className="text-soft">미리보기에서만 열리는 관리 화면이에요. 몽고DB는 읽기만 하고, 속도 재기는 연습 공간(bench)에만 썼다가 지워요.</p>
+      <p className="text-soft">미리보기에서만 열리는 관리 화면이에요. 몽고DB는 읽기만 하고, 속도 재기는 연습 공간(bench)에만 썼다가 지워요. 실제 반 복사본에서는 학생 기기 알림 구독(subs)을 옮기지 않아요.</p>
 
       <section className="card space-y-3">
         <h2 className="font-bold">지금 상태</h2>
@@ -60,13 +66,14 @@ export default function AdminDb() {
         {st?.ready && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-soft"><th className="py-1">모음 ({st.mongoDb})</th><th className="text-right">몽고DB</th><th className="text-right">Turso</th></tr></thead>
+              <thead><tr className="text-left text-soft"><th className="py-1">모음</th><th className="text-right">연습 몽고</th><th className="text-right">실제 몽고</th><th className="text-right">Turso</th></tr></thead>
               <tbody>
                 {names.map((n) => (
                   <tr key={n} className="border-t border-line">
                     <td className="py-1 font-mono text-xs">{n}</td>
-                    <td className="text-right">{st.mongo?.[n] ?? "-"}</td>
-                    <td className={`text-right ${(st.turso?.[n] ?? -1) === (st.mongo?.[n] ?? -2) ? "text-leaf" : ""}`}>{st.turso?.[n] ?? "-"}</td>
+                    <td className="text-right">{st.practice?.[n] ?? "-"}</td>
+                    <td className="text-right">{st.live?.[n] ?? "-"}</td>
+                    <td className="text-right font-bold">{st.turso?.[n] ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -74,20 +81,22 @@ export default function AdminDb() {
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <button className="btn-main" disabled={!st?.ready || !!busy} onClick={() => go("copy")}>{busy === "copy" ? "옮기는 중…" : "몽고DB → Turso 복사하기"}</button>
-          <button className="btn-sub" disabled={!st?.ready || !!busy} onClick={() => go("bench")}>{busy === "bench" ? "재는 중… (30초쯤)" : "속도 재기"}</button>
+          {btn("practice", "① 연습 데이터 복사하기", "옮기는 중…", true)}
+          {btn("bench", "② 속도 재기", "재는 중… (30초쯤)")}
+          {btn("live", "③ 실제 반 복사본 넣기", "옮기는 중…")}
         </div>
         {err && <p role="alert" className="text-alert">{err}</p>}
       </section>
 
       {copy && (
         <section className="card space-y-2">
-          <h2 className="font-bold">{copy.ok ? "복사했어요 ✓" : "확인이 필요해요"}</h2>
-          <p>모음 {copy.collections}개 · 문서 {copy.docs}개 · {(copy.ms / 1000).toFixed(1)}초</p>
+          <h2 className="font-bold">{copy.ok ? "복사했어요 ✓" : "확인이 필요해요"} <span className="font-normal text-soft">({copy.from}에서)</span></h2>
+          <p>모음 {copy.collections}개 · 문서 {copy.docs}개 · {(copy.ms / 1000).toFixed(1)}초 · 모음마다 수와 내용을 다시 읽어 맞춰 봤어요</p>
           {copy.cols.filter((c) => !c.same || c.odd).map((c) => (
             <p key={c.name} className="text-sm text-alert">{c.name}: 몽고 {c.mongo} · Turso {c.turso}{c.odd ? ` · JSON으로 바뀌는 값 ${c.odd}개` : ""}</p>
           ))}
-          {!!copy.tursoOnly.length && <p className="text-sm text-soft">Turso에만 있는 모음: {copy.tursoOnly.map((x) => `${x.name}(${x.turso})`).join(", ")}</p>}
+          {!!copy.skipped.length && <p className="text-sm text-soft">옮기지 않은 모음: {copy.skipped.join(", ")}</p>}
+          {!!copy.removed.length && <p className="text-sm text-soft">원본에 없어 Turso에서 지운 모음: {copy.removed.join(", ")}</p>}
         </section>
       )}
 

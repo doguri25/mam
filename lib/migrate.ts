@@ -23,10 +23,18 @@ export function oddValues(v: unknown): number {
 const INSERT = "INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v";
 const BATCH_BYTES = 2_000_000; // 요청 하나가 너무 무거워지지 않게 2MB쯤에서 끊어 보낸다
 
-export async function copyAll(src: Source, dst: Client, prefix: string) {
+// skip: 옮기지 않을 모음(예: 실제 반 복사본으로 시험할 때 학생 기기 알림 구독 subs).
+// Turso 쪽은 고른 원본과 똑같아지도록 앞이름 모음 가운데 원본에 없는(또는 건너뛴) 것도 지운다.
+export async function copyAll(src: Source, dst: Client, prefix: string, skip: (name: string) => boolean = () => false) {
   const t0 = Date.now();
   await dst.batch(SCHEMA, "write");
-  const names = (await src.names()).filter((n) => n.startsWith(prefix)).sort();
+  const all = (await src.names()).filter((n) => n.startsWith(prefix)).sort();
+  const names = all.filter((n) => !skip(n));
+  const skipped = all.filter(skip);
+  const stale = (await dst.execute({ sql: "SELECT DISTINCT col FROM docs WHERE substr(col, 1, ?) = ?", args: [prefix.length, prefix] })).rows
+    .map((r) => String(r.col))
+    .filter((c) => !names.includes(c));
+  if (stale.length) await dst.batch(stale.map((c) => ({ sql: "DELETE FROM docs WHERE col = ?", args: [c] })), "write");
   const cols: ColResult[] = [];
   for (const name of names) {
     const docs = await src.docs(name);
@@ -59,17 +67,14 @@ export async function copyAll(src: Source, dst: Client, prefix: string) {
     const same = back.rows.length === want.size && back.rows.every((r) => want.get(String(r.id)) === String(r.data));
     cols.push({ name, mongo: docs.length, turso: back.rows.length, same, odd });
   }
-  // Turso에만 있는 모음(몽고에는 없는데 남은 것)
-  const left = (await dst.execute({ sql: "SELECT col, count(*) AS n FROM docs WHERE substr(col, 1, ?) = ? GROUP BY col", args: [prefix.length, prefix] })).rows
-    .filter((r) => !names.includes(String(r.col)))
-    .map((r) => ({ name: String(r.col), turso: Number(r.n) }));
   return {
     ok: cols.every((c) => c.same && !c.odd),
     collections: cols.length,
     docs: cols.reduce((n, c) => n + c.mongo, 0),
     ms: Date.now() - t0,
     cols,
-    tursoOnly: left,
+    skipped,
+    removed: stale,
   };
 }
 
