@@ -59,3 +59,12 @@ test("속도 재기: 일마다 시간을 내고, 연습 공간은 비우고 끝�
   assert.deepEqual(await inSpace("bench", () => s.all("records")), []);
   assert.deepEqual(await inSpace("bench", () => s.all("meta")), []);
 });
+
+test("저장소 점검: 로컬 Turso 파일에서 모두 통과하고 연습 공간을 비운다", async () => {
+  const { selfTest } = await import("./migrate.ts");
+  const s = tursoStore("file:st.db");
+  const r = await selfTest(s);
+  assert.ok(r.ok, JSON.stringify(r.checks.filter((c) => !c.ok)));
+  assert.equal(r.checks.length, 7);
+  assert.deepEqual(await inSpace("selftest", () => s.all("meta")), []);
+});

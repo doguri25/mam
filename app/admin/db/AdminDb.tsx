@@ -6,6 +6,7 @@ type T = { median: number; p90: number };
 type Run = Record<string, unknown> & { kind: string; connectMs: number };
 type Bench = { region: string; mongo: Run[]; turso: Run[] };
 type Copy = { ok: boolean; collections: number; docs: number; ms: number; from: string; cols: { name: string; mongo: number; turso: number; same: boolean; odd: number }[]; skipped: string[]; removed: string[] };
+type Check = { ok: boolean; checks: { name: string; ok: boolean; why?: string }[] };
 type Status = { ready: boolean; need?: string[]; error?: string; practiceDb?: string; liveDb?: string; practice?: Record<string, number>; live?: Record<string, number>; turso?: Record<string, number> };
 
 const post = async <R,>(action: string, source?: string): Promise<R> => {
@@ -25,12 +26,13 @@ export default function AdminDb() {
   const [err, setErr] = useState("");
   const [copy, setCopy] = useState<Copy | null>(null);
   const [bench, setBench] = useState<Bench | null>(null);
+  const [check, setCheck] = useState<{ turso: Check; mongo: Check } | null>(null);
 
   const load = () => fetch("/api/admin/db").then(async (r) => (r.status === 404 ? setSt({ ready: false, error: "실제 배포에서는 쓸 수 없어요." }) : setSt(await r.json()))).catch((e) => setSt({ ready: false, error: String(e) }));
   useEffect(() => { load(); }, []);
 
-  const go = async (action: "practice" | "live" | "bench") => {
-    if (action !== "bench") {
+  const go = async (action: "practice" | "live" | "bench" | "selftest") => {
+    if (action === "practice" || action === "live") {
       const what = action === "live" ? `실제 반(${st?.liveDb})을 읽기만 해서 복사본으로` : `연습 데이터(${st?.practiceDb})를`;
       if (!confirm(`${what} Turso 시험 데이터베이스에 옮길까요? Turso 쪽은 이 원본과 똑같게 지우고 새로 넣어요. 몽고DB는 그대로예요.`)) return;
     }
@@ -38,6 +40,7 @@ export default function AdminDb() {
     setErr("");
     try {
       if (action === "bench") setBench(await post<Bench>("bench"));
+      else if (action === "selftest") setCheck(await post<{ turso: Check; mongo: Check }>("selftest"));
       else setCopy(await post<Copy>("copy", action));
       load();
     } catch (e) {
@@ -50,7 +53,7 @@ export default function AdminDb() {
   const keys = bench ? Object.keys(bench.mongo[0]).filter((k) => !["kind", "connectMs"].includes(k)) : [];
   const names = st?.ready ? [...new Set([...Object.keys(st.practice ?? {}), ...Object.keys(st.live ?? {}), ...Object.keys(st.turso ?? {})])].sort() : [];
   const btn = (k: string, label: string, busyLabel: string, main = false) => (
-    <button className={main ? "btn-main" : "btn-sub"} disabled={!st?.ready || !!busy} onClick={() => go(k as "practice" | "live" | "bench")}>{busy === k ? busyLabel : label}</button>
+    <button className={main ? "btn-main" : "btn-sub"} disabled={!st?.ready || !!busy} onClick={() => go(k as "practice" | "live" | "bench" | "selftest")}>{busy === k ? busyLabel : label}</button>
   );
 
   return (
@@ -84,6 +87,7 @@ export default function AdminDb() {
           {btn("practice", "① 연습 데이터 복사하기", "옮기는 중…", true)}
           {btn("bench", "② 속도 재기", "재는 중… (30초쯤)")}
           {btn("live", "③ 실제 반 복사본 넣기", "옮기는 중…")}
+          {btn("selftest", "④ 저장소 점검", "점검하는 중…")}
         </div>
         {err && <p role="alert" className="text-alert">{err}</p>}
       </section>
@@ -97,6 +101,21 @@ export default function AdminDb() {
           ))}
           {!!copy.skipped.length && <p className="text-sm text-soft">옮기지 않은 모음: {copy.skipped.join(", ")}</p>}
           {!!copy.removed.length && <p className="text-sm text-soft">원본에 없어 Turso에서 지운 모음: {copy.removed.join(", ")}</p>}
+        </section>
+      )}
+
+      {check && (
+        <section className="card space-y-2">
+          <h2 className="font-bold">저장소 점검 {check.turso.ok && check.mongo.ok ? "✓ 모두 통과" : "— 확인이 필요해요"}</h2>
+          <ul className="space-y-1 text-sm">
+            {check.turso.checks.map((c, i) => (
+              <li key={c.name}>
+                <span className={c.ok ? "text-leaf" : "text-alert"}>{c.ok ? "✓" : "✗"} Turso</span>{" · "}
+                <span className={check.mongo.checks[i]?.ok ? "text-leaf" : "text-alert"}>{check.mongo.checks[i]?.ok ? "✓" : "✗"} 몽고</span>{" · "}{c.name}
+                {[c, check.mongo.checks[i]].filter((x) => x && !x.ok).map((x, k) => <span key={k} className="block text-xs text-alert">{x!.why}</span>)}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

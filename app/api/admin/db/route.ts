@@ -1,13 +1,14 @@
 // 저장소 옮기기·속도 재기(미리보기 전용 관리 도구). 화면: /admin/db
 // 실제 배포(production)에서는 열리지 않는다. 미리보기 주소는 Vercel 로그인(배포 보호)한 사람만 들어온다.
 // GET = 저장소마다 모음별 문서 수, POST {action: "copy", source} = 몽고 → Turso 복사·맞춰 보기, POST {action: "bench"} = 속도 재기
-// source: "practice" = 이 배포의 MONGODB_DB(미리보기 연습 데이터), "live" = 실제 반 데이터베이스(maeumbit)를 읽기만 해서 복사본으로.
+// source: "practice" = 이 배포의 MONGODB_DB(미리보기 연습 데이터), "live" = 실제 반 데이터베이스(maeumbit)를 읽기만 해서 복사본으로,
+//   "final" = 바꿔치기 직전 실제 반을 알림 구독까지 모두.
 //   실제 반 복사본에서는 학생 기기 알림 구독(subs)을 옮기지 않는다(미리보기에서 누른 일이 학생 기기로 알림이 가지 않게).
 // 결과는 Vercel 실행 기록(로그)에도 남긴다.
 import { MongoClient } from "mongodb";
 import { NextResponse, type NextRequest } from "next/server";
 import { mongo, tursoStore, type Store } from "@/lib/db";
-import { bench, copyAll } from "@/lib/migrate";
+import { bench, copyAll, selfTest } from "@/lib/migrate";
 import { connect } from "@/lib/turso";
 
 export const maxDuration = 60;
@@ -57,18 +58,26 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { action?: string; source?: string };
   try {
     if (body.action === "copy") {
-      const live = body.source === "live";
+      // final: 바꿔치기 직전 마지막 옮기기 — 실제 반을 알림 구독까지 모두(이 Turso를 실제 앱이 쓰게 되므로)
+      const live = body.source === "live" || body.source === "final";
       const from = live ? LIVE_DB : env().mdb;
       const m = await mdb(from);
       const c = await connect(env().turso!, env().token);
       const out = await copyAll({
         names: async () => (await m.listCollections({}, { nameOnly: true }).toArray()).map((x) => x.name),
         docs: (n) => m.collection(n).find().toArray() as Promise<Record<string, unknown>[]>,
-      }, c, PREFIX, live ? SKIP_LIVE : undefined);
+      }, c, PREFIX, body.source === "live" ? SKIP_LIVE : undefined);
       c.close();
       // 기록에는 모음 이름·수만(내용은 남기지 않음)
       console.log("[admin/db] copy", JSON.stringify({ from, ok: out.ok, collections: out.collections, docs: out.docs, ms: out.ms, skipped: out.skipped, removed: out.removed, cols: out.cols }));
       return NextResponse.json({ from, ...out });
+    }
+    // 저장소 점검: 두 저장소에 같은 점검을 돌린다(연습 공간 selftest에만 쓰고 지움)
+    if (body.action === "selftest") {
+      stores ??= { mongo: mongo(env().mongo!), turso: tursoStore(env().turso!, env().token) };
+      const out = { turso: await selfTest(stores.turso), mongo: await selfTest(stores.mongo) };
+      console.log("[admin/db] selftest", JSON.stringify(out));
+      return NextResponse.json(out);
     }
     if (body.action === "bench") {
       stores ??= { mongo: mongo(env().mongo!), turso: tursoStore(env().turso!, env().token) };

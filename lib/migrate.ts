@@ -138,3 +138,73 @@ export async function bench(store: Store, rounds = 8) {
     return out;
   });
 }
+
+// ── 저장소 점검: 실제 원격 저장소에서 앱이 기대하는 성질을 하나씩 확인한다(연습 공간 selftest에만 쓰고 지움) ──
+// 로컬 시험은 이 컴퓨터의 SQLite 파일로 돌므로, HTTP로 붙는 Turso에서 숫자·참거짓 모양, 한꺼번에 쓰기, 세기 등이 같은지 여기서 본다.
+export const CHECK_SPACE = "selftest";
+export async function selfTest(store: Store) {
+  const out: { name: string; ok: boolean; why?: string }[] = [];
+  const check = async (name: string, fn: () => Promise<void>) => {
+    try {
+      await fn();
+      out.push({ name, ok: true });
+    } catch (e) {
+      out.push({ name, ok: false, why: (e as Error).message.slice(0, 200) });
+    }
+  };
+  // 칸 차례는 저장소마다 다를 수 있어 정렬해 견준다
+  const norm = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(norm) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, norm((v as Doc)[k])])) : v;
+  const eq = (a: unknown, b: unknown, what: string) => {
+    if (JSON.stringify(norm(a)) !== JSON.stringify(norm(b))) throw new Error(`${what}: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`);
+  };
+  return inSpace(CHECK_SPACE, async () => {
+    for (const c of ["records", "meta", "sys", "letters"] as const) await store.drop(c);
+    await check("값이 그대로 돌아온다(정수·소수·참거짓·빈 값·깊은 칸·한글)", async () => {
+      const doc = { n: 3, f: 1.5, t: true, z: null, arr: [1, "2", { x: false }], deep: { a: { b: "마음 글 😊" } } };
+      await store.set("meta", "json", doc);
+      eq(await store.get("meta", "json"), doc, "get");
+    });
+    await check("같은 종류 값끼리만 찾는다(숫자 3 ≠ 글자 '3', 참 ≠ 1)", async () => {
+      await store.setMany("records", [["a", { no: 3, date: "2026-11-01", risk: true }], ["b", { no: "3", date: "2026-11-05", risk: 1 }], ["c", { no: 4, risk: false }], ["d", { no: 10 }]]);
+      eq((await store.find<{ no: unknown }>("records", "no", "==", 3)).map((d) => d.no), [3], "find no==3");
+      eq(await store.count("records", "no", ">=", 4), 2, "count no>=4");
+      eq(await store.count("records", "date", "<", "2026-11-03"), 1, "count date<");
+      eq(await store.count("records", "risk", "==", true), 1, "count risk==true");
+      eq(await store.count("records", "risk", "==", false), 1, "count risk==false");
+      eq((await store.all<{ no: unknown }>("records")).map((d) => d.no), [3, "3", 4, 10], "all 넣은 차례");
+      eq(await store.delWhere("records", "no", ">", 3), 2, "delWhere");
+    });
+    await check("칸 하나만 바꾸기(없는 문서·중간 칸은 만든다)", async () => {
+      await store.setField("meta", "looks", "items.7", { color: "red" });
+      await store.setField("meta", "looks", "items.8", { color: "blue" });
+      eq(await store.get("meta", "looks"), { items: { 7: { color: "red" }, 8: { color: "blue" } } }, "setField");
+    });
+    await check("같은 순간 고쳐 쓰기 20개가 하나도 잃지 않는다", async () => {
+      await Promise.all(Array.from({ length: 20 }, (_, i) => store.update<{ items: number[] }>("meta", "list", (cur) => ({ items: [...(cur?.items ?? []), i] }))));
+      eq((await store.get<{ items: number[] }>("meta", "list"))!.items.length, 20, "items");
+    });
+    await check("횟수 세기: 같은 순간 25번 중 한도 15번까지만", async () => {
+      const rs = await Promise.all(Array.from({ length: 25 }, () => store.bump("sys", "limit", "d1", { max: 15, extra: { exp: 9 } })));
+      eq(rs.filter((r) => r.ok).length, 15, "ok");
+      eq(await store.get("sys", "limit"), { exp: 9, date: "d1", n: 15 }, "doc");
+      eq((await store.bump("sys", "limit", "d2", { max: 15 })).n, 1, "새 구간");
+      eq((await store.bump("sys", "limit", "d2", { by: -1 })).n, 0, "되돌리기");
+    });
+    await check("지우기와 비우기", async () => {
+      await store.set("letters", "x", { a: 1 });
+      await store.del("letters", "x");
+      eq(await store.get("letters", "x"), null, "del");
+      await store.setMany("letters", [["y", { a: 1 }], ["z", { a: 2 }]]);
+      await store.clear("letters");
+      eq(await store.all("letters"), [], "clear");
+    });
+    await check("큰 문서(1MB) 쓰고 읽기", async () => {
+      const big = { items: Array.from({ length: 2000 }, (_, i) => ({ id: i, text: "가".repeat(170) })) };
+      await store.set("meta", "big", big);
+      eq((await store.get<typeof big>("meta", "big"))!.items.length, 2000, "big");
+    });
+    for (const c of ["records", "meta", "sys", "letters"] as const) await store.drop(c);
+    return { ok: out.every((x) => x.ok), checks: out };
+  });
+}
