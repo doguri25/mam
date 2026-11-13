@@ -1,12 +1,12 @@
 // 반 명단·설정·기록을 읽고 쓰는 곳
-import { decrypt, makePin, newCode, validPin, type Pin } from "./auth.ts";
+import { decrypt, isTeacher, makePin, newCode, validPin, type Pin } from "./auth.ts";
 import { addDays, monday, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
 import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
 import { selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
-import { DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, ownBy, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
+import { CONTACT_EMAIL, DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, ownBy, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
 import { riskSrcOf } from "../components/teacher/alerts.ts"; // 알림이 가리키는 글 고르기를 선생님 화면과 같게
 
 export interface Settings {
@@ -143,7 +143,7 @@ export async function createAccount(name: string, className: string, password: s
     const gone = await cleanupEmptyClasses().catch((e) => (console.error("빈 학급 정리 실패", e), [])); // 정리가 안 돼도 가입은 이어서
     if (gone.length) n = await classes();
   }
-  if (n >= max) return { error: "더 만들 수 있는 학급 수를 넘었어요. 관리하시는 선생님께 알려 주세요." };
+  if (n >= max) return { error: `더 만들 수 있는 학급 수를 넘었어요. 운영 선생님(${CONTACT_EMAIL})께 알려 주세요.` };
   if (opts.ip !== undefined) {
     const limited = await signupSlot(opts.ip);
     if (limited) return { error: limited, status: 429 };
@@ -225,6 +225,26 @@ export async function noteTeacherLogin(acc: Account, now = new Date()) {
   if (acc.space) await outOfSpace(() => db().update<Account>("accounts", acc.id, (cur) => (cur ? { ...cur, lastLogin: now.toISOString() } : undefined)));
   await tidyLimits(now.getTime());
   if (await claimOnce("cleanup", today(now))) await cleanupEmptyClasses(now);
+}
+
+// 운영 선생님(처음 반 홍북초)으로 들어온 선생님 표인가(관리 화면 /admin/db를 실제 배포에서 열 때)
+export const isOwner = (cookie: string | undefined) => inSpace("", async () => isTeacher(cookie, (await getPin())?.v ?? 0, ""));
+
+// ── 운영자(처음 반 홍북초 선생님)만 보는 학급 목록: 누가 어떤 학급을 만들었고 쓰고 있는지(학생 글·이름은 보지 않음) ──
+export interface ClassRow { name: string; className: string; space: string; createdAt: string; lastLogin: string; students: number; records: number; recent: number }
+export async function listClasses(now = new Date()): Promise<{ items: ClassRow[]; max: number }> {
+  const accounts = await outOfSpace(() => db().all<Account>("accounts"));
+  const week = addDays(today(now), -6);
+  // 학급마다 반 이름·학생 수·기록 수(전체·최근 7일)를 한꺼번에 센다
+  const items = await Promise.all(accounts.map((a) => inSpace(a.space, async () => {
+    const [settings, roster, records, recent] = await Promise.all([
+      db().get<{ className?: string }>("meta", "settings"), getRoster(),
+      db().count("records", "date", ">=", ""), db().count("records", "date", ">=", week),
+    ]);
+    return { name: a.name, className: settings?.className ?? "", space: a.space, createdAt: a.createdAt, lastLogin: a.lastLogin ?? a.seen ?? "", students: roster.length, records, recent };
+  })));
+  items.sort((a, b) => (b.lastLogin || b.createdAt).localeCompare(a.lastLogin || a.createdAt));
+  return { items, max: Number(process.env.MAX_CLASSES) || 40 };
 }
 
 // 화면 위에 보일 계정 이름

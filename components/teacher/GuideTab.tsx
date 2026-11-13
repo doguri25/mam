@@ -1,6 +1,7 @@
 "use client";
 // 교사용 한 장 사용 설명서: 화면에서 읽고 A4 한 장으로 인쇄. 글 속 {이름}은 메뉴와 같은 손그림 그림으로 바꿔 보여 준다.
 import Doodle, { DoodleText } from "../Doodle";
+import { CONTACT_EMAIL } from "@/lib/shared";
 const STEPS: [string, string, string[]][] = [
   ["1", "처음 한 번 (10분)", [
     "「설정」 → 「선생님 비밀번호 바꾸기」에서 처음 비밀번호를 학생들이 모르는 숫자로 바꿔요.",
@@ -63,6 +64,8 @@ export default function GuideTab() {
             </section>
           ))}
         </div>
+
+        <p className="rounded-2xl bg-paper px-3 py-2 text-sm">앱을 쓰다 문제가 생기거나 궁금한 점이 있으면 <b>{CONTACT_EMAIL}</b>로 알려 주세요.</p>
 
         <section className="rounded-2xl border-2 border-alert bg-alert-soft p-3">
           <h3 className="font-bold text-alert"><Doodle name="warning" /> 위험 표현 알림이 오면</h3>

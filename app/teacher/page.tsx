@@ -28,7 +28,7 @@ import { addDays, today as kToday } from "@/lib/date";
 import { parseNames, useLocal, useNames } from "@/lib/local";
 import type { Go } from "@/lib/assist";
 import { absentStudents, watchFlags } from "@/lib/rules";
-import { formerAt, ownOnly, type MoodRecord } from "@/lib/shared";
+import { CONTACT_EMAIL, formerAt, ownOnly, type MoodRecord } from "@/lib/shared";
 
 // 메뉴 묶음: [탭, 그림, 이름]. 세로 화면에서도 한눈에 다 보이게 모두 펼쳐 둔다.
 const NAV: { title: string; items: [Tab, DoodleName, string][] }[] = [
@@ -583,6 +583,7 @@ function Login({ onDone }: { onDone: () => Promise<void> }) {
           <Link href="/try" className="underline underline-offset-4">비밀번호 없이 체험하기</Link>
           <Link href="/privacy" className="underline underline-offset-4">개인정보 처리 안내</Link>
         </p>
+        <p className="text-center text-xs text-soft">문제가 생기면 <a href={`mailto:${CONTACT_EMAIL}`} className="underline underline-offset-4">{CONTACT_EMAIL}</a></p>
       </form>
     </main>
   );

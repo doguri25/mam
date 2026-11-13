@@ -28,7 +28,7 @@ export default function AdminDb() {
   const [bench, setBench] = useState<Bench | null>(null);
   const [check, setCheck] = useState<{ turso: Check; mongo: Check } | null>(null);
 
-  const load = () => fetch("/api/admin/db").then(async (r) => (r.status === 404 ? setSt({ ready: false, error: "실제 배포에서는 쓸 수 없어요." }) : setSt(await r.json()))).catch((e) => setSt({ ready: false, error: String(e) }));
+  const load = () => fetch("/api/admin/db").then(async (r) => (r.status === 404 ? setSt({ ready: false, error: "운영 선생님(처음 반)으로 선생님 화면에 들어온 뒤에 열어 주세요." }) : setSt(await r.json()))).catch((e) => setSt({ ready: false, error: String(e) }));
   useEffect(() => { load(); }, []);
 
   const go = async (action: "practice" | "live" | "bench" | "selftest") => {
@@ -59,7 +59,7 @@ export default function AdminDb() {
   return (
     <main className="mx-auto max-w-3xl space-y-4 p-4 sm:p-8">
       <h1 className="font-display text-2xl">저장소 옮기기 · 속도 재기</h1>
-      <p className="text-soft">미리보기에서만 열리는 관리 화면이에요. 몽고DB는 읽기만 하고, 속도 재기는 연습 공간(bench)에만 썼다가 지워요. 실제 반 복사본에서는 학생 기기 알림 구독(subs)을 옮기지 않아요.</p>
+      <p className="text-soft">운영 선생님만 여는 관리 화면이에요. 몽고DB는 읽기만 하고, 속도 재기는 연습 공간(bench)에만 썼다가 지워요. 실제 반 복사본에서는 학생 기기 알림 구독(subs)을 옮기지 않아요.</p>
 
       <section className="card space-y-3">
         <h2 className="font-bold">지금 상태</h2>

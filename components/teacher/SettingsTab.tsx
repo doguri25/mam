@@ -7,13 +7,14 @@ import Doodle from "../Doodle";
 import RetentionCard from "./RetentionCard";
 import PinCard from "./PinCard";
 import PushCard from "./PushCard";
+import ClassesCard from "./ClassesCard";
 import type { Overview, Reload } from "./types";
 import { useAct } from "./useAct";
 import { whileRosterChanges } from "./rosterBusy";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
 import { matchRisk } from "@/lib/rules";
-import { CALM_KO, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, formerAt, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "@/lib/shared";
+import { CALM_KO, CONTACT_EMAIL, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, formerAt, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "@/lib/shared";
 
 const LANG_KO: Record<string, string> = { ko: "한국어", en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 
@@ -214,6 +215,8 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
   return (
     <div className="space-y-5">
       <p className="text-sm text-soft">처음에는 <b>비밀번호 바꾸기 · AI 키 넣기 · 반 이름</b>만 하면 돼요. 나머지는 아래 「자세한 설정」에 있어요.</p>
+      <p className="text-sm text-soft">앱을 쓰다 문제가 생기면 <a href={`mailto:${CONTACT_EMAIL}`} className="font-bold text-leaf underline underline-offset-4">{CONTACT_EMAIL}</a>로 알려 주세요.</p>
+      {data.owner && <ClassesCard />}
       <PinCard pinSet={data.pinSet} reload={reload} />
       <section className="card space-y-4">
         <div>

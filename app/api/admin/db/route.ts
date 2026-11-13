@@ -1,19 +1,23 @@
-// 저장소 옮기기·속도 재기(미리보기 전용 관리 도구). 화면: /admin/db
-// 실제 배포(production)에서는 열리지 않는다. 미리보기 주소는 Vercel 로그인(배포 보호)한 사람만 들어온다.
-// GET = 저장소마다 모음별 문서 수, POST {action: "copy", source} = 몽고 → Turso 복사·맞춰 보기, POST {action: "bench"} = 속도 재기
+// 저장소 옮기기·속도 재기·점검(관리 도구). 화면: /admin/db
+// 미리보기: Vercel 로그인(배포 보호)한 사람만 들어온다. 실제 배포: 운영 선생님(처음 반 홍북초)으로 들어온 사람만(아니면 404).
+// GET = 저장소마다 모음별 문서 수, POST {action: "copy", source} = 몽고 → Turso 복사·맞춰 보기, "bench" = 속도 재기, "selftest" = 저장소 점검
 // source: "practice" = 이 배포의 MONGODB_DB(미리보기 연습 데이터), "live" = 실제 반 데이터베이스(maeumbit)를 읽기만 해서 복사본으로,
 //   "final" = 바꿔치기 직전 실제 반을 알림 구독까지 모두.
 //   실제 반 복사본에서는 학생 기기 알림 구독(subs)을 옮기지 않는다(미리보기에서 누른 일이 학생 기기로 알림이 가지 않게).
+// 옮길 Turso: TURSO_COPY_URL(바꿔치기 전 실제 배포에서 몽고로 돌면서 옮길 곳) 또는 TURSO_DATABASE_URL.
+// 실제 배포에서 앱이 이미 쓰고 있는 Turso(TURSO_DATABASE_URL)로는 옮기지 않는다(몽고의 옛 데이터로 덮어쓰지 않게).
 // 결과는 Vercel 실행 기록(로그)에도 남긴다.
 import { MongoClient } from "mongodb";
 import { NextResponse, type NextRequest } from "next/server";
 import { mongo, tursoStore, type Store } from "@/lib/db";
 import { bench, copyAll, selfTest } from "@/lib/migrate";
 import { connect } from "@/lib/turso";
+import { isOwner } from "@/lib/data";
+import { TEACHER_COOKIE } from "@/lib/auth";
 
 export const maxDuration = 60;
 const PREFIX = process.env.DATA_PREFIX || "maeumbit_";
-const env = () => ({ mongo: process.env.MONGODB_URI, turso: process.env.TURSO_DATABASE_URL, token: process.env.TURSO_AUTH_TOKEN, mdb: process.env.MONGODB_DB || "maeumbit" });
+const env = () => ({ mongo: process.env.MONGODB_URI, turso: process.env.TURSO_COPY_URL || process.env.TURSO_DATABASE_URL, token: process.env.TURSO_AUTH_TOKEN, mdb: process.env.MONGODB_DB || "maeumbit" });
 
 const LIVE_DB = "maeumbit"; // 실제 배포는 MONGODB_DB가 없어 기본값을 쓴다
 let mongoClient: Promise<MongoClient> | undefined;
@@ -26,14 +30,18 @@ const counts = async (name: string) => {
 const SKIP_LIVE = (n: string) => /_subs$/.test(n);
 let stores: { mongo: Store; turso: Store } | undefined;
 
-const off = () => process.env.VERCEL_ENV === "production";
+const prod = () => process.env.VERCEL_ENV === "production";
+// 실제 배포에서는 운영 선생님만(나머지는 있는 줄도 모르게 404)
+const off = async (req: NextRequest) => prod() && !(await isOwner(req.cookies.get(TEACHER_COOKIE)?.value).catch(() => false));
+// 실제 배포에서 앱이 쓰는 저장소로 옮기려 하면 막는다
+const liveTarget = () => prod() && !!process.env.TURSO_DATABASE_URL && env().turso === process.env.TURSO_DATABASE_URL;
 const missing = () => {
   const e = env();
   return [!e.mongo && "MONGODB_URI", !e.turso && "TURSO_DATABASE_URL"].filter(Boolean) as string[];
 };
 
-export async function GET() {
-  if (off()) return new NextResponse(null, { status: 404 });
+export async function GET(req: NextRequest) {
+  if (await off(req)) return new NextResponse(null, { status: 404 });
   const need = missing();
   if (need.length) return NextResponse.json({ ready: false, need, mongoDb: env().mdb });
   try {
@@ -51,13 +59,14 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  if (off()) return new NextResponse(null, { status: 404 });
+  if (await off(req)) return new NextResponse(null, { status: 404 });
   if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
   const need = missing();
   if (need.length) return NextResponse.json({ error: `환경 변수가 없어요: ${need.join(", ")}` }, { status: 400 });
   const body = (await req.json().catch(() => ({}))) as { action?: string; source?: string };
   try {
     if (body.action === "copy") {
+      if (liveTarget()) return NextResponse.json({ error: "실제 앱이 쓰고 있는 Turso에는 옮기지 않아요(새 기록을 덮어쓰게 돼요)." }, { status: 409 });
       // final: 바꿔치기 직전 마지막 옮기기 — 실제 반을 알림 구독까지 모두(이 Turso를 실제 앱이 쓰게 되므로)
       const live = body.source === "live" || body.source === "final";
       const from = live ? LIVE_DB : env().mdb;

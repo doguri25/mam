@@ -1,7 +1,7 @@
 // 교사 API: 비밀번호 로그인 뒤에만 쓸 수 있다
 import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, selFeedback, translateNotice, weeklySummary } from "@/lib/ai";
-import { SELF_ROUNDS_MAX, addRiskAction, deleteRiskAction, editSelNote, editSelfRounds, getSelNotes, noteTeacherLogin, setConsent } from "@/lib/data";
+import { SELF_ROUNDS_MAX, addRiskAction, listClasses, deleteRiskAction, editSelNote, editSelfRounds, getSelNotes, noteTeacherLogin, setConsent } from "@/lib/data";
 import { draftText, partsText, reflectEverRisk, reflectSource, riskySource } from "@/components/teacher/alerts";
 import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@/lib/limit";
 import { clearSubs } from "@/lib/push";
@@ -124,6 +124,12 @@ async function handle(req: NextRequest) {
     // 변경 표시만(문서 1개 읽기). 교사 화면은 이것만 20초마다 묻는다.
     if (body.action === "stamp") return NextResponse.json(await stampP);
 
+    // 운영자(처음 반 홍북초 선생님)만: 다른 선생님이 만든 학급 목록(이름·학급 이름·날짜·학생 수·기록 수만)
+    if (body.action === "classes") {
+      if (spaceId() || isDemo()) return bad("운영 선생님만 볼 수 있어요.", 403);
+      return NextResponse.json(await listClasses());
+    }
+
     // 기록만 바뀌었을 때: 그 뒤에 바뀐 기록만
     if (body.action === "changes") {
       const since = Number(body.since) || 0;
@@ -196,6 +202,7 @@ async function handle(req: NextRequest) {
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
         sharedAi,
         space: spaceId(), // 이 기기의 실명 명렬표를 학급마다 따로 두는 열쇠
+        owner: !spaceId() && !isDemo(), // 처음 반(운영 선생님): 설정에 학급 목록이 보인다
         account,
         settings: publicSettings(isDemo() && provider ? { ...settings, provider } : settings),
       });

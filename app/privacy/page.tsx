@@ -2,6 +2,7 @@
 // 학급마다 다른 값(보관 기한 등)은 담임이 나눠 주는 보호자 안내문에 적힌다.
 import Link from "next/link";
 import type { Metadata } from "next";
+import { CONTACT_EMAIL } from "@/lib/shared";
 
 export const metadata: Metadata = { title: "개인정보 처리 안내 · 마음빛 길잡이" };
 
@@ -22,6 +23,7 @@ const SECTIONS: [string, string[]][] = [
     "그 학급 담임 선생님만 비밀번호로 들어가 봐요. 학생은 자기 기록만 봐요.",
     "교실 TV 화면에는 이름·번호·위험 표현 없이 반 전체 감정 수만 보여요.",
     "위험해 보이는 말이 들어오면 학생 화면에는 아무 표시도 하지 않고 담임에게만 알려요. 학교 위기관리 절차에 따라 상담 선생님 등과 함께 살펴요.",
+    "앱을 운영하는 선생님은 운영을 위해 학급 목록(선생님 로그인 이름·학급 이름·만든 날·마지막 접속·학생 수·기록 수)만 볼 수 있어요. 학생 이름과 기록 내용은 보지 않아요.",
   ]],
   ["AI에는 무엇이 가나요", [
     "기록 정리·되묻기·응원 글 초안·주간 요약에 AI 서비스(업스테이지 Solar, 학급이 고른 경우 Claude·ChatGPT·Gemini)를 써요.",
@@ -34,7 +36,7 @@ const SECTIONS: [string, string[]][] = [
     "「Gemini가 직접 듣기」로 말투를 살피는 학급은 그때 목소리를 Gemini에 보내지만 저장하지 않아요.",
   ]],
   ["어디에, 언제까지 두나요", [
-    "암호화된 연결로 클라우드 데이터베이스에 학급마다 따로 저장해요. 선생님이 넣은 AI 키는 암호화해 저장해요.",
+    "암호화된 연결로 클라우드 데이터베이스(Turso, 일본 도쿄 데이터센터)에 학급마다 따로 저장해요. 선생님이 넣은 AI 키는 암호화해 저장해요.",
     "학급마다 보관 기한(학년도 끝·1년·2년)을 정하고, 기한이 지나면 선생님 화면에 알려 선생님이 지워요. 지운 기록은 되살릴 수 없어요.",
   ]],
   ["보호자·학생이 할 수 있는 것", [
@@ -57,7 +59,11 @@ export default function PrivacyPage() {
           <ul className="list-disc space-y-1 pl-5">{lines.map((l) => <li key={l}>{l}</li>)}</ul>
         </section>
       ))}
-      <p className="text-sm text-soft">학급별 보관 기한과 문의처는 담임 선생님이 나눠 드리는 보호자 안내문을 봐 주세요. 이 안내는 학교의 개인정보 처리방침을 대신하지 않아요.</p>
+      <section className="card space-y-2">
+        <h2 className="font-display text-xl">문의</h2>
+        <p>앱을 쓰다 문제가 생기거나 개인정보에 대해 묻고 싶은 것이 있으면 <a href={`mailto:${CONTACT_EMAIL}`} className="font-bold text-leaf underline underline-offset-4">{CONTACT_EMAIL}</a>로 알려 주세요.</p>
+      </section>
+      <p className="text-sm text-soft">학급별 보관 기한은 담임 선생님이 나눠 드리는 보호자 안내문을 봐 주세요. 이 안내는 학교의 개인정보 처리방침을 대신하지 않아요.</p>
       <div className="flex gap-4 text-sm text-soft">
         <Link href="/" className="underline underline-offset-4">학생 화면으로</Link>
         <Link href="/teacher" className="underline underline-offset-4">선생님 화면</Link>
