@@ -61,12 +61,41 @@ export async function connect(url: string, authToken?: string): Promise<Client> 
   return createClient({ url: url.replace(/^libsql:/, "https:"), authToken });
 }
 
-export function turso(url: string, authToken: string | undefined, prefix: () => string): Store {
-  const ready = connect(url, authToken).then(async (c) => {
-    await c.batch(SCHEMA, "write");
-    return c;
-  });
-  ready.catch(() => {}); // 처음 부를 때 오류를 돌려준다
+// 연결이 끊긴 듯한 오류(fetch 실패·소켓 닫힘·시간 초과). SQL 오류와 달리 다시 해 보면 되는 것들이다.
+export const isNetworkError = (e: unknown) => {
+  const err = e as { name?: string; message?: string; code?: string; cause?: { code?: string; message?: string } } | null;
+  const text = `${err?.name ?? ""} ${err?.message ?? ""} ${err?.code ?? ""} ${err?.cause?.code ?? ""} ${err?.cause?.message ?? ""}`;
+  return e instanceof TypeError || /fetch failed|network|socket|ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|other side closed|terminated|aborted|timeout/i.test(text);
+};
+
+export function turso(url: string, authToken: string | undefined, prefix: () => string, open: typeof connect = connect): Store {
+  // 연결: 처음 한 번 표·색인을 만든다. 실패하면 다음 요청에서 새로 연결한다.
+  // (실패한 연결을 그대로 들고 있으면 그 서버가 살아 있는 동안 모든 요청이 같은 「fetch failed」로 끝난다 — 2026-11-13에 실제로 겪음)
+  let ready: Promise<Client> | null = null;
+  const client = () => {
+    if (!ready) {
+      const p = open(url, authToken).then(async (c) => {
+        await c.batch(SCHEMA, "write");
+        return c;
+      });
+      ready = p;
+      p.catch(() => {
+        if (ready === p) ready = null;
+      });
+    }
+    return ready;
+  };
+  // 연결이 끊긴 듯하면 그 연결은 버리고 다음에는 새로
+  const drop = (c: Client) => {
+    void ready?.then((cur) => {
+      if (cur === c) ready = null;
+    }, () => {});
+    try {
+      c.close();
+    } catch {
+      // 이미 닫힘
+    }
+  };
   // 같은 순간(이벤트 한 바퀴)에 들어온 요청을 모아 하나로 보낸다. 서울 서버 ↔ 도쿄 Turso는 오갈 때마다 40ms쯤이라
   // 화면 하나에 여러 번 읽는 것, 연습 데이터처럼 한꺼번에 쓰는 것을 묶으면 그만큼 빨라진다(Turso는 쓰기를 한 줄로 처리하므로 동시에 여러 요청을 보내면 오히려 기다린다).
   // 읽기는 읽기끼리(읽기 전용 묶음), 쓰기는 쓰기끼리 들어온 차례대로. 쓰기 묶음이 실패하면 하나씩 다시 보내 서로의 실패가 번지지 않게 한다.
@@ -75,19 +104,37 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
   const flush = async (mode: "read" | "write") => {
     const q = queues[mode];
     queues[mode] = [];
-    let c: Client;
-    try {
-      c = await ready;
-    } catch (e) {
-      return q.forEach((x) => x.fail(e));
-    }
-    await lag(`${mode} ${q.length}`);
-    try {
-      const rs = await timed(`${mode} ${q.length} ${String((q[0].stmt as { sql: string }).sql).slice(0, 24)}`, async () => (q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), mode)));
-      q.forEach((x, i) => x.ok(rs[i]));
-    } catch (e) {
-      if (q.length === 1 || mode === "read") return q.forEach((x) => x.fail(e));
-      for (const x of q) await c.execute(x.stmt).then(x.ok, x.fail);
+    const go = (c: Client) => timed(`${mode} ${q.length} ${String((q[0].stmt as { sql: string }).sql).slice(0, 24)}`, async () => (q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), mode)));
+    // 읽기는 연결이 끊겼으면 새 연결로 한 번 더(읽기는 두 번 해도 같다). 쓰기는 한 번 더 하면 두 번 쓰일 수 있어 하지 않는다.
+    for (let attempt = 0; ; attempt++) {
+      let c: Client;
+      try {
+        c = await client();
+      } catch (e) {
+        if (attempt === 0 && isNetworkError(e)) {
+          await new Promise((r) => setTimeout(r, 150));
+          continue;
+        }
+        return q.forEach((x) => x.fail(e));
+      }
+      await lag(`${mode} ${q.length}`);
+      try {
+        const rs = await go(c);
+        return q.forEach((x, i) => x.ok(rs[i]));
+      } catch (e) {
+        if (isNetworkError(e)) {
+          drop(c);
+          if (mode === "read" && attempt === 0) {
+            await new Promise((r) => setTimeout(r, 150));
+            continue;
+          }
+          return q.forEach((x) => x.fail(e));
+        }
+        if (q.length === 1 || mode === "read") return q.forEach((x) => x.fail(e));
+        // 쓰기 묶음에서 SQL 하나가 실패했으면 하나씩 다시(서로의 실패가 번지지 않게)
+        for (const x of q) await c.execute(x.stmt).then(x.ok, x.fail);
+        return;
+      }
     }
   };
   const send = (mode: "read" | "write") => (sql: string, args: InArgs = []) =>
@@ -137,7 +184,7 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
       void (forget(col, id), await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v", [name(col), id, json(data), tok()])),
     setMany: async (col, items) => {
       forget(col);
-      const c = await ready;
+      const c = await client();
       const n = name(col);
       for (let i = 0; i < items.length; i += 200) {
         await lag("write many");

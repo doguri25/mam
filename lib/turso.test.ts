@@ -94,3 +94,40 @@ test("같은 순간의 읽기는 요청 하나로 묶인다", async () => {
   }
   assert.deepEqual(logs.filter((l) => l.startsWith("[turso] ")), ["[turso] read 4"]);
 });
+
+test("연결이 한 번 끊겨도 다음 요청은 새 연결로 된다(실패한 연결을 붙들지 않음)", async () => {
+  const { turso } = await import("./turso.ts");
+  let opens = 0;
+  let failNext = 0; // 남은 「끊김」 수: 그 수만큼 요청이 fetch failed로 끝난다
+  const flaky: typeof connect = async (url, token) => {
+    opens++;
+    if (opens === 1) throw new TypeError("fetch failed"); // 첫 연결부터 실패
+    const c = await connect(url, token);
+    const boom = () => {
+      if (failNext > 0) {
+        failNext--;
+        throw new TypeError("fetch failed");
+      }
+    };
+    return new Proxy(c, {
+      get(t, k, r) {
+        const v = Reflect.get(t, k, r);
+        if (k === "execute" || k === "batch") return async (...a: unknown[]) => (boom(), (v as (...x: unknown[]) => unknown).apply(t, a));
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+  };
+  const s2 = turso(URL, undefined, () => "flaky_", flaky);
+  // 첫 연결 실패는 읽기가 한 번 더 해 봐서 그대로 된다
+  assert.equal(await s2.get("meta", "x"), null);
+  await s2.set("meta", "x", { a: 1 });
+  // 읽는 도중 끊김: 새 연결로 한 번 더 읽는다
+  failNext = 1;
+  assert.deepEqual(await s2.get("meta", "x"), { a: 1 });
+  // 쓰기 도중 끊김: 두 번 쓰일까 봐 다시 하지 않고 오류 — 하지만 다음 요청은 새 연결로 된다
+  failNext = 1;
+  await assert.rejects(s2.set("meta", "y", { b: 1 }), /fetch failed/);
+  await s2.set("meta", "y", { b: 2 });
+  assert.deepEqual(await s2.get("meta", "y"), { b: 2 });
+  assert.ok(opens >= 3, String(opens));
+});
