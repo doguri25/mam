@@ -129,9 +129,10 @@ export async function findAccount(name: string): Promise<Account | null> {
 
 // opts.ip가 있으면 IP마다·하루 전체 만들 수 있는 수를 센다(signupSlot). 한도에 걸린 오류는 status 429.
 const DUP_NAME = "이미 있는 이름이에요. 학교·학년·반을 붙여 다르게 써 주세요(예: 홍북초 3-2 김민지).";
-// 학급 수 한도: MongoDB는 학급마다 모음이 8개 생겨 무료(모음 500개) 한도 안에서 40, Turso는 모음 수 한도가 없어
-// 무료 저장 5GB 안에서 넉넉히 200(학급 하나가 한 해 몇 MB). MAX_CLASSES로 바꿀 수 있다.
-export const maxClasses = () => Number(process.env.MAX_CLASSES) || (db().kind === "turso" ? 200 : 40);
+// 학급 수 한도: MongoDB는 학급마다 모음이 8개 생겨 무료(모음 500개) 한도 안에서 40.
+// Turso는 모음 수 한도가 없어 1000(학생 25명이 매일 쓰는 학급이 한 해 10MB쯤 — 모두가 내내 쓰지는 않으므로 무료 저장 5GB에 대개 들어간다.
+// 넘으면 월 5달러 요금제 9GB). MAX_CLASSES로 바꿀 수 있다.
+export const maxClasses = () => Number(process.env.MAX_CLASSES) || (db().kind === "turso" ? 1000 : 40);
 export async function createAccount(name: string, className: string, password: string, opts: { ip?: string } = {}): Promise<{ space: string; v: number } | { error: string; status?: number }> {
   const clean = tidy(name);
   if (!validName(clean)) return { error: "이름은 2~20자 글자·숫자로 써 주세요." };
@@ -237,14 +238,16 @@ export interface ClassRow { name: string; className: string; space: string; crea
 export async function listClasses(now = new Date()): Promise<{ items: ClassRow[]; max: number }> {
   const accounts = await outOfSpace(() => db().all<Account>("accounts"));
   const week = addDays(today(now), -6);
-  // 학급마다 반 이름·학생 수·기록 수(전체·최근 7일)를 한꺼번에 센다
-  const items = await Promise.all(accounts.map((a) => inSpace(a.space, async () => {
+  // 학급마다 반 이름·학생 수·기록 수(전체·최근 7일)를 센다. 50학급씩 한꺼번에(학급이 많아도 요청 하나가 너무 커지지 않게)
+  const one = (a: Account) => inSpace(a.space, async () => {
     const [settings, roster, records, recent] = await Promise.all([
       db().get<{ className?: string }>("meta", "settings"), getRoster(),
       db().count("records", "date", ">=", ""), db().count("records", "date", ">=", week),
     ]);
     return { name: a.name, className: settings?.className ?? "", space: a.space, createdAt: a.createdAt, lastLogin: a.lastLogin ?? a.seen ?? "", students: roster.length, records, recent };
-  })));
+  });
+  const items: ClassRow[] = [];
+  for (let i = 0; i < accounts.length; i += 50) items.push(...(await Promise.all(accounts.slice(i, i + 50).map(one))));
   items.sort((a, b) => (b.lastLogin || b.createdAt).localeCompare(a.lastLogin || a.createdAt));
   return { items, max: maxClasses() };
 }
