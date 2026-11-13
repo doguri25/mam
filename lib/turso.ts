@@ -2,7 +2,7 @@
 // find·count·delWhere에 쓰는 칸은 (col, 그 칸) 식 색인으로 찾는다. 색인 없는 칸도 되지만 그 모음을 다 훑는다.
 // v: 쓸 때마다 새로 다는 표. update는 읽은 때의 표가 그대로일 때만 바꿔 써서 사이에 낀 쓰기를 덮지 않는다(몽고의 _v와 같음).
 // @libsql/client는 이 저장소를 쓸 때만 불러온다(몽고로 도는 배포에는 들어가지 않게).
-import type { Client, InArgs, InValue } from "@libsql/client";
+import type { Client, InArgs, InStatement, InValue, ResultSet } from "@libsql/client";
 import type { BumpOpts, Col, Store } from "./db.ts";
 
 type Doc = Record<string, unknown>;
@@ -31,6 +31,12 @@ const json = (v: unknown) => JSON.stringify(v ?? null);
 const tok = () => crypto.randomUUID();
 const wait = (i: number) => new Promise((r) => setTimeout(r, Math.random() * 15 * (i + 1)));
 const parse = <T,>(row: Record<string, unknown>) => JSON.parse(String(row.data)) as T;
+// 시험용: TURSO_SIM_MS로 요청마다 늦춰 먼 저장소를 흉내 내고, TURSO_DEBUG로 요청을 하나씩 적는다(배포에는 넣지 않는다)
+const lag = async (what: string) => {
+  if (process.env.TURSO_DEBUG) console.log(`[turso] ${what}`);
+  const ms = Number(process.env.TURSO_SIM_MS) || 0;
+  if (ms) await new Promise((r) => setTimeout(r, ms));
+};
 
 export const SCHEMA = [
   "CREATE TABLE IF NOT EXISTS docs (col TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (col, id))",
@@ -51,22 +57,47 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
     return c;
   });
   ready.catch(() => {}); // 처음 부를 때 오류를 돌려준다
-  const run = async (sql: string, args: InArgs = []) => (await ready).execute({ sql, args });
+  // 쓰기는 하나씩 바로 보낸다
+  const run = async (sql: string, args: InArgs = []) => {
+    const c = await ready;
+    await lag("write");
+    return c.execute({ sql, args });
+  };
+  // 읽기는 같은 순간(이벤트 한 바퀴)에 들어온 것을 모아 요청 하나로 보낸다.
+  // 서울 서버 ↔ 도쿄 Turso는 오갈 때마다 40ms쯤이라, 화면 하나에 여러 번 읽는 것을 한 번에 묶으면 그만큼 빨라진다.
+  let queue: { stmt: InStatement; ok: (r: ResultSet) => void; fail: (e: unknown) => void }[] = [];
+  const flush = async () => {
+    const q = queue;
+    queue = [];
+    try {
+      const c = await ready;
+      await lag(`read ${q.length}`);
+      const rs = q.length === 1 ? [await c.execute(q[0].stmt)] : await c.batch(q.map((x) => x.stmt), "read");
+      q.forEach((x, i) => x.ok(rs[i]));
+    } catch (e) {
+      q.forEach((x) => x.fail(e));
+    }
+  };
+  const read = (sql: string, args: InArgs = []) =>
+    new Promise<ResultSet>((ok, fail) => {
+      if (!queue.length) setImmediate(flush);
+      queue.push({ stmt: { sql, args }, ok, fail });
+    });
   const name = (col: Col) => prefix() + col;
-  const one = async (col: Col, id: string) => (await run("SELECT data, v FROM docs WHERE col = ? AND id = ?", [name(col), id])).rows[0];
+  const one = async (col: Col, id: string) => (await read("SELECT data, v FROM docs WHERE col = ? AND id = ?", [name(col), id])).rows[0];
 
   return {
     kind: "turso",
     get prefix() { return prefix(); },
     // rowid 차례 = 처음 넣은 차례(몽고·로컬과 같은 차례로 돌려준다)
-    all: async <T,>(col: Col) => (await run("SELECT data FROM docs WHERE col = ? ORDER BY rowid", [name(col)])).rows.map(parse<T>),
+    all: async <T,>(col: Col) => (await read("SELECT data FROM docs WHERE col = ? ORDER BY rowid", [name(col)])).rows.map(parse<T>),
     find: async <T,>(col: Col, field: string, op: Op, value: Val) => {
       const [w, a] = cond(field, op, value);
-      return (await run(`SELECT data FROM docs WHERE col = ? AND ${w} ORDER BY rowid`, [name(col), a])).rows.map(parse<T>);
+      return (await read(`SELECT data FROM docs WHERE col = ? AND ${w} ORDER BY rowid`, [name(col), a])).rows.map(parse<T>);
     },
     count: async (col, field, op, value) => {
       const [w, a] = cond(field, op, value);
-      return Number((await run(`SELECT count(*) AS n FROM docs WHERE col = ? AND ${w}`, [name(col), a])).rows[0].n);
+      return Number((await read(`SELECT count(*) AS n FROM docs WHERE col = ? AND ${w}`, [name(col), a])).rows[0].n);
     },
     get: async <T,>(col: Col, id: string) => {
       const r = await one(col, id);
@@ -78,6 +109,7 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
       const c = await ready;
       const n = name(col);
       for (let i = 0; i < items.length; i += 200) {
+        await lag("write many");
         await c.batch(items.slice(i, i + 200).map(([id, data]) => ({
           sql: "INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO UPDATE SET data = excluded.data, v = excluded.v",
           args: [n, id, json(data), tok()],

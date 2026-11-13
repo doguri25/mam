@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
 
 // 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
 const DEMO_BLOCKED = new Set(["changePin", "subscribe", "unsubscribe", "testPush", "pushClear"]);
+// 변경 표시(meta/stamp)를 쓰는 요청: 비밀번호 판과 함께 미리 읽는다
+const STAMP_ACTIONS = new Set(["stamp", "changes", "overview"]);
 // 체험 반은 로그인 없이 누구나 쓰므로, 함께 쓰는 문서를 바꾸는 일은 IP마다 10분에 정한 번까지(lib/limit.ts trialEditWait)
 // (아래 handle의 쓰는 일 이름과 하나하나 맞춘 목록 — 「demo」는 resetWait로 따로 막는다)
 const TRIAL_WRITES = new Set([
@@ -90,7 +92,14 @@ async function handle(req: NextRequest) {
       if ("error" in r) return bad(r.error, r.status ?? 400);
       return inSpace(r.space, () => withTeacherCookie(r.v));
     }
-    const pin = await getPin();
+    // 비밀번호 판·설정·변경 표시를 한꺼번에 읽기 시작한다(Turso는 같은 순간의 읽기를 요청 하나로 묶는다 — 먼 저장소에서 오가는 횟수를 줄임).
+    // 설정·변경 표시는 비밀번호를 확인한 뒤에만 쓴다.
+    const pinP = getPin();
+    const settingsP = getSettings();
+    const stampP = STAMP_ACTIONS.has(body.action) ? getStamp() : null;
+    settingsP.catch(() => {});
+    stampP?.catch(() => {});
+    const pin = await pinP;
     if (!isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, pin?.v ?? 0)) return bad("선생님 비밀번호를 입력해 주세요.", 401);
 
     if (isDemo() && DEMO_BLOCKED.has(body.action)) return bad("체험에서는 쓸 수 없는 기능이에요.", 403);
@@ -113,15 +122,16 @@ async function handle(req: NextRequest) {
     }
 
     // 변경 표시만(문서 1개 읽기). 교사 화면은 이것만 20초마다 묻는다.
-    if (body.action === "stamp") return NextResponse.json(await getStamp());
+    if (body.action === "stamp") return NextResponse.json(await stampP);
 
     // 기록만 바뀌었을 때: 그 뒤에 바뀐 기록만
     if (body.action === "changes") {
       const since = Number(body.since) || 0;
-      return NextResponse.json({ stamp: await getStamp(), records: (await recordsChangedAfter(since)).map(lean) });
+      const [stamp, records] = await Promise.all([stampP, recordsChangedAfter(since)]);
+      return NextResponse.json({ stamp, records: records.map(lean) });
     }
 
-    const settings = await getSettings();
+    const settings = await settingsP;
     if (isDemo() && TRIAL_WRITES.has(body.action)) {
       const wait = await trialEditWait(clientIp(req.headers));
       if (wait) return bad(`체험 반에서는 잠시 뒤에 다시 해 주세요(${waitText(wait)}).`, 429);
@@ -129,29 +139,34 @@ async function handle(req: NextRequest) {
 
     if (body.action === "overview") {
       const date = today();
-      const stamp = await getStamp();
+      const stamp = (await stampP)!;
       const from = addDays(date, -DAYS);
       // 교사 기기에 기록을 저장해 두었으면(같은 저장 공간, 그 뒤 지운 적 없음) 그 뒤에 바뀐 기록만 읽는다 → 읽기량을 크게 줄임
       const partial = Number(body.since) > 0 && body.prefix === db().prefix && Number(body.wipe ?? 0) === (stamp.wipe ?? 0);
       // 그 뒤에 바뀐 기록 가운데 오래된 것은 위험 표현 기록만(살펴본 것도): 다른 기기에서 「살펴봤어요」를 눌러 닫은 오래된 알림이
       // 이 기기에 저장해 둔 「살펴보지 않음」 판으로 남지 않게 새 판을 보낸다(화면이 합친 뒤 살펴본 오래된 기록은 버린다)
       const recordsP = partial ? recordsChangedAfter(Number(body.since)).then((rs) => rs.filter((r) => r.date >= from || r.risk)) : recordsFrom(from);
-      const [students, recent, cheers, notes, demo, subs, lessons, weekly, looks, letters, recentReflects, riskyReflects, aiUsed, riskActions, drafts, risky] = await Promise.all([
+      // 서로 기다릴 필요 없는 읽기는 모두 한꺼번에(보관 기한 지난 기록 수·AI 사용량·학급 이름까지)
+      const [students, recent, cheers, notes, demo, subs, lessons, weekly, looks, letters, recentReflects, riskyReflects, aiUsed, riskActions, drafts, risky,
+        expired, aiSource, sharedUsed, account, provider] = await Promise.all([
         getRoster(), recordsP, db().all<Cheer>("cheers"), db().all<Note>("notes"), rosterIsDemo(), countSubs(),
         getLessons(), db().get<{ weekStart: string }>("meta", "weekly"), getLooks(),
         db().all<Letter>("letters"), db().find<Reflect>("reflects", "weekStart", ">=", addDays(monday(date), -7)),
         db().find<Reflect>("reflects", "risk", "==", true), isDemo() ? demoAiUsed() : 0,
         getRiskActions(), getRiskDrafts(), riskyRecords(),
+        // 보관 기한이 지난 마음 기록 수(세기만): 있으면 선생님 화면에 「정리할 기록」 알림
+        db().count("records", "date", "<", cutoffOf(settings.retention, date)),
+        isDemo() ? trialAiSource() : null,
+        // 실제 학급: 공용 업스테이지 키를 오늘 몇 번 빌려 썼는지(키를 넣지 않은 학급도 AI가 돌게)
+        !isDemo() && hasSharedAi() ? sharedAiUsed() : null,
+        accountName(),
+        isDemo() ? demoProvider() : null,
       ]);
       // 위험 표현이 있는 기록·돌아보기·마치지 않은 글은 34일이 지나도 선생님이 살펴볼 때까지 보낸다(알림이 날짜 때문에 사라지지 않게).
       // 저장해 둔 기록만 받는 때(partial)에도 늘 보낸다 — 예전 화면이 34일로 잘라 버렸어도 다시 받게.
       const records = withOpenRisks(recent, risky);
       const reflects = [...recentReflects, ...riskyReflects.filter((x) => !x.riskChecked && !recentReflects.some((y) => y.id === x.id))];
-      // 보관 기한이 지난 마음 기록 수(세기만): 있으면 선생님 화면에 「정리할 기록」 알림
-      const expired = await db().count("records", "date", "<", cutoffOf(settings.retention, date));
-      const aiSource = isDemo() ? await trialAiSource() : null;
-      // 실제 학급: 공용 업스테이지 키를 오늘 몇 번 빌려 썼는지(키를 넣지 않은 학급도 AI가 돌게)
-      const sharedAi = !isDemo() && hasSharedAi() ? { used: await sharedAiUsed(), cap: SHARED_AI_PER_DAY } : null;
+      const sharedAi = sharedUsed === null ? null : { used: sharedUsed, cap: SHARED_AI_PER_DAY };
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return NextResponse.json({
         today: date,
@@ -181,8 +196,8 @@ async function handle(req: NextRequest) {
         trial: isDemo() ? { aiUsed, aiCap: DEMO_AI_PER_DAY, aiSource } : null,
         sharedAi,
         space: spaceId(), // 이 기기의 실명 명렬표를 학급마다 따로 두는 열쇠
-        account: await accountName(),
-        settings: publicSettings(isDemo() ? { ...settings, provider: await demoProvider() } : settings),
+        account,
+        settings: publicSettings(isDemo() && provider ? { ...settings, provider } : settings),
       });
     }
 

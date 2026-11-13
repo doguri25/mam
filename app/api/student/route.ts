@@ -113,9 +113,12 @@ async function handle(req: NextRequest, body: Body) {
       return NextResponse.json({ error: OTHER_STUDENT, code: "otherStudent" }, { status: 409 });
     }
 
+    // 명단(로그인 확인)과 설정을 한꺼번에 읽는다(Turso는 같은 순간의 읽기를 요청 하나로 묶는다). 설정은 확인한 뒤에만 쓴다.
+    const settingsP = getSettings();
+    settingsP.catch(() => {});
     const s = await me(req);
     if (!s) return bad("다시 들어와 주세요.", 401);
-    const settings = await getSettings();
+    const settings = await settingsP;
     // 이 번호를 새 학생에게 줬으면(since) 그 앞에 이 번호로 남은 기록·쪽지·돌아보기·점검 답은 앞 학생 것 — 보여 주지도 세지도 않는다
     const own = (at?: string) => ownBy(s, at);
     const myRecords = async () => (await recordsOf(s.no)).filter((r) => own(r.createdAt));
