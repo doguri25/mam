@@ -107,7 +107,7 @@ test("가입: 학급 수 한도 가까이면 빈 학급을 먼저 정리해 자�
   assert.match("error" in full ? full.error : "", /학급 수를 넘었어요/);
   // IP 한도: 학급 수 한도를 넉넉히 두고 같은 IP로 하루 한도까지(이미 한 번 만듦 — 꽉 찬 때는 IP 몫을 쓰지 않는다)
   const { SIGNUP_PER_IP } = await import("./limit.ts");
-  process.env.MAX_CLASSES = "100";
+  process.env.MAX_CLASSES = "1000";
   try {
     for (let i = 2; i <= SIGNUP_PER_IP; i++) assert.ok("space" in (await D.createAccount(`반 ${i}`, "x", "1234", { ip: "50.0.0.1" })), String(i));
     const over = await D.createAccount("반 하나 더", "x", "1234", { ip: "50.0.0.1" });
