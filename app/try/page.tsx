@@ -1,6 +1,7 @@
 "use client";
 // 심사용 체험 입구: 비밀번호·학생 코드 없이 가짜 반으로 바로 들어가 선생님·학생·교실 TV를 모두 눌러 본다.
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import BuddyFace from "@/components/BuddyFace";
 import Doodle from "@/components/Doodle";
@@ -14,6 +15,7 @@ export default function TryPage() {
   const [kids, setKids] = useState<Kid[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const router = useRouter();
 
   async function start(action: "start" | "reset" = "start") {
     setBusy(true);
@@ -21,10 +23,17 @@ export default function TryPage() {
     try {
       const r = await api<{ students: Kid[] }>("try", action);
       setKids(r.students);
+      setBusy(false);
+      return true;
     } catch (e) {
       setErr((e as Error).message);
+      setBusy(false);
+      return false;
     }
-    setBusy(false);
+  }
+  // 시작 전에도 바로 선생님 화면으로: 체험 반을 준비한 뒤 체험용 선생님 화면(/teacher?try)으로 간다
+  async function teacher() {
+    if (kids || (await start())) router.push("/teacher?try");
   }
 
   async function end() {
@@ -46,7 +55,10 @@ export default function TryPage() {
 
       {!kids ? (
         <div className="card flex flex-col items-center gap-3 text-center">
-          <button onClick={() => start()} disabled={busy} className="btn-main px-10 text-xl">{busy ? "체험 반을 준비하는 중… (처음엔 몇 초)" : "체험 시작하기"}</button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button onClick={() => start()} disabled={busy} className="btn-main px-10 text-xl">{busy ? "체험 반을 준비하는 중… (처음엔 몇 초)" : "체험 시작하기"}</button>
+            <button onClick={teacher} disabled={busy} className="btn-sub px-6 text-lg">선생님 화면으로 바로 체험</button>
+          </div>
           {err && <p className="text-alert">{err}</p>}
           <p className="text-sm text-soft">AI(되묻기·응원 초안·요약 등)는 체험 전체에서 하루 200번까지 써요. 다 쓰면 기본 질문으로 이어져요.</p>
         </div>
@@ -90,7 +102,7 @@ export default function TryPage() {
         </>
       )}
       <p className="text-center text-sm text-soft">
-        실제 학급 선생님은 <Link href="/teacher" className="underline">선생님 화면</Link>에서 이름과 비밀번호로 들어가요(처음이면 「새 학급 만들기」). 체험 중이어도 선생님 화면으로 가면 체험은 끝나요.
+        실제 학급이 있는 선생님은 <Link href="/teacher" className="underline">실제 학급 로그인</Link>에서 이름과 비밀번호로 들어가요(처음이면 「새 학급 만들기」). 그쪽으로 가면 체험은 끝나요.
       </p>
     </main>
   );
