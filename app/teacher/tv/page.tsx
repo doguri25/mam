@@ -13,7 +13,7 @@ import { DEFAULT_LOOK, GROUPS, groupOf, parentEmotion, type Group } from "@/lib/
 
 type Data = {
   date: string; slot: "am" | "pm" | "day"; now: "am" | "pm"; className: string; students: number;
-  n: number; groups: Record<Group, number>; words: [string, number][]; weather: Weather; monthWords: [string, number][];
+  n: number; groups: Record<Group, number>; words: [string, number][]; weather: Weather; monthWords: [string, number][]; trial?: boolean;
 };
 
 const WEATHER: Record<Weather, { icon: DoodleName; name: string; line: string; bg: string; heavy?: boolean }> = {
@@ -98,7 +98,8 @@ export default function ClassTV() {
             ))}
           </div>
           <button onClick={() => document.documentElement.requestFullscreen?.()} className="btn-sub min-h-10 px-3 text-sm">⛶ 전체 화면</button>
-          <Link href="/teacher" className="btn-sub min-h-10 px-3 text-sm">선생님 화면</Link>
+          {/* 체험 반이면 체험 선생님 화면으로(그냥 /teacher로 가면 체험이 끝나 로그인 창이 뜬다). 페이지를 새로 열어 앞서 본 화면이 남지 않게 */}
+          <a href={data.trial ? "/teacher?try" : "/teacher"} className="btn-sub min-h-10 px-3 text-sm">선생님 화면</a>
         </div>
       </header>
 

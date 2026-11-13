@@ -221,6 +221,7 @@ async function handle(req: NextRequest) {
       return NextResponse.json({
         date, slot: which ?? "day", now: slotNow(), className: settings.className, students: (await getRoster()).length, ...classWeather(latest),
         monthWords: Object.entries(month).sort((a, b) => b[1] - a[1]).slice(0, 30),
+        trial: isDemo(), // 체험 반 TV에서 「선생님 화면」은 체험 선생님 화면(/teacher?try)으로 돌아가야 체험이 끝나지 않는다
       });
     }
 

@@ -1,7 +1,6 @@
 "use client";
 // 심사용 체험 입구: 비밀번호·학생 코드 없이 가짜 반으로 바로 들어가 선생님·학생·교실 TV를 모두 눌러 본다.
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import BuddyFace from "@/components/BuddyFace";
 import Doodle from "@/components/Doodle";
@@ -15,7 +14,6 @@ export default function TryPage() {
   const [kids, setKids] = useState<Kid[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const router = useRouter();
 
   async function start(action: "start" | "reset" = "start") {
     setBusy(true);
@@ -31,9 +29,11 @@ export default function TryPage() {
       return false;
     }
   }
-  // 시작 전에도 바로 선생님 화면으로: 체험 반을 준비한 뒤 체험용 선생님 화면(/teacher?try)으로 간다
+  // 체험용 선생님 화면(/teacher?try)으로: 늘 체험 표를 새로 받고(다른 화면에서 체험이 끝났을 수 있음) 페이지를 통째로 새로 연다.
+  // 앱 안 이동(Link)으로 가면 앞서 열어 둔 선생님 화면(로그인 창)이 그대로 다시 보여 체험 화면이 뜨지 않는다.
   async function teacher() {
-    if (kids || (await start())) router.push("/teacher?try");
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- 일부러 페이지를 새로 연다(위 설명)
+    if (await start()) window.location.assign("/teacher?try");
   }
 
   async function end() {
@@ -65,11 +65,11 @@ export default function TryPage() {
       ) : (
         <>
           <section className="grid gap-4 md:grid-cols-3">
-            <Link href="/teacher?try" className="card flex flex-col gap-2 hover:border-leaf">
+            <button type="button" onClick={teacher} disabled={busy} className="card flex flex-col gap-2 text-left hover:border-leaf">
               <BuddyFace look={{ ...DEFAULT_LOOK, color: "#7cc88f", shape: "bean", eyes: "dot", acc: "glasses" }} emotion="기뻐요" size={60} aura={false} />
               <span className="font-display text-2xl">선생님으로 둘러보기</span>
               <span className="text-sm text-soft">마음 지도 · 학급 역량 진단(학생 답·관찰·피드백) · 응원 한마디 · 공감 쪽지 검토 · 상담 의견서 · 주간 리포트 · 가정 소식지</span>
-            </Link>
+            </button>
             <a href="/teacher/tv" target="_blank" rel="noopener" className="card flex flex-col gap-2 hover:border-leaf">
               <Doodle name="tv" size={56} className="block" />
               <span className="font-display text-2xl">교실 TV 화면</span>
@@ -102,7 +102,7 @@ export default function TryPage() {
         </>
       )}
       <p className="text-center text-sm text-soft">
-        실제 학급이 있는 선생님은 <Link href="/teacher" className="underline">실제 학급 로그인</Link>에서 이름과 비밀번호로 들어가요(처음이면 「새 학급 만들기」). 그쪽으로 가면 체험은 끝나요.
+        실제 학급이 있는 선생님은 <a href="/teacher" className="underline">실제 학급 로그인</a>에서 이름과 비밀번호로 들어가요(처음이면 「새 학급 만들기」). 그쪽으로 가면 체험은 끝나요.
       </p>
     </main>
   );
