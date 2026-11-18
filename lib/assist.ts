@@ -122,8 +122,17 @@ export interface AppTodo { key: string; text: string; tab: GoTab; no?: number; u
 // ── AI 답 정리: 정한 꼴만, 길이 제한, 모르는 화면은 버린다 ──
 const strs = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && !!x.trim());
 const objs = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x));
+// 답 글에 섞여 나온 내부 칸 표시(「(go: student, no=3/11)」 같은 것)를 지운다. 화면 단추는 go로 따로 붙는다.
+const MARK = String.raw`\b(?:go|tab|todos|sources|no)\s*[:=]`;
+export function stripMarkers(text: string) {
+  return text
+    .replace(new RegExp(String.raw`\s*[(（\[][^()（）\[\]\n]*${MARK}[^()（）\[\]\n]*[)）\]]`, "g"), "")
+    .replace(new RegExp(String.raw`\s*${MARK}\s*[a-z_]+(?:\s*,\s*no\s*[:=]\s*[\d/,\s]*\d)?`, "g"), "")
+    .replace(/[ \t]+([.,!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ");
+}
 export function cleanAssist(out: Record<string, unknown>, opts: { nos: number[]; sources: string[] }) {
-  const reply = String(out.reply ?? "").replace(/\r\n?/g, "\n").trim().slice(0, 4000);
+  const reply = stripMarkers(String(out.reply ?? "").replace(/\r\n?/g, "\n")).trim().slice(0, 4000);
   const todos = objs(out.todos).map((t) => ({ title: cleanTitle(t.title), due: cleanDue(t.due) })).filter((t) => t.title).slice(0, 5);
   const seen = new Set<string>();
   const go = objs(out.go).flatMap((g) => {

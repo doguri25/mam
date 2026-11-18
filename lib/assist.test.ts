@@ -71,6 +71,9 @@ test("AI 답 정리: 정한 화면·학생·자료 이름만 남긴다", () => {
   assert.deepEqual(out.todos, [{ title: "결과 보고 제출", due: "2026-11-19" }, { title: "날짜 이상", due: "" }]);
   assert.deepEqual(out.go, [{ tab: "cheer", no: 3 }, { tab: "student" }]);
   assert.deepEqual(out.sources, ["한국형 사회정서교육이란"]);
+  // 답 글에 섞인 내부 칸 표시는 지운다
+  const marked = cleanAssist({ reply: "필요하면 학생별 누적 기록 화면(go: student, no=3/11/17/22)으로 바로 볼 수 있어요. 마음 지도(tab=map)에서도요. 자세한 건 go: sel 화면에서 봐요.\n- 3번 단풍(5학년 기준) 확인" }, { nos: [], sources: [] });
+  assert.equal(marked.reply, "필요하면 학생별 누적 기록 화면으로 바로 볼 수 있어요. 마음 지도에서도요. 자세한 건 화면에서 봐요.\n- 3번 단풍(5학년 기준) 확인");
 });
 
 test("할 일: 마치지 않은 일·이른 마감 먼저, 남은 날 글", () => {
