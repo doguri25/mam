@@ -50,8 +50,11 @@ export function speak(text: string, force = false, lang: Lang = "ko") {
 export function parseNames(text: string) {
   const out: Record<number, string> = {};
   for (const line of text.split(/\r?\n/)) {
-    const m = line.trim().match(/^(\d{1,3})\s*[,.\t ]\s*(.{1,20})$/);
-    if (m) out[Number(m[1])] = m[2].trim();
+    const m = line.trim().match(/^(\d{1,3})\s*[,.\t ]\s*(.{1,40})$/);
+    if (!m) continue;
+    // 나이스·엑셀에서 붙여 넣으면 성별·생년월일 같은 칸이 뒤에 붙는다: 이름 칸만 남긴다(그래야 실명 가리기가 이름을 찾는다)
+    const name = m[2].split(/[\t,]/)[0].trim().replace(/(\s+(남|여|남자|여자|[\d\-./]+))+$/, "").trim().slice(0, 20);
+    if (name) out[Number(m[1])] = name;
   }
   return out;
 }

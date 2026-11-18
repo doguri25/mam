@@ -2,7 +2,7 @@
 // 상담 연계 의견서: Wee클래스·상담교사에게 넘길 관찰 의견을 A4 한 장으로. AI는 최근 2주 기록(가명)으로
 // 「관찰된 정서 흐름 · 학생이 말한 까닭 · 도움이 된 것」 초안만 쓰고, 선생님이 고치고 나머지를 채운 뒤 인쇄한다. 자동으로 보내지 않는다.
 // 위 학생 명단 → 왼쪽 최근 2주 기록(화면에 고정)을 보며 오른쪽 의견서를 쓴다.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import { KIND_KO, kindOfId } from "./alerts";
 import { kindsText } from "./RiskActions";
@@ -16,7 +16,7 @@ import { label } from "@/lib/date";
 
 type Draft = { flow: string; reasons: string; helps: string; style?: string[] };
 
-export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: NameOf }) {
+export default function ReferralTab({ data, nameOf, pick, onPick }: { data: Overview; nameOf: NameOf; pick?: number | null; onPick?: (n: number) => void }) {
   // 선생님이 남긴 면담 메모는 AI에 보내지 않고, 「담임이 해 본 지원」 칸에만 미리 채워 둔다
   // 위험 표현 조치 기록도 함께(한 날 순서대로). 마음 기록 밖(마치지 않은 기록·돌아보기·쪽지)에서 나온 것이면 어디서인지 붙인다
   // 지금 그 번호 학생 것만(앞 학생 조치·메모는 빼고)
@@ -27,7 +27,7 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
     }),
     ...myNotes(data, n).slice(0, 3).map((x) => `· ${label(kday(x.createdAt))}: ${x.text}`),
   ].join("\n");
-  const first = data.flags[0]?.no ?? null;
+  const first = (pick != null && data.students.some((s) => s.no === pick) ? pick : null) ?? data.flags[0]?.no ?? null;
   const [no, setNo] = useState<number | null>(first);
   const [draft, setDraft] = useState<Draft>({ flow: "", reasons: "", helps: "" });
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
@@ -38,7 +38,13 @@ export default function ReferralTab({ data, nameOf }: { data: Overview; nameOf: 
   // AI 초안을 기다리는 동안 다른 학생을 고르면 늦게 온 앞 학생 초안은 버린다(다른 아이 의견서에 들어가지 않게)
   const req = useRef(0);
 
+  // 처음 연 학생을 페이지에도 알려 둔다(AI 도우미가 「이 학생」으로 같은 아이를 보게)
+  useEffect(() => {
+    if (first != null && first !== pick) onPick?.(first);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- 처음 한 번만
+
   function choose(n: number) {
+    onPick?.(n);
     req.current++;
     setBusy(false);
     setNo(n);

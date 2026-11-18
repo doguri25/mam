@@ -62,11 +62,17 @@ export async function connect(url: string, authToken?: string): Promise<Client> 
 }
 
 // 연결이 끊긴 듯한 오류(fetch 실패·소켓 닫힘·시간 초과). SQL 오류와 달리 다시 해 보면 되는 것들이다.
+// TypeError라고 모두 연결 오류는 아니다(libsql은 넘길 수 없는 값 「undefined」도 TypeError로 알린다): 글로 가린다.
 export const isNetworkError = (e: unknown) => {
   const err = e as { name?: string; message?: string; code?: string; cause?: { code?: string; message?: string } } | null;
-  const text = `${err?.name ?? ""} ${err?.message ?? ""} ${err?.code ?? ""} ${err?.cause?.code ?? ""} ${err?.cause?.message ?? ""}`;
-  return e instanceof TypeError || /fetch failed|network|socket|ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|other side closed|terminated|aborted|timeout/i.test(text);
+  const text = `${err?.message ?? ""} ${err?.code ?? ""} ${err?.cause?.code ?? ""} ${err?.cause?.message ?? ""} ${err?.name === "AbortError" || err?.name === "TimeoutError" ? err.name : ""}`;
+  return /fetch failed|failed to fetch|load failed|network|socket|ECONN|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|UND_ERR|other side closed|terminated|aborted|timeout|AbortError|TimeoutError/i.test(text);
 };
+// 문장 하나가 잘못되어 묶음 전체가 거절된 오류: 묶음은 한 덩어리로 되돌려지므로 하나씩 다시 보내도 두 번 쓰이지 않는다
+const isBatchStatementError = (e: unknown) => (e as { name?: string } | null)?.name === "LibsqlBatchError";
+// libsql이 받지 않는 값(undefined·NaN·Infinity·객체). 묶음에 섞이면 같이 묶인 다른 요청까지 실패하므로 넣기 전에 거른다.
+const badArg = (v: unknown) =>
+  v === undefined || (typeof v === "number" && !Number.isFinite(v)) || (typeof v === "object" && v !== null && !(v instanceof ArrayBuffer) && !ArrayBuffer.isView(v) && !(v instanceof Date));
 
 export function turso(url: string, authToken: string | undefined, prefix: () => string, open: typeof connect = connect): Store {
   // 연결: 처음 한 번 표·색인을 만든다. 실패하면 다음 요청에서 새로 연결한다.
@@ -130,8 +136,10 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
           }
           return q.forEach((x) => x.fail(e));
         }
-        if (q.length === 1 || mode === "read") return q.forEach((x) => x.fail(e));
-        // 쓰기 묶음에서 SQL 하나가 실패했으면 하나씩 다시(서로의 실패가 번지지 않게)
+        if (q.length === 1) return q.forEach((x) => x.fail(e));
+        // 묶음에서 SQL 하나가 실패했으면 하나씩 다시(서로의 실패가 번지지 않게). 읽기는 두 번 해도 같고,
+        // 쓰기는 문장 하나가 거절되어 묶음이 통째로 되돌려진 때만(그 밖의 오류는 쓰였는지 알 수 없어 다시 보내지 않는다)
+        if (mode === "write" && !isBatchStatementError(e)) return q.forEach((x) => x.fail(e));
         for (const x of q) await c.execute(x.stmt).then(x.ok, x.fail);
         return;
       }
@@ -139,6 +147,9 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
   };
   const send = (mode: "read" | "write") => (sql: string, args: InArgs = []) =>
     new Promise<ResultSet>((ok, fail) => {
+      const vals = Array.isArray(args) ? args : Object.values(args);
+      const i = vals.findIndex(badArg);
+      if (i >= 0) return fail(new Error(`저장소에 넘길 수 없는 값(${i + 1}번째): ${String(vals[i])}`));
       if (!queues[mode].length) setImmediate(() => flush(mode));
       queues[mode].push({ stmt: { sql, args }, ok, fail });
     });
@@ -148,14 +159,22 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
   // 방금 읽은 문서(표 v 포함). update가 처음 한 번만 이것으로 쓰기를 해 본다 — 그사이 바뀌었으면 v가 달라 쓰기가 되지 않고 다시 읽는다.
   // (get으로 미리 읽어 두면 읽고 고쳐 쓰기에서 저장소에 한 번 덜 오간다.) 다른 읽기는 이것을 쓰지 않는다.
   const recent = new Map<string, { row: Record<string, unknown> | undefined; at: number }>();
+  // 읽는 사이에 쓰기가 있었으면(forget) 그 읽기는 담아 두지 않는다: 쓰기 전 판을 「방금 읽은 것」으로 남기지 않게
+  let gen = 0;
   const one = async (col: Col, id: string) => {
     const key = `${name(col)}\u0000${id}`;
+    const g = gen;
     const row = (await read("SELECT data, v FROM docs WHERE col = ? AND id = ?", [name(col), id])).rows[0];
-    recent.set(key, { row, at: Date.now() });
-    if (recent.size > 300) recent.delete(recent.keys().next().value!);
+    if (g === gen) {
+      recent.set(key, { row, at: Date.now() });
+      if (recent.size > 300) recent.delete(recent.keys().next().value!);
+    }
     return row;
   };
-  const forget = (col: Col, id?: string) => (id === undefined ? recent.clear() : recent.delete(`${name(col)}\u0000${id}`));
+  const forget = (col: Col, id?: string) => {
+    gen++;
+    return id === undefined ? recent.clear() : recent.delete(`${name(col)}\u0000${id}`);
+  };
   const justRead = (col: Col, id: string) => {
     const key = `${name(col)}\u0000${id}`;
     const hit = recent.get(key);
@@ -209,7 +228,11 @@ export function turso(url: string, authToken: string | undefined, prefix: () => 
         const cur = hit ? hit.row : await one(col, id);
         const before = cur ? parse<T>(cur) : null;
         const next = fn(before);
-        if (next === undefined) return before;
+        // 고칠 것이 없다는 판단은 저장소에서 새로 읽은 판으로만(2초 안에 읽어 둔 판은 그사이 바뀌었을 수 있다)
+        if (next === undefined) {
+          if (hit) continue;
+          return before;
+        }
         let done: boolean;
         if (next === null) done = !cur || (await run("DELETE FROM docs WHERE col = ? AND id = ? AND v = ?", [n, id, cur.v as InValue])).rowsAffected === 1;
         else if (!cur) done = (await run("INSERT INTO docs (col, id, data, v) VALUES (?, ?, ?, ?) ON CONFLICT (col, id) DO NOTHING", [n, id, json(next), tok()])).rowsAffected === 1;

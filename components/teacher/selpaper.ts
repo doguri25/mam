@@ -2,7 +2,7 @@
 // 스캔본(PDF·사진)을 쪽 그림으로 나눠 QR과 체크 칸 읽기. 그림은 이 기기 안에서만 다루고 서버에 저장하지 않는다.
 import QRCode from "qrcode";
 import jsQR from "jsqr";
-import { BOX, COLS, FID, NUM_BOX, PAGE, PER_PAGE, QR_BOX, TEXT_W, TEXT_X, boxY, parseQr, qrText, readPage, rotate180, rowTop, sectionY, type Gray, type Mark } from "@/lib/omr";
+import { BOX, COLS, FID, NUM_BOX, PAGE, PER_PAGE, QR_BOX, TEXT_W, TEXT_X, boxY, parseQr, qrText, readPage, readUpright, rowTop, sectionY, type Gray, type Mark } from "@/lib/omr";
 import { DOMAINS, SELF_ITEMS } from "@/lib/selfcheck";
 
 const A4 = { w: 595.28, h: 841.89 }; // pt
@@ -255,8 +255,9 @@ export function readScan(index: number, raw: HTMLCanvasElement): ScanPage {
   if (kind !== "F") {
     // 두 쪽 모두 칸 자리가 같아서 쪽을 몰라도 읽을 수 있다(QR을 못 읽은 쪽은 나중에 차례로 1·2쪽을 짐작한다)
     const g = grayOf(canvas);
-    let r = readPage(g, 1);
-    if (!r && !q) { r = readPage(rotate180(g), 1); if (r) canvas = turn180(canvas); }
+    // QR이 있으면 위아래를 이미 맞췄다. QR을 못 읽었으면 두 방향 중 QR 자리가 진한 쪽으로 읽는다
+    const r = q ? readPage(g, 1) : readUpright(g);
+    if (r && "flipped" in r && r.flipped) canvas = turn180(canvas);
     if (r) marks = r.marks;
   }
   return { index, canvas, kind, no: q?.no ?? null, page: q?.page ?? null, marks };

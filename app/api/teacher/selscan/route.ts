@@ -4,7 +4,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { docError, inTime, readPaper } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
-import { aiConfig, getPin } from "@/lib/data";
+import { aiConfig, aiMissing, getPin } from "@/lib/data";
 import { inSpace } from "@/lib/db";
 import { SELF_ITEMS } from "@/lib/selfcheck";
 import { parseDocument } from "@/lib/upstage";
@@ -38,7 +38,7 @@ async function handle(req: NextRequest) {
   if (!items.length && !number) return bad("읽을 것이 없어요.");
 
   const ai = await aiConfig();
-  if (!ai) return bad("「설정」에서 AI 키를 넣어 주세요. 키가 없으면 확인 표에서 직접 골라 주세요.");
+  if (!ai) return bad(`${await aiMissing("애매한 칸을 읽을 수 있어요")} 확인 표에서 직접 골라도 돼요.`);
   const ask = { 읽을문장: items.map((n) => ({ 번호: n, 글: SELF_ITEMS[n - 1].ko })), 번호도: number };
   try {
     let parsed: string | undefined;

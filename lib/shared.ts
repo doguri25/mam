@@ -122,6 +122,7 @@ export const DEFAULT_RISK_WORDS = [
   "목을 졸", "목 졸", "날 패", "날 팼", "나를 패", "처맞", "손목에 칼", "kms",
   "掐我",
   "그냥 죽어", "걍 죽어", "너 같은 건 죽어", "너 같은 애는 죽어", "너는 죽어", "just die", "you should die", "しね", "きえろ", "消えろ",
+  "저를 패", "절 패", "절 팼",
 ];
 // 예전 기본 목록에 나중에 더한 말(판마다) — 선생님이 목록을 고친 적이 있어도 그 판 뒤에 더한 말만 한 번 더해 준다(riskWordsV).
 // add는 더할 말, from은 그 말의 줄기(먼저 있던 말). from이 있으면 선생님 목록에 줄기가 하나라도 남아 있을 때만 더한다:
@@ -183,6 +184,10 @@ export const RISK_WORDS_BY_V: Record<number, { add: string[]; from?: string[] }[
     // 「しね」는 낱말 하나일 때만 찾는다(「たのしね」「おかしね」「少しね」는 빼고 — matchRisk)
     { add: ["그냥 죽어", "걍 죽어", "너 같은 건 죽어", "너 같은 애는 죽어", "너는 죽어", "just die", "you should die", "しね", "きえろ", "消えろ"] },
   ],
+  9: [
+    // 존댓말로 쓴 「선생님, 아빠가 저를 패요」「형이 절 팼어요」(「날 패」「나를 패」와 같이 「패스」「패션」은 빼고 찾는다)
+    { add: ["저를 패", "절 패", "절 팼"], from: ["날 패", "날 팼", "나를 패"] },
+  ],
 };
 export const RISK_WORDS_V = Math.max(...Object.keys(RISK_WORDS_BY_V).map(Number));
 // 판 v에서 저장한 목록(saved)에 더해 줄 말: v보다 뒤 판에 더한 말 가운데 목록에 없고, 줄기가 남아 있는 것(앞 판에서 더한 말도 줄기로 친다).
@@ -222,6 +227,8 @@ export const RISK_CORE = [
   "내가 없어졌으면 좋겠", "내가 사라졌으면 좋겠", "내가 없어지면 좋겠", "내가 사라지면 좋겠", "옥상에서 뛰어내리고 싶", "손목을 긋",
   "죽고파", "죽구파", "사라지고파", "없어지고파",
   "목매달", "옥상에서 떨어지고 싶", "주꼬 싶", "죽어라", "죽으라", "죽으래",
+  "그만 살고 싶", "나는 죽어야", "난 죽어야", "내가 죽어야", "목숨을 끊", "죽으면 편할", "삶이 싫",
+  "제가 사라지면 좋겠", "제가 없어지면 좋겠", "제가 사라졌으면 좋겠", "제가 없어졌으면 좋겠", "제가 죽었으면 좋겠", "저는 죽었으면 좋겠", "전 죽었으면 좋겠",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   "disappear forever", "want to disappear", "don't want to live",
   "want to be dead", "wish i was dead", "wish i were dead", "hate my life", "end my life", "don't want to be alive",

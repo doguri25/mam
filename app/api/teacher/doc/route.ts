@@ -2,7 +2,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { docError, extractLesson, inTime } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
-import { aiConfig, getPin, rawKey } from "@/lib/data";
+import { aiConfig, aiMissing, getPin, rawKey } from "@/lib/data";
 import { inSpace } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
 
@@ -29,10 +29,11 @@ async function handle(req: NextRequest) {
   if (!OK.test(file.name)) return bad("PDF·사진(JPG·PNG)·HWP·DOCX·PPTX 파일을 올려 주세요.");
   if (file.size > MAX) return bad("4MB보다 작은 파일로 올려 주세요. 필요한 쪽만 잘라서 올리면 좋아요.");
 
-  const upKey = await rawKey("upstage"); // 체험 공간이면 실제 반의 키를 하루 제한 안에서 빌려 씀
+  const ai = await aiConfig();
+  if (!ai) return bad(await aiMissing("교과서를 읽을 수 있어요"));
+  // 업스테이지로 대답하는 반(공용 키 포함)이면 같은 키로 Document Parse — 사용량을 두 번 쓰지 않게
+  const upKey = ai.provider === "upstage" ? ai.key : await rawKey("upstage"); // 체험 공간이면 실제 반의 키를 하루 제한 안에서 빌려 씀
   if (!upKey) return bad("교과서 읽기는 업스테이지 Document Parse를 써요. 「설정」에서 업스테이지 키를 넣어 주세요.");
-  const ai = (await aiConfig()) ?? (await aiConfig("upstage"));
-  if (!ai) return bad("AI 키가 필요해요.");
 
   try {
     const { markdown, pages } = await inTime(parseDocument(upKey, file, file.name, { signal: deadline }), deadline);

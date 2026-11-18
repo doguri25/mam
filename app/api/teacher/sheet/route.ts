@@ -3,7 +3,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { docError, inTime, sheetFeedback } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
-import { aiConfig, getPin } from "@/lib/data";
+import { aiConfig, aiMissing, getPin } from "@/lib/data";
 import { db, inSpace } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
 import type { SheetItem, SheetRun } from "@/lib/shared";
@@ -43,7 +43,7 @@ async function handle(req: NextRequest) {
   if (files.reduce((n, f) => n + f.size, 0) > MAX) return bad("쪽 그림이 너무 커요. 한 학생 쪽 수를 줄여 주세요.");
 
   const ai = await aiConfig();
-  if (!ai) return bad("「설정」에서 AI 키를 넣어 주세요.");
+  if (!ai) return bad(await aiMissing("피드백을 만들 수 있어요"));
   const input = { topic: text(r.topic, 60), content: text(r.content, 600), criteria: text(r.criteria, 600) };
 
   let item: SheetItem;

@@ -131,3 +131,75 @@ test("연결이 한 번 끊겨도 다음 요청은 새 연결로 된다(실패�
   assert.deepEqual(await s2.get("meta", "y"), { b: 2 });
   assert.ok(opens >= 3, String(opens));
 });
+
+test("잘못된 값 하나(undefined·Infinity·NaN)는 그 요청만 실패하고, 같이 묶인 다른 읽기·쓰기는 된다(연결도 버리지 않는다)", async () => {
+  const { turso, isNetworkError } = await import("./turso.ts");
+  let opens = 0;
+  const counted: typeof connect = async (url, token) => (opens++, connect(url, token));
+  const s3 = turso(URL, undefined, () => "badarg_", counted);
+  await s3.set("records", "a", { no: 1, updatedAt: 5 });
+  // 같은 순간에 들어온 읽기 셋: 가운데 것만 잘못된 값
+  const [ok1, bad, ok2] = await Promise.allSettled([
+    s3.get("records", "a"),
+    s3.find("records", "updatedAt", ">", Infinity),
+    s3.find("records", "no", "==", 1),
+  ]);
+  assert.equal(ok1.status, "fulfilled");
+  assert.equal(bad.status, "rejected");
+  assert.equal(ok2.status, "fulfilled");
+  assert.deepEqual((ok2 as PromiseFulfilledResult<unknown[]>).value, [{ no: 1, updatedAt: 5 }]);
+  // 같은 순간의 쓰기 둘: 잘못된 값이 섞여도 다른 쓰기는 남는다
+  const ws = await Promise.allSettled([s3.bump("sys", "n", "d1", { by: NaN }), s3.set("meta", "w", { ok: true })]);
+  assert.equal(ws[0].status, "rejected");
+  assert.equal(ws[1].status, "fulfilled");
+  assert.deepEqual(await s3.get("meta", "w"), { ok: true });
+  assert.equal(opens, 1); // 연결 오류로 보지 않아 연결을 새로 하지 않았다
+  // libsql이 undefined를 TypeError로 알려도 연결 오류가 아니다. fetch 실패는 연결 오류다.
+  assert.equal(isNetworkError(new TypeError("undefined cannot be passed as argument to the database")), false);
+  assert.equal(isNetworkError(new TypeError("fetch failed")), true);
+});
+
+test("쓰기 묶음: 문장 하나가 거절되면 나머지는 하나씩 다시 쓰고, 알 수 없는 오류면 다시 쓰지 않는다(두 번 쓰이지 않게)", async () => {
+  const { turso } = await import("./turso.ts");
+  let mode: "batch" | "other" = "batch";
+  let batches = 0;
+  const odd: typeof connect = async (url, token) => {
+    const c = await connect(url, token);
+    return new Proxy(c, {
+      get(t, k, r) {
+        const v = Reflect.get(t, k, r);
+        if (k === "batch") return async (...a: unknown[]) => {
+          batches++;
+          if (batches > 1) {
+            if (mode === "other") throw new Error("server said 500 after commit?");
+            const e = new Error("SQLITE_CONSTRAINT"); e.name = "LibsqlBatchError"; throw e;
+          }
+          return (v as (...x: unknown[]) => unknown).apply(t, a);
+        };
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+  };
+  const s4 = turso(URL, undefined, () => "oddbatch_", odd);
+  await s4.get("meta", "x"); // 연결(표 만들기 묶음 하나)
+  await Promise.all([s4.set("meta", "a", { n: 1 }), s4.set("meta", "b", { n: 2 })]);
+  assert.deepEqual([await s4.get("meta", "a"), await s4.get("meta", "b")], [{ n: 1 }, { n: 2 }]);
+  mode = "other";
+  const r = await Promise.allSettled([s4.set("meta", "c", { n: 3 }), s4.set("meta", "d", { n: 4 })]);
+  assert.deepEqual(r.map((x) => x.status), ["rejected", "rejected"]);
+  assert.equal(await s4.get("meta", "c"), null);
+});
+
+test("update: 방금 읽어 둔 판으로 「고칠 것 없음」이면 새로 읽어 다시 본다", async () => {
+  const { turso } = await import("./turso.ts");
+  const s5 = turso(URL, undefined, () => "fresh_", connect);
+  const other = turso(URL, undefined, () => "fresh_", connect); // 다른 서버
+  await s5.set("meta", "flag", { done: true });
+  await s5.get("meta", "flag"); // 읽어 둠
+  await other.set("meta", "flag", { done: false }); // 그사이 다른 서버가 바꿈
+  let calls = 0;
+  const out = await s5.update<{ done: boolean; by?: string }>("meta", "flag", (cur) => (calls++, cur?.done ? undefined : { done: true, by: "s5" }));
+  assert.deepEqual(out, { done: true, by: "s5" });
+  assert.equal(calls, 2);
+  assert.deepEqual(await other.get("meta", "flag"), { done: true, by: "s5" });
+});

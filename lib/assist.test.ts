@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { KB, searchKb } from "./kb.ts";
 import { CRISIS, crisisOf, crisisText } from "./crisis.ts";
+import { parseNames } from "./local.ts";
 import { chunks, cleanAssist, saysTodo, cleanContacts, cleanDocText, dueLabel, hideNames, isClassWide, mentionedNos, searchDocs, sortTodos, type DocMeta, type Todo } from "./assist.ts";
 
 test("기본 자료 찾기: 물음에 맞는 카드가 먼저", () => {
@@ -48,6 +49,13 @@ test("실명 가리기: 이 기기의 실명을 번호로(성 뗀 이름도)", (
   assert.equal(r.text, "3번이가 요즘 힘들어 보여요. 7번이랑 다퉜대요");
   assert.ok(r.hit);
   assert.deepEqual(hideNames("민속놀이 수업", names), { text: "민속놀이 수업", hit: false }); // 한 글자 이름은 바꾸지 않음
+  // 성 뗀 이름 뒤에 어떤 말이 와도(한테·하고·쉼표·물음표), 네 글자 이름도
+  const more = { 3: "김민준", 7: "이서연", 12: "남궁민수" };
+  assert.equal(hideNames("민준한테 무슨 일 있었는지 정리해 줘", more).text, "3번한테 무슨 일 있었는지 정리해 줘");
+  assert.equal(hideNames("민준, 요즘 어때?", more).text, "3번, 요즘 어때?");
+  assert.equal(hideNames("민준하고 서연이 다퉜어", more).text, "3번하고 7번이 다퉜어");
+  assert.equal(hideNames("민수가 울었어. 남궁민수 보호자 연락", more).text, "12번가 울었어. 12번 보호자 연락");
+  assert.equal(hideNames("서민준 선생님께", more).text, "서민준 선생님께"); // 다른 낱말 속 글자는 그대로
 });
 
 test("자료함: 글을 겹치게 자르고, 물음에 맞는 조각을 자료마다 둘까지", () => {
@@ -84,4 +92,8 @@ test("할 일: 마치지 않은 일·이른 마감 먼저, 남은 날 글", () =
   assert.ok(saysTodo("다음 주 금요일까지 결과 보고 내야 해"));
   assert.ok(!saysTodo("3번 학생 요즘 어때?"));
   assert.deepEqual(cleanContacts([{ label: "Wee클래스", num: "041-000-0000" }, { label: "", num: "1" }, null]), [{ label: "Wee클래스", num: "041-000-0000" }]);
+});
+
+test("명렬표 붙여 넣기: 성별·생년월일 칸이 붙어 있어도 이름만", () => {
+  assert.deepEqual(parseNames("1 김하늘 여\n2\t이서연\t여\t2017.03.02\n3, 박도윤, 남\n4 응우옌 반 안\n5. 최하은 2017-05-01"), { 1: "김하늘", 2: "이서연", 3: "박도윤", 4: "응우옌 반 안", 5: "최하은" });
 });

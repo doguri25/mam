@@ -40,7 +40,7 @@ function PrintCard({ round, data, who }: Props) {
   const [out, setOut] = useState<{ url: string; name: string; pages: number } | null>(null);
   const act = useAct();
   useEffect(() => () => { if (out) URL.revokeObjectURL(out.url); }, [out]);
-  const list = nos === "all" ? data.students.map((s) => s.no) : nos === "pick" ? [...picked].sort((a, b) => a - b) : Array(Math.max(1, Math.min(60, blank))).fill(0);
+  const list = nos === "all" ? data.students.map((s) => s.no) : nos === "pick" ? [...picked].sort((a, b) => a - b) : Array(Math.max(1, Math.min(60, Math.floor(blank) || 1))).fill(0);
   const per = src === "app" ? 2 : mine?.pages.length ?? 0;
   const ready = list.length > 0 && per > 0 && !(src === "mine" && nos === "blank");
 
@@ -127,12 +127,14 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
   const [zoom, setZoom] = useState<string | null>(null);
   const reading = useAct(), asking = useAct(), saving = useAct();
   const urls = useRef<string[]>([]);
+  const gen = useRef(0);
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
   const provider = PROVIDERS[data.settings.provider]?.label ?? "AI";
   const online = new Set(rows.filter((r) => r.answer && r.answer.src !== "paper").map((r) => r.st.no));
   const roster = data.students.map((s) => s.no);
 
   const read = (f: File) => reading.run("스캔본을 읽지 못했어요", async () => {
+    gen.current++; // AI가 앞 스캔본을 읽던 중이면 그 결과를 새 표에 넣지 않게
     setSheets(null); setMsg("");
     urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current = [];
     const infos: Parameters<typeof buildEntries>[0] = [];
@@ -151,7 +153,7 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
       const no = e.no && roster.includes(e.no) ? e.no : null;
       return { ...e, no, thumbs, blobs: e.pages.map((i) => blobs[i]), ai: Array(32).fill(false), noFrom: no ? "qr" : null, save: false };
     });
-    setSheets(list.map((s) => ({ ...s, save: complete(s) })));
+    setSheets(list.map((s) => ({ ...s, save: complete(s) && !s.unsure.some((u) => u) })));
     setMsg(`${r.total}쪽에서 ${list.length}장(사람)을 찾았어요.${r.cut ? " 120쪽까지만 읽었어요." : ""}`);
   });
   const complete = (s: Sheet) => !!s.no && s.answers.every((v) => v != null);
@@ -161,9 +163,11 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
   // 애매한 칸·번호만 AI에(학생 한 명씩 차례로)
   const askAi = () => asking.run("AI가 읽지 못했어요", async () => {
     const todo = (sheets ?? []).filter((s) => s.kind !== "?" && needAi(s));
+    const g0 = gen.current;
     let n = 0;
     try {
       for (const s of todo) {
+        if (gen.current !== g0) break;
         setProg(`AI가 읽는 중 ${++n}/${todo.length}`);
         const items = s.answers.flatMap((v, i) => ((s.kind === "F" ? v == null || s.unsure[i] : s.unsure[i] && !s.ai[i]) ? [i + 1] : []));
         const form = new FormData();
@@ -172,14 +176,18 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
         const res = await fetch("/api/teacher/selscan", { method: "POST", body: form });
         const out = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(out.error ?? "AI가 읽지 못했어요.");
+        if (gen.current !== g0) break;
         update(s.key, (cur) => {
           const answers = [...cur.answers], unsure = [...cur.unsure], ai = [...cur.ai];
           for (const i of items) {
             const v = out.answers?.[i];
-            if (v) { answers[i - 1] = v; unsure[i - 1] = false; ai[i - 1] = true; }
+            // AI가 읽는 동안 선생님이 직접 고른 칸은 그대로 둔다
+            const open = cur.kind === "F" ? cur.answers[i - 1] == null || cur.unsure[i - 1] : cur.unsure[i - 1] && !cur.ai[i - 1];
+            if (v && open) { answers[i - 1] = v; unsure[i - 1] = false; ai[i - 1] = true; }
           }
           const no = cur.no ?? (out.no && roster.includes(out.no) ? out.no : null);
-          return { ...cur, answers, unsure, ai, no, noFrom: cur.no ? cur.noFrom : no ? "ai" : null, save: true, aiNote: out.viaText ? "업스테이지는 검사지를 글로 바꿔 읽어서 표시를 놓칠 수 있어요" : undefined };
+          const left = unsure.some((u, k) => u && !ai[k]);
+          return { ...cur, answers, unsure, ai, no, noFrom: cur.no ? cur.noFrom : no ? "ai" : null, save: cur.save || !left, aiNote: out.viaText ? "업스테이지는 검사지를 글로 바꿔 읽어서 표시를 놓칠 수 있어요" : undefined };
         });
       }
     } finally {
@@ -195,7 +203,7 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
   });
 
   const count = new Map<number, number>();
-  for (const s of sheets ?? []) if (s.no) count.set(s.no, (count.get(s.no) ?? 0) + 1);
+  for (const s of sheets ?? []) if (s.no && s.kind !== "?") count.set(s.no, (count.get(s.no) ?? 0) + 1);
   const dupes = new Set([...count].filter(([, n]) => n > 1).map(([no]) => no));
   const waiting = (sheets ?? []).filter((s) => s.kind !== "?" && needAi(s)).length;
   const toSave = (sheets ?? []).filter((s) => s.save && complete(s) && !dupes.has(s.no!)).length;
@@ -208,7 +216,7 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
         스캔 그림은 저장하지 않아요.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <label className={`btn-main min-h-11 cursor-pointer text-sm ${reading.busy ? "pointer-events-none opacity-60" : ""}`}>
+        <label className={`btn-main min-h-11 cursor-pointer text-sm ${reading.busy || asking.busy ? "pointer-events-none opacity-60" : ""}`}>
           <Doodle name="clip" /> 스캔본 올리기
           <input type="file" accept="application/pdf,image/*" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) read(f); e.target.value = ""; }} />
         </label>
@@ -262,12 +270,12 @@ function SheetRow({ s, roster, who, dup, online, onZoom, onChange, onDrop }: {
             </button>
           ))}
         </div>
-        <label className="text-sm font-bold">번호{" "}
+        {s.kind !== "?" && <label className="text-sm font-bold">번호{" "}
           <select value={s.no ?? ""} onChange={(e) => onChange((x) => ({ ...x, no: e.target.value ? Number(e.target.value) : null, noFrom: "teacher", save: true }))} className={`field ml-1 min-h-10 w-auto py-1 ${!s.no || dup ? "border-alert" : ""}`}>
             <option value="">골라 주세요</option>
             {roster.map((n) => <option key={n} value={n}>{who(n)}</option>)}
           </select>
-        </label>
+        </label>}
         <span className="rounded-full bg-[#f1eee7] px-2 py-0.5 text-xs">{tag}{s.noFrom === "ai" ? " · 번호는 AI가 읽음" : ""}</span>
         {dup && <span className="text-xs font-bold text-alert">같은 번호가 또 있어요</span>}
         {online && <span className="text-xs text-soft">화면에서 이미 답한 학생</span>}

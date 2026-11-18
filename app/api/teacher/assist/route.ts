@@ -5,7 +5,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { assistReply, inTime } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
-import { aiConfig, getPin, getRiskDrafts, getRoster, getSelNotes, getSelfAnswers, getSelfRounds, getSettings, recordsFrom, recordsOf, riskyRecords, withOpenRisks } from "@/lib/data";
+import { aiConfig, aiMissing, getPin, getRiskDrafts, getRoster, getSelNotes, getSelfAnswers, getSelfRounds, getSettings, recordsFrom, recordsOf, riskyRecords, withOpenRisks } from "@/lib/data";
 import { addDays, today } from "@/lib/date";
 import { db, inSpace, isDemo } from "@/lib/db";
 import { clientIp, trialEditWait, waitText } from "@/lib/limit";
@@ -20,7 +20,7 @@ import {
   cleanAssist, cleanContacts, cleanDocText, cleanDue, cleanTitle, isClassWide, meansThis, mentionedNos, saysTodo, searchDocs, sortTodos, threadTitle, wantsTodo,
   type AppTodo, type ChatMsg, type ChatThread, type Contact, type DocKind, type DocMeta, type Todo,
 } from "@/lib/assist";
-import { ownBy, type Cheer, type Letter, type MoodRecord, type Reflect, type Student } from "@/lib/shared";
+import { ownBy, ownOnly, type Cheer, type Letter, type MoodRecord, type Reflect, type Student } from "@/lib/shared";
 
 export const maxDuration = 60;
 const BUDGET_MS = (maxDuration - 8) * 1000;
@@ -181,7 +181,7 @@ async function appTodos(): Promise<AppTodo[]> {
   const wait = letters.filter((l) => l.status === "wait").length;
   if (wait) out.push({ key: "letters", text: `허락을 기다리는 공감 쪽지가 ${wait}통 있어요.`, tab: "letters" });
   const alias = (no: number) => students.find((s) => s.no === no)?.alias ?? "";
-  for (const f of watchFlags(recent, date, settings.rules).slice(0, 5))
+  for (const f of watchFlags(ownOnly(recent, students, (r) => r.no, (r) => r.createdAt), date, settings.rules).slice(0, 5))
     out.push({ key: `flag${f.no}`, text: `먼저 살펴볼 학생: ${f.no}번 ${alias(f.no)} — ${f.reasons.join(", ")}`, tab: "student", no: f.no });
   // 역량 진단: 열린 회차에 아직 답하지 않은 학생, 답했는데 피드백을 보내지 않은 학생(가장 최근 회차)
   const live = students.filter((s) => !s.demo || students.every((x) => x.demo));
@@ -206,7 +206,7 @@ async function appTodos(): Promise<AppTodo[]> {
 }
 
 // ── 학생 한 명의 최근 기록(번호·가명만) ──
-async function studentBlock(s: Student, date: string): Promise<string> {
+async function studentBlock(s: Student, date: string, rules: Parameters<typeof watchFlags>[2]): Promise<string> {
   const no = s.no;
   const own = (at?: string) => ownBy(s, at);
   const [records, cheers, sent, got, rounds, answers, selNotes] = await Promise.all([
@@ -222,11 +222,11 @@ async function studentBlock(s: Student, date: string): Promise<string> {
     const said = r.summaryKo || r.summary;
     lines.push(`- ${r.date} ${r.slot === "am" ? "아침" : "하교 전"}: ${r.emotion}${r.word ? `(${r.word})` : ""} 크기${r.intensity}${r.reason ? ` · 까닭 ${r.reason}` : ""}${said ? ` · "${clip(said, 80)}"` : ""}${r.answer ? ` · 되묻기 답 "${clip(r.answer, 60)}"` : ""}${r.risk ? " · ⚠위험 표현" : ""}`);
   }
-  const flags = watchFlags(recs, date).find((f) => f.no === no);
+  const flags = watchFlags(recs, date, rules).find((f) => f.no === no);
   if (flags) lines.push(`앱이 본 신호(최근 7일): ${flags.reasons.join(", ")}`);
   const mine = <T extends { createdAt: string }>(xs: T[]) => xs.filter((x) => own(x.createdAt)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const cs = mine(cheers).slice(0, 3);
-  if (cs.length) lines.push(`보낸 응원 한마디: ${cs.map((c) => `${c.createdAt.slice(0, 10)} "${clip(c.text, 60)}"`).join(" / ")}`);
+  if (cs.length) lines.push(`보낸 응원 한마디: ${cs.map((c) => c.createdAt.slice(0, 10)).join(", ")}`); // 글은 보내지 않음(선생님이 쓴 글에 실명이 있을 수 있음)
   const recent = (l: Letter) => l.createdAt.slice(0, 10) >= from;
   lines.push(`공감 쪽지(30일): 보냄 ${mine(sent).filter(recent).length}통, 받음 ${mine(got.filter((l) => !l.toPractice)).filter(recent).length}통`);
   // 역량 진단: 가장 최근 회차의 영역별 수준(학생 답·종이 검사)과 선생님 관찰 수준(메모는 보내지 않음)
@@ -244,7 +244,7 @@ async function studentBlock(s: Student, date: string): Promise<string> {
 // ── 우리 반 최근 2주 한눈에 ──
 function classBlock(students: Student[], recs: MoodRecord[], date: string, rules: Parameters<typeof watchFlags>[2]): string {
   const from = addDays(date, -13);
-  const flags = new Map(watchFlags(recs, date, rules).map((f) => [f.no, f.reasons]));
+  const flags = new Map(watchFlags(ownOnly(recs, students, (r) => r.no, (r) => r.createdAt), date, rules).map((f) => [f.no, f.reasons]));
   const lines = [`[우리 반 최근 2주(${from}~${date})] 학생 ${students.length}명`];
   for (const s of students.slice(0, 40)) {
     const mine = recs.filter((r) => r.no === s.no && r.date >= from && ownBy(s, r.createdAt));
@@ -275,7 +275,8 @@ async function ask(body: Record<string, unknown>) {
   // 어떤 학생을 묻는가: 번호·가명, 「이 학생」이면 보던 학생, 앞 물음에서 물은 학생
   let nos = mentionedNos(text, live);
   const ctxNo = Number(ctx.no);
-  if (!nos.length && Number.isInteger(ctxNo) && live.some((s) => s.no === ctxNo) && (meansThis(text) || ["student", "cheer", "referral"].includes(String(ctx.tab)))) nos = [ctxNo];
+  const aboutViewed = ["student", "cheer", "referral"].includes(String(ctx.tab)) && !isClassWide(text) && !crisisOf(text).length && !wantsTodo(text) && !/가정\s?통신문|안내문|공문|연수|업무|계획서|보고서|성취기준|수업\s?아이디어/.test(text);
+  if (!nos.length && Number.isInteger(ctxNo) && live.some((s) => s.no === ctxNo) && (meansThis(text) || aboutViewed)) nos = [ctxNo];
   if (!nos.length && meansThis(text)) nos = mentionedNos(recentText, live);
   nos = nos.slice(0, 3);
 
@@ -284,7 +285,7 @@ async function ask(body: Record<string, unknown>) {
   const docs = searchDocs(recentText, await docTexts(), 4);
   const parts: string[] = [`[오늘] ${date}(${WEEK[new Date(`${date}T12:00:00Z`).getUTCDay()]}) · 학급 「${settings.className}」 학생 ${live.length}명`];
   const tab = String(ctx.tab ?? "");
-  if (tab in GO_TABS || tab === "assist") parts.push(`[화면] 선생님이 보던 메뉴: ${tab === "assist" ? "AI 도우미" : GO_TABS[tab as keyof typeof GO_TABS]}${Number.isInteger(ctxNo) && ctxNo > 0 ? ` · 고른 학생 ${ctxNo}번` : ""}`);
+  if (Object.hasOwn(GO_TABS, tab) || tab === "assist") parts.push(`[화면] 선생님이 보던 메뉴: ${tab === "assist" ? "AI 도우미" : GO_TABS[tab as keyof typeof GO_TABS]}${Number.isInteger(ctxNo) && ctxNo > 0 ? ` · 고른 학생 ${ctxNo}번` : ""}`);
 
   // 할 일: 늘 짧게(업무 물음이면 더 자세히)
   const [app, mine] = await Promise.all([appTodos(), myTodos()]);
@@ -296,7 +297,7 @@ async function ask(body: Record<string, unknown>) {
   ];
   parts.push(`[할 일]\n${todoLines.length ? todoLines.join("\n") : "- 지금 앱이 찾은 일과 적어 둔 일이 없어요."}`);
 
-  for (const no of nos) parts.push(await studentBlock(live.find((s) => s.no === no)!, date));
+  for (const no of nos) parts.push(await studentBlock(live.find((s) => s.no === no)!, date, settings.rules));
   if (!nos.length && isClassWide(text)) parts.push(classBlock(live, await recordsFrom(addDays(date, -13)), date, settings.rules));
 
   const sources: string[] = [];
@@ -323,7 +324,7 @@ async function ask(body: Record<string, unknown>) {
   parts.push(`(sources에 쓸 수 있는 이름: ${sources.length ? sources.map((s) => `「${s}」`).join(", ") : "없음"}. go의 tab: ${Object.entries(GO_TABS).map(([k, v]) => `${k}=${v}`).join(", ")})`);
 
   const ai = await aiConfig();
-  if (!ai) return bad(isDemo() ? "오늘 체험용 AI 사용량을 다 썼어요. 위기 대응 안내와 할 일은 AI 없이도 볼 수 있어요." : "AI 키가 있어야 대답할 수 있어요. 「설정」에서 키를 넣어 주세요. 위기 대응 안내와 할 일은 AI 없이도 볼 수 있어요.", 400, { crisis });
+  if (!ai) return bad(`${await aiMissing("대답할 수 있어요")} 위기 대응 안내와 할 일은 AI 없이도 볼 수 있어요.`, 400, { crisis });
   let out;
   try {
     out = cleanAssist(await inTime(assistReply(ai, parts.join("\n\n"), deadline), deadline), { nos, sources });

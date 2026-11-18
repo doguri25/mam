@@ -140,8 +140,9 @@ export default function MePage() {
   const [backHint, setBackHint] = useState(false);
   const [readAloud, setReadAloud] = useLocal("mb_read");
   const [lang, setLang] = useStudentLang(me); // 같은 태블릿을 돌려 써도 학생마다(반마다) 따로
-  const speech = useSpeech((x) => { setText(x); setSpoke(true); }, { measure: !!me && me.voiceMode !== "off", record: me?.voiceMode === "gemini", lang: langOf(lang).speech });
-  const answerSpeech = useSpeech(setAnswer, { lang: langOf(lang).speech });
+  const speech = useSpeech((x) => { setText(x.slice(0, 180)); setSpoke(true); }, { measure: !!me && me.voiceMode !== "off", record: me?.voiceMode === "gemini", lang: langOf(lang).speech });
+  // 말로 넣어도 손으로 칠 때와 같은 길이까지(서버는 이만큼만 받아 살핀다: 넘친 뒤쪽 글이 화면에만 보이고 빠지지 않게)
+  const answerSpeech = useSpeech((x) => setAnswer(x.slice(0, 120)), { lang: langOf(lang).speech });
   const say = (x: string) => speak(x, false, lang);
 
   // 고르던 것·쓰던 글·안내를 모두 비우고 고르기 화면으로
@@ -519,11 +520,13 @@ export default function MePage() {
       const q = toQa(r);
       setQa(q);
       setNote(""); // 카드 단계의 안내(잘 못 알아들었어·생각이 길어졌어·연결 확인)는 되묻기로 가져가지 않는다
+      // 바로 저장하면 아직 바뀌지 않은 summaryKo 상태를 읽으므로 같은 값을 넘겨 준다
+      const ko = method === "voice" && lang !== "ko" && r.summary ? r.summary : summaryKo;
       if (method === "voice") {
         setTone(toTone(r));
-        if (lang !== "ko" && r.summary) setSummaryKo(r.summary);
+        if (ko !== summaryKo) setSummaryKo(ko);
       }
-      if (q.skip) return save("", q, toTone(r), p);
+      if (q.skip) return save("", q, toTone(r), p, ko);
       setAskFrom("card");
       setStep("ask");
     } catch (e) {
@@ -579,7 +582,7 @@ export default function MePage() {
     setBusy("");
   }
 
-  async function save(ans: string, q = qa, tn = tone, p: Pick = pick) {
+  async function save(ans: string, q = qa, tn = tone, p: Pick = pick, ko = summaryKo) {
     if (busyNow.current === "saving") return; // 두 번 눌러도 한 번만
     answerSpeech.stop();
     busyNow.current = "saving"; // 바로 아래에서 기다리는 사이 온 시간 바뀜을 follow가 화면에 섞지 않게
@@ -600,7 +603,7 @@ export default function MePage() {
     const sl = slotRef.current;
     // saveId: 저장 한 번(누름 한 번)마다 새 이름. 서버에는 갔는데 답만 잃어 이 기기에 담아 두면 같은 이름으로 다시 보낸다
     // → 서버가 같은 저장인 줄 알고 한 번만 남긴다(앞 기록·알림을 두 번 만들지 않게). 학생이 다시 눌러 남긴 것은 새 이름이라 새 기록.
-    const payload = { ...p, slot: sl, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo, ...tn, saveId: newSaveId() };
+    const payload = { ...p, slot: sl, method, summary: method === "voice" ? text : "", question: q.question, answer: ans, aiRisk: q.aiRisk, lang, summaryKo: ko, ...tn, saveId: newSaveId() };
     try {
       let record: MoodRecord;
       let said = ""; // 학생이 쓴 글에 위험한 말이 있으면 서버가 보내는 고맙다는 말

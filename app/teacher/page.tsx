@@ -73,6 +73,11 @@ const LOAD_STUCK_MS = 60_000; // 다시 읽기 답을 이만큼 기다렸으면 
 const RETRY_FIRST_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
 
+// 로그아웃이 인터넷 끊김으로 실패했다는 표시(이 기기에만). 다음에 선생님 화면을 열면 먼저 마저 잠근다
+const LOGOUT_KEY = "mb_logout_pending";
+const logoutPending = () => { try { return localStorage.getItem(LOGOUT_KEY) === "1"; } catch { return false; } };
+const setLogoutPending = (on: boolean) => { try { if (on) localStorage.setItem(LOGOUT_KEY, "1"); else localStorage.removeItem(LOGOUT_KEY); } catch {} };
+
 export default function TeacherPage() {
   const [raw, setRaw] = useState<OverviewRaw | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
@@ -172,6 +177,13 @@ export default function TeacherPage() {
     const my = ++seq.current;
     loading.current = { my, at: Date.now() };
     try {
+      // 앞서 잠그기·「학생 화면」의 로그아웃이 실패한 기기: 화면을 열기 전에 먼저 로그아웃을 마친다(실패하면 아래 catch에서 다시 해 본다)
+      if (logoutPending()) {
+        await api("teacher", "logout", {});
+        setLogoutPending(false);
+        if (fresh(my)) lockOut();
+        return;
+      }
       const c = readCache();
       const o = await api<OverviewRaw>("teacher", "overview", c ? { since: c.at - 5000, prefix: c.prefix, wipe: c.wipe } : {});
       if (!fresh(my)) return; // 그사이 잠갔거나 더 나중에 시작한 응답을 이미 썼다
@@ -335,7 +347,9 @@ export default function TeacherPage() {
   const signOut = async (then: string, why = "") => {
     const sub = await navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).catch(() => null);
     const off = !!sub && confirm(`이 기기의 위험 표현 휴대폰 알림도 끌까요?${why}\n\n확인: 알림도 끄고 ${then}(여럿이 함께 쓰는 기기)\n취소: 알림은 계속 받고 ${then}(선생님 휴대폰·개인 컴퓨터)`);
-    await api("teacher", "logout", off ? { endpoint: sub.endpoint } : {}).catch(() => {});
+    // 로그아웃(쿠키 지우기)은 서버만 할 수 있다. 인터넷이 끊겨 실패하면 표시를 남겨, 이 기기에서 선생님 화면을 다시 열 때 먼저 마저 잠근다
+    const ok = await api("teacher", "logout", off ? { endpoint: sub.endpoint } : {}).then(() => true, () => false);
+    if (!ok) setLogoutPending(true);
     if (off) await sub.unsubscribe().catch(() => false);
   };
   // 누른 그때 먼저 굳힌다(freeze): 알림을 끌지 묻거나 로그아웃을 기다리는 사이 도착한 다시 읽기 응답이 화면·기기 저장을 되살리지 않게
@@ -455,7 +469,7 @@ export default function TeacherPage() {
           {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} onLetters={() => setTab("letters")} />}
           {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
-          {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} />}
+          {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} pick={cheerNo} onPick={setCheerNo} />}
           {tab === "student" && <StudentTab data={data} reload={load} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} version={version} />}
           {tab === "sel" && <SelCheckTab data={data} nameOf={nameOf} version={version} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
@@ -511,6 +525,7 @@ function Login({ onDone }: { onDone: () => Promise<void> }) {
     setError("");
     try {
       await api("teacher", signup ? "signup" : "login", { name, password: pw, className });
+      setLogoutPending(false); // 새로 들어왔으면 남은 「마저 잠그기」 표시는 지운다
     } catch (err) {
       setError((err as Error).message);
       setPw("");

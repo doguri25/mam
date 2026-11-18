@@ -1,12 +1,15 @@
 // 서면 검사지 읽기: 기울고 작아지고 얼룩진 「스캔」을 만들어 체크 칸을 바르게 읽는지, 애매한 칸을 골라내는지, 쪽을 사람별로 묶는지
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BOX, COLS, FID, PAGE, apply, boxY, buildEntries, homography, parseQr, pickMark, placeOf, qrText, readPage, type Gray, type Pt } from "./omr.ts";
+import { BOX, COLS, FID, PAGE, QR_BOX, apply, boxY, buildEntries, homography, parseQr, pickMark, placeOf, qrText, readPage, readUpright, rotate180, type Gray, type Pt } from "./omr.ts";
+
+let withQr = false; // 오른쪽 위 QR 자리에 바둑판(QR 대신)을 그릴지
 
 // 검사지 좌표에서 잉크가 있는 곳(표식 · 칸 테두리 · 학생 표시)
 type Tick = { i: number; v: number; kind?: "check" | "fill" | "light" | "circle" };
 function inkAt(x: number, y: number, ticks: Tick[]): number {
   for (const [cx, cy] of FID.at) if (Math.abs(x - cx) <= FID.size / 2 && Math.abs(y - cy) <= FID.size / 2) return 20;
+  if (withQr && x >= QR_BOX.x && x < QR_BOX.x + QR_BOX.s && y >= QR_BOX.y && y < QR_BOX.y + QR_BOX.s) return (Math.floor((x - QR_BOX.x) / 12) * 7 + Math.floor((y - QR_BOX.y) / 12) * 3) % 5 < 2 ? 20 : 255;
   for (let j = 0; j < 16; j++) {
     const { s, k } = placeOf(j);
     const cy = boxY(s, k);
@@ -117,4 +120,20 @@ test("쪽을 사람별로 묶기: 번호가 찍힌 쪽은 번호로, 빈 검사�
   assert.deepEqual([e[2].no, e[2].pages, e[2].answers[0], e[2].answers[31]], [null, [4, 5], 5, 1]);
   assert.deepEqual([e[3].kind, e[3].no, e[3].pages], ["F", 7, [6, 7]]);
   assert.deepEqual([e[4].kind, e[4].pages], ["?", [8]]);
+});
+
+test("QR을 못 읽은 쪽이 거꾸로 들어와도 바로 세워 읽는다", () => {
+  const want = [3, 4, 5, 2, 1, 4, 4, 3, 5, 5, 2, 3, 4, 1, 3, 4];
+  withQr = true;
+  try {
+    const g = fakeScan(want.map((v, i) => ({ i, v })), { w: 1202, angle: 0.8 });
+    const up = readUpright(g)!;
+    assert.equal(up.flipped, false);
+    assert.deepEqual(up.marks.map((m) => m.value), want);
+    const down = readUpright(rotate180(g))!;
+    assert.equal(down.flipped, true);
+    assert.deepEqual(down.marks.map((m) => m.value), want);
+  } finally {
+    withQr = false;
+  }
 });

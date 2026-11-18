@@ -8,7 +8,7 @@ export const GO_TABS = {
   report: "주간 리포트", home: "가정 소식지", lesson: "교과서 연결", sheet: "활동지 피드백", roster: "학생 코드·QR", settings: "설정", guide: "사용 설명서",
 } as const;
 export type GoTab = keyof typeof GO_TABS;
-export const isGoTab = (v: unknown): v is GoTab => typeof v === "string" && v in GO_TABS;
+export const isGoTab = (v: unknown): v is GoTab => typeof v === "string" && Object.hasOwn(GO_TABS, v); // 「toString」 같은 이름은 빼고
 
 export interface Go { tab: GoTab; no?: number }
 export interface TodoTip { title: string; due: string } // 챗봇이 권한 할 일(선생님이 「할 일에 넣기」를 눌러야 저장)
@@ -158,9 +158,10 @@ export function hideNames(text: string, names: Record<number, string>): { text: 
   for (const [no, name] of list) {
     const n = name.trim();
     const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // 성을 뗀 이름(민준이, 민준아)도: 세 글자 이름이면 뒤 두 글자
-    const given = n.length === 3 ? n.slice(1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : null;
-    const re = new RegExp(given ? `${esc}|${given}(?=[이가아야는은을를의도랑와과에]|\\s|$)` : esc, "g");
+    // 성을 뗀 이름(민준이, 민준한테, 민준,)도: 세 글자 이름은 뒤 두 글자, 네 글자 이름(남궁민수)도 뒤 두 글자.
+    // 낱말 첫머리에서 시작할 때만(「서민준」의 「민준」은 앞 글자가 있어 건드리지 않음) — 뒤에 오는 말은 가리지 않는다
+    const given = /^[가-힣]{3,4}$/.test(n) ? n.slice(-2) : null;
+    const re = new RegExp(given ? `${esc}|(?<![가-힣])${given}` : esc, "g");
     if (re.test(out)) {
       hit = true;
       out = out.replace(re, `${no}번`);

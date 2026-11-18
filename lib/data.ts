@@ -54,9 +54,25 @@ export async function getSettings(): Promise<Settings> {
   return out;
 }
 
-export async function saveSettings(s: Settings) {
-  await db().set("meta", "settings", { ...s });
+// 설정 저장. 「살펴봤어요」 표시(checks)는 한 칸씩 따로 쓰므로(setField) 저장소에 있는 것을 그대로 둔다:
+// 먼저 읽어 둔 설정으로 덮으면 그사이 다른 탭에서 단 표시가 사라진다. 표시를 비울 때만 withChecks로 준 것을 쓴다.
+export async function saveSettings(s: Settings, withChecks = false) {
+  await db().update<Partial<Settings>>("meta", "settings", (cur) => ({ ...s, checks: withChecks || !cur ? s.checks ?? {} : cur.checks ?? {} }));
   await touch("other");
+}
+
+// 「살펴봤어요」 표시 가운데 drop이 참인 번호의 것만 지운다(저장소에 있는 표시에서 — 그사이 단 표시는 남게)
+export async function pruneChecks(drop: (no: number) => boolean) {
+  let changed = false;
+  await db().update<Partial<Settings>>("meta", "settings", (cur) => {
+    changed = false;
+    if (!cur?.checks) return undefined;
+    const checks = Object.fromEntries(Object.entries(cur.checks).filter(([k]) => !drop(Number(k.split("_")[0]))));
+    if (Object.keys(checks).length === Object.keys(cur.checks).length) return undefined;
+    changed = true;
+    return { ...cur, checks };
+  });
+  if (changed) await touch("other");
 }
 
 export async function getRoster(): Promise<Student[]> {
@@ -151,7 +167,13 @@ export async function createAccount(name: string, className: string, password: s
     const limited = await signupSlot(opts.ip);
     if (limited) return { error: limited, status: 429 };
   }
-  const space = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  // 학급 공간 이름(c + 16진 8자리)이 드물게 겹치면 남의 반 비밀번호를 덮어쓰게 된다: 이미 쓰는 이름이면 다시 뽑는다
+  let space = "";
+  for (let i = 0; i < 5 && !space; i++) {
+    const s = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+    if (!(await inSpace(s, () => db().get("meta", "account")))) space = s;
+  }
+  if (!space) return { error: "학급을 만들지 못했어요. 잠시 뒤 다시 해 주세요.", status: 503 };
   const pin = makePin(password, 1);
   // 비밀번호를 먼저 저장하고 계정을 연다(계정만 있고 비밀번호가 없는 학급이 생기지 않게)
   await inSpace(space, async () => {
@@ -171,7 +193,7 @@ export async function createAccount(name: string, className: string, password: s
 }
 
 // ── 빈 학급 정리: 가입만 하고 쓰지 않는 학급이 학급 수 한도(MAX_CLASSES)를 차지하지 않게 ──
-// 지우는 학급: 새로 가입한 학급(공간 c…)이면서 명단에 학생이 없고, 기록·응원·메모·쪽지·돌아보기·활동지·진단·조치 기록·차시가 하나도 없고,
+// 지우는 학급: 새로 가입한 학급(공간 c…)이면서 명단에 학생이 없고, 기록·응원·메모·쪽지·돌아보기·활동지·진단·조치 기록·차시·AI 도우미 자료가 하나도 없고,
 // 만든 지 CLEANUP_DAYS(14)일이 지났고, 선생님이 그동안 들어오지 않은 학급. 홍북초("")·체험(demo)은 계정 문서가 없어 대상이 아니다.
 export const CLEANUP_DAYS = 14;
 const CLASS_SPACE = /^c[0-9a-f]{8}$/;
@@ -187,8 +209,9 @@ async function classUse(a: Account): Promise<ClassUse> {
   return inSpace(a.space, async () => {
     const students = (await getRoster()).length;
     if (students) return { ...a, students, data: true };
-    const counts = await Promise.all([...DATED.map(([col, f]) => db().count(col, f, ">=", "")), ...["selfAnswer", "selNote"].map((k) => db().count("meta", "kind", "==", k))]);
-    const lists = await Promise.all(["riskActions", "selfRounds", "lessons"].map((id) => db().get<{ items?: unknown[] }>("meta", id)));
+    // AI 도우미만 쓰는 반(자료함 문서·할 일·연락처·대화)도 쓰는 반으로 본다
+    const counts = await Promise.all([...DATED.map(([col, f]) => db().count(col, f, ">=", "")), ...["selfAnswer", "selNote", "assistDoc", "chat"].map((k) => db().count("meta", "kind", "==", k))]);
+    const lists = await Promise.all(["riskActions", "selfRounds", "lessons", "assistDocs", "assistTodos", "assistContacts"].map((id) => db().get<{ items?: unknown[] }>("meta", id)));
     return { ...a, students, data: counts.some((c) => c > 0) || lists.some((d) => !!d?.items?.length) };
   });
 }
@@ -370,10 +393,8 @@ export async function startFresh(nos: number[]): Promise<boolean> {
     await editRiskDrafts((items) => items.map((d) => (drafts.has(d.id) ? { ...d, id: d.id + tag } : d)));
     for (const id of had) await renameRiskActions(`draft:${id}`, `draft:${id}${tag}`);
   }
-  const st = await getSettings();
   const gone = new Set(nos);
-  const checks = Object.fromEntries(Object.entries(st.checks ?? {}).filter(([k]) => !gone.has(Number(k.split("_")[0]))));
-  if (Object.keys(checks).length !== Object.keys(st.checks ?? {}).length) await saveSettings({ ...st, checks });
+  await pruneChecks((no) => gone.has(no));
   return moved;
 }
 // 조치 기록이 가리키는 글의 id만 바꾼다(무엇을 살펴봤나·한 일은 그대로)
@@ -423,13 +444,16 @@ export function sharedAiCap(v: string | undefined) {
   return v?.trim() && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 100;
 }
 export const SHARED_AI_PER_DAY = sharedAiCap(process.env.SHARED_AI_PER_DAY);
+// 모든 학급을 합친 공용 키 하루 몫(가입만 여러 번 해 학급마다 몫을 받아 공용 키를 많이 쓰지 못하게). Vercel 환경 변수로 바꿈
+export const SHARED_AI_ALL_PER_DAY = Number(process.env.SHARED_AI_ALL_PER_DAY) > 0 ? Math.floor(Number(process.env.SHARED_AI_ALL_PER_DAY)) : 3000;
 export const hasSharedAi = () => !!sharedUpstage();
 export async function sharedAiUsed() {
   const u = await db().get<{ date: string; n: number }>("meta", "sharedAiUsage");
   return u?.date === today() ? u.n : 0;
 }
 async function spendSharedAi() {
-  return (await db().bump("meta", "sharedAiUsage", today(), { max: SHARED_AI_PER_DAY })).ok;
+  if (!(await db().bump("meta", "sharedAiUsage", today(), { max: SHARED_AI_PER_DAY })).ok) return false;
+  return (await outOfSpace(() => db().bump("sys", "sharedAiAll", today(), { max: SHARED_AI_ALL_PER_DAY }))).ok;
 }
 // 실제 학급이 빌려 쓰는 공용 키(체험 공간은 trialKey로 따로)
 async function borrowShared(p: Provider) {
@@ -483,6 +507,15 @@ export async function aiConfig(provider?: Provider) {
   // 실제 학급: 고른 AI의 키가 없으면 공용 업스테이지 키로(따로 다른 AI를 콕 집어 부를 때는 빌리지 않음)
   const shared = provider && provider !== "upstage" ? null : await borrowShared("upstage");
   return shared ? { provider: "upstage" as Provider, model: s.models.upstage, key: shared } : null;
+}
+
+// AI를 부르지 못한 까닭을 선생님 말로: 체험 몫이나 학급 공용 키 몫을 다 쓴 것과 키가 아예 없는 것을 가른다
+// (공용 키 몫을 다 쓴 날에도 「키를 넣어 주세요」만 보여 헷갈리지 않게)
+export async function aiMissing(can = "만들 수 있어요") {
+  if (isDemo()) return "오늘 체험용 AI 사용량을 다 썼어요.";
+  const s = await keySettings();
+  if (!s.keys[s.provider] && hasSharedAi()) return "오늘 학급 공용 AI 몫을 다 썼어요. 내일 다시 하거나 「설정」에서 AI 키를 넣어 주세요.";
+  return `AI 키가 있어야 ${can}. 「설정」에서 키를 넣어 주세요.`;
 }
 
 // ── 기록 읽기: 통째로 읽지 않고 필요한 만큼만(Firestore 읽기 횟수 = 돌려받은 문서 수) ──
@@ -1130,7 +1163,7 @@ export async function seedPractice() {
     seedSelfChecks(date), // 학급 역량 진단 연습 회차(실제 회차는 그대로)
     // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).
     // 모델 이름도 처음 것으로: 체험은 실제 반의 키를 빌려 쓰므로, 누군가 바꿔 둔 모델(예: 말소리 듣기의 Gemini 모델)로 그 키를 쓰지 않게
-    getSettings().then((cur) => saveSettings(trial ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} })),
+    getSettings().then((cur) => saveSettings(trial ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} }, true)),
   ]);
   // 3) 다 만든 뒤에 「오늘 만듦」 표시와 변경 표시
   await Promise.all([db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION }), touch("wipe")]);
@@ -1170,9 +1203,7 @@ export async function clearPractice() {
     await saveRoster(now.filter((s) => was.get(s.no) !== s.code), false);
   }
   // 「살펴봤어요」 표시는 연습 학생 것만 지운다(실제 학생 표시는 그대로)
-  const st = await getSettings();
-  const checks = Object.fromEntries(Object.entries(st.checks).filter(([k]) => !fake.has(Number(k.split("_")[0]))));
-  if (Object.keys(checks).length !== Object.keys(st.checks).length) await saveSettings({ ...st, checks });
+  await pruneChecks((no) => fake.has(no));
   await touch("wipe");
   await touch("records");
 }
@@ -1204,9 +1235,7 @@ export async function purgePractice(gone: (no: number) => boolean, opt: { onlyTh
   const nos = Object.keys(looks).map(Number);
   if (nos.some(gone)) await saveLooks(Object.fromEntries(Object.entries(looks).filter(([no]) => !gone(Number(no)))));
   if (opt.onlyThese) {
-    const st = await getSettings();
-    const checks = Object.fromEntries(Object.entries(st.checks).filter(([k]) => !gone(Number(k.split("_")[0]))));
-    if (Object.keys(checks).length !== Object.keys(st.checks).length) await saveSettings({ ...st, checks });
+    await pruneChecks(gone);
     const sheet = await db().get<SheetRun>("sheets", PRACTICE_SHEET);
     if (sheet?.items.some((x) => gone(x.no))) await db().set("sheets", PRACTICE_SHEET, { ...sheet, items: sheet.items.filter((x) => !gone(x.no)) });
   }

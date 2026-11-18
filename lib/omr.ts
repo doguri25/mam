@@ -193,6 +193,17 @@ export function readPage(g: Gray, page: number): { marks: Mark[]; h: H } | null 
   return { marks, h };
 }
 
+// QR을 못 읽은 쪽: 네 모서리 표식은 위아래가 같아서 거꾸로 든 쪽도 그대로 「읽혀」 버린다(엉뚱한 칸을 읽음).
+// 두 방향으로 읽어 보고, QR 자리에 잉크가 더 많은 쪽을 바로 선 쪽으로 본다.
+export function readUpright(g: Gray): { marks: Mark[]; h: H; flipped: boolean } | null {
+  const qrInk = (gg: Gray, r: { h: H } | null) => (r ? darkness(gg, r.h, QR_BOX.x + QR_BOX.s / 2, QR_BOX.y + QR_BOX.s / 2, otsu(gg), QR_BOX.s / 2 - 10) : -1);
+  const a = readPage(g, 1);
+  const fg = rotate180(g);
+  const b = readPage(fg, 1);
+  if (!a && !b) return null;
+  return b && qrInk(fg, b) > qrInk(g, a) ? { ...b, flipped: true } : a ? { ...a, flipped: false } : { ...b!, flipped: true };
+}
+
 // 빈 검사지의 번호 칸·문장 줄이 그림에서 어디인지(AI에 보낼 조각을 자르려고)
 export function regionOf(h: H, x: number, y: number, w: number, hh: number) {
   const pts = [apply(h, [x, y]), apply(h, [x + w, y]), apply(h, [x, y + hh]), apply(h, [x + w, y + hh])];

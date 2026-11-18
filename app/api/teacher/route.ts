@@ -7,7 +7,7 @@ import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -61,9 +61,14 @@ async function handle(req: NextRequest) {
     // 잠그기(로그아웃): 이 기기의 알림 주소(endpoint)를 보내면 이 학급 알림 목록에서도 뺀다(잠근 기기로 위험 알림이 가지 않게)
     if (body.action === "logout") {
       // 뺐으면 변경 표시를 남겨, 설정을 열어 둔 다른 기기의 「알림 받는 기기 n대」도 20초 안에 맞춘다
-      if (typeof body.endpoint === "string" && !isDemo() && isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, (await getPin())?.v ?? 0)) {
-        await removeSub(body.endpoint);
-        await touch("other");
+      // 알림 목록 정리가 실패해도(저장소가 잠깐 끊김) 쿠키는 반드시 지운다 — 잠근 줄 알았는데 열려 있지 않게
+      try {
+        if (typeof body.endpoint === "string" && !isDemo() && isTeacher(req.cookies.get(TEACHER_COOKIE)?.value, (await getPin())?.v ?? 0)) {
+          await removeSub(body.endpoint);
+          await touch("other");
+        }
+      } catch (e) {
+        console.error("logout: removeSub", e);
       }
       const res = NextResponse.json({ ok: true });
       res.cookies.delete(TEACHER_COOKIE);
@@ -132,7 +137,7 @@ async function handle(req: NextRequest) {
 
     // 기록만 바뀌었을 때: 그 뒤에 바뀐 기록만
     if (body.action === "changes") {
-      const since = Number(body.since) || 0;
+      const since = Number.isFinite(Number(body.since)) ? Number(body.since) : 0; // 「Infinity」·글자는 처음부터
       const [stamp, records] = await Promise.all([stampP, recordsChangedAfter(since)]);
       return NextResponse.json({ stamp, records: records.map(lean) });
     }
@@ -252,11 +257,12 @@ async function handle(req: NextRequest) {
       const no = Number(body.no);
       const s = (await getRoster()).find((x) => x.no === no);
       if (!s) return bad("학생을 찾지 못했어요.", 404);
-      const ai = await aiConfig();
-      if (!ai) return bad(isDemo() ? "오늘 체험용 AI 사용량을 다 썼어요." : "AI 키가 있어야 초안을 만들 수 있어요. 「설정」에서 넣어 주세요.");
       const date = today();
       // 이 번호를 새 학생에게 줬으면 그 앞(앞 학생) 기록은 넣지 않는다
       const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13) && ownBy(s, r.createdAt)).sort((a, b) => a.id.localeCompare(b.id));
+      if (!recs.length) return bad("최근 2주 기록이 없어요.");
+      const ai = await aiConfig();
+      if (!ai) return bad(await aiMissing("초안을 만들 수 있어요"));
       const signals = watchFlags(recs, date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
       const draft = await referralDraft(ai, {
         alias: s.alias, signals,
@@ -274,7 +280,7 @@ async function handle(req: NextRequest) {
       const lang = body.lang;
       if (!isLang(lang) || lang === "ko" || typeof body.text !== "string" || !body.text.trim()) return bad("번역할 언어와 내용을 확인해 주세요.");
       const ai = await aiConfig();
-      if (!ai) return bad(isDemo() ? "오늘 체험용 AI 사용량을 다 썼어요." : "AI 키가 있어야 번역할 수 있어요.");
+      if (!ai) return bad(await aiMissing("번역할 수 있어요"));
       return NextResponse.json({ text: await translateNotice(ai, body.text, lang) });
     }
 
@@ -412,11 +418,11 @@ async function handle(req: NextRequest) {
       const no = Number(body.no);
       const s = (await getRoster()).find((x) => x.no === no);
       if (!s) return bad("없는 번호예요.");
-      const ai = await aiConfig();
-      if (!ai) return bad("응원 초안은 AI 키가 있어야 만들 수 있어요. 「설정」에서 키를 넣어 주세요.");
       const date = today();
       const recs = (await recordsOf(no)).filter((r) => r.date >= addDays(date, -13) && ownBy(s, r.createdAt)); // 앞 학생 기록은 빼고
       if (!recs.length) return bad("최근 2주 기록이 없어요.");
+      const ai = await aiConfig();
+      if (!ai) return bad(await aiMissing("응원 초안을 만들 수 있어요"));
       const signals = watchFlags(recs, date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
       try {
         return NextResponse.json(await cheer(ai, s.alias, recs, settings.vocab, signals, date));
@@ -732,7 +738,7 @@ async function handle(req: NextRequest) {
       const scores = scoresOf(a, n);
       if (!scores) return bad("이 학생의 답이 아직 없어요.");
       const ai = await aiConfig();
-      if (!ai) return bad("피드백 초안은 AI 키가 있어야 만들 수 있어요. 「설정」에서 키를 넣어 주세요.");
+      if (!ai) return bad(await aiMissing("피드백 초안을 만들 수 있어요"));
       const o = n?.obs ? obsScores(n.obs) : null;
       const pick = (ok: (v: number) => boolean) => (a ? SELF_ITEMS.flatMap((it, i) => (ok(a.answers[i]) ? [it.ko] : [])).slice(0, 4) : []);
       const input = {
@@ -750,7 +756,7 @@ async function handle(req: NextRequest) {
     // 이번 주 우리 반 마음 요약 + 다음 주 활동 추천(이름·번호 없이 모은 숫자만 AI로)
     if (body.action === "weekly") {
       const ai = await aiConfig();
-      if (!ai) return bad("AI 키가 있어야 요약을 만들 수 있어요.");
+      if (!ai) return bad(await aiMissing("요약을 만들 수 있어요"));
       const date = today();
       const weekStart = addDays(date, -6);
       const recs = await recordsFrom(addDays(date, -13));
@@ -823,7 +829,7 @@ async function handle(req: NextRequest) {
         await db().del("meta", "weekly");
         await db().del("meta", "left"); // 명단에서 뺀 학생 기록도(남은 기록이 없으니 다시 넣어도 묻지 않는다)
         await saveRoster([]);
-        await saveSettings({ ...settings, checks: {} });
+        await saveSettings({ ...settings, checks: {} }, true);
         await touch("wipe");
         await touch("records");
       } else return bad("알 수 없는 요청이에요."); // 이름이 틀린 요청으로 반 전체가 지워지지 않게
