@@ -60,14 +60,16 @@ export function isTeacher(cookie: string | undefined, v = 0, sp = spaceId()) {
 
 // 와이파이가 끊겼을 때 기기에 잠시 담아 둔 기록을 나중에 보내는 표: 그 학급·학생·그날 기록만 저장할 수 있다
 // 표에는 학생 코드 대신 코드의 지문(HMAC)만 담는다(공용 태블릿 저장소에 남아도 코드를 알 수 없게)
-export const queueToken = (no: number, code: string, date: string, sp = spaceId()) => sign(`q:${no}:${hashId(`code:${code}`)}:${date}:${sp}`);
+// 끝에 표를 준 때(36진수)를 붙인다: 번호를 새 학생에게 준 뒤 코드를 다시 줬을 때, 앞 학생 표인지 새 학생 표인지 가리려고
+export const queueToken = (no: number, code: string, date: string, sp = spaceId(), at = Date.now()) => sign(`q:${no}:${hashId(`code:${code}`)}:${date}:${sp}:${at.toString(36)}`);
 // 예전 표(코드를 그대로 담음)도 그 기한 안에서는 받는다
 export const queueCodeOk = (code: string, inToken: string) => inToken === hashId(`code:${code}`) || inToken === code;
 export function readQueueToken(token: unknown) {
   const v = unsign(typeof token === "string" ? token : undefined);
   if (!v?.startsWith("q:")) return null;
-  const [, no, code, date, sp = ""] = v.split(":");
-  return { no: Number(no), code, date, space: sp };
+  const [, no, code, date, sp = "", t] = v.split(":");
+  const at = t ? parseInt(t, 36) : NaN;
+  return { no: Number(no), code, date, space: sp, ...(Number.isFinite(at) ? { at } : {}) };
 }
 
 // 선생님이 바꾼 비밀번호는 그대로 두지 않고 scrypt로 바꿔 저장한다.

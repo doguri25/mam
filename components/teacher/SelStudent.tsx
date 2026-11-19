@@ -111,7 +111,7 @@ function Guides({ scores, obs }: { scores: number[]; obs: SelObs | null }) {
               {dom.name}
               <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: l.color, background: l.bg }}>스스로 {l.name}</span>
               {ol && <span className="rounded-full px-2 py-0.5 text-xs" style={{ color: ol.color, background: ol.bg }}>관찰 {ol.name}</span>}
-              <span className="ml-auto text-sm font-normal text-soft" aria-hidden><span className="group-open:hidden">펼치기 ▾</span><span className="hidden group-open:inline">접기 ▴</span></span>
+              <span className="ml-auto text-sm font-normal text-soft print:hidden" aria-hidden><span className="group-open:hidden">펼치기 ▾</span><span className="hidden group-open:inline">접기 ▴</span></span>
             </summary>
             <div className="mt-2 space-y-2 text-sm">
               <GuideBody title={`${l.name} 수준 · 현재 모습`} desc={g[l.tier].desc} tips={g[l.tier].tips} />
@@ -286,7 +286,7 @@ function MemoBox({ round, no, memo, onSaved }: { round: SelfRound; no: number; m
       <div className="flex items-center justify-end gap-2">
         {s.msg && <span role="status" className="text-sm text-[#1d7144]">{s.msg}</span>}
         {s.err && <span role="alert" className="text-sm text-alert">{s.err}</span>}
-        <button onClick={() => s.save("메모를 저장하지 못했어요", { memo: text }, "메모를 저장했어요.")} disabled={s.busy || text === memo} className="btn-sub min-h-10 text-sm">메모 저장</button>
+        <button onClick={() => s.save("메모를 저장하지 못했어요", { memo: text }, "메모를 저장했어요.")} disabled={s.busy || text === memo} className="no-print btn-sub min-h-10 text-sm">메모 저장</button>
       </div>
     </div>
   );
@@ -309,17 +309,17 @@ function FeedbackBox({ round, no, note, canDraft, aiLabel, onSaved }: { round: S
     <div className="space-y-2 rounded-2xl bg-[#fffaf0] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-1 font-display text-lg"><Doodle name="letter" /> 학생에게 보낼 말</h4>
-        <button onClick={draft} disabled={!canDraft || drafting.busy} className="btn-sub min-h-10 text-sm">
+        <button onClick={draft} disabled={!canDraft || drafting.busy} className="no-print btn-sub min-h-10 text-sm">
           {drafting.busy ? "초안 만드는 중…" : drafts ? "다시 만들기" : <><Doodle name="sparkle" /> {aiLabel} 초안</>}
         </button>
       </div>
-      <p className="text-xs text-soft">
+      <p className="text-xs text-soft print:hidden">
         보내면 학생 화면 「마음 점검」 맨 위에 「선생님이 보낸 말」로 보여요. 점수·수준 이름은 쓰지 말아 주세요.
         {canDraft ? " AI 초안에는 영역별 수준과 학생이 고른 문장만 보내요(이름·번호·메모는 보내지 않음)." : " 학생 답이 있어야 AI 초안을 만들 수 있어요."}
       </p>
       {drafting.err && <p role="alert" className="text-sm text-alert">{drafting.err}</p>}
       {drafts && drafts.drafts.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="no-print grid gap-2 sm:grid-cols-2">
           {drafts.drafts.map((t, i) => (
             <button key={i} onClick={() => setText(t)} className={`chip p-3 text-left text-sm ${text === t ? "chip-on" : ""}`}>
               <b className="text-xs text-soft">{["잘하는 점 알아주기", "함께 해 볼 일"][i] ?? `초안 ${i + 1}`}</b>
@@ -330,14 +330,16 @@ function FeedbackBox({ round, no, note, canDraft, aiLabel, onSaved }: { round: S
           ))}
         </div>
       )}
-      <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 600))} rows={4} className="field" placeholder="초안을 고르거나 직접 써 주세요." />
+      <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 600))} rows={4} className="field print:hidden" placeholder="초안을 고르거나 직접 써 주세요." aria-label="학생에게 보낼 말" />
+      {/* 인쇄에는 입력 칸 대신 쓴 글만(비어 있으면 아무것도) */}
+      {text.trim() ? <p className="hidden whitespace-pre-wrap print:block">{text}</p> : <p className="hidden text-sm text-soft print:block">(아직 쓴 말이 없어요)</p>}
       {leaks.length > 0 && <p className="text-xs text-alert"><Doodle name="warning" /> 「{leaks.join("」, 「")}」 — 학생 화면에는 점수·수준이 보이지 않아요. 보내기 전에 고쳐 주세요.</p>}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {sent && <span className="mr-auto text-xs text-soft">{when(sent.at)}에 보냄 · {unread(note) ? "아직 안 읽었어요" : <b className="text-[#1d7144]">학생이 읽었어요{note?.seenAt ? ` (${when(note.seenAt)})` : ""}</b>}</span>}
         {s.msg && <span role="status" className="text-sm text-[#1d7144]">{s.msg}</span>}
         {s.err && <span role="alert" className="text-sm text-alert">{s.err}</span>}
-        {sent && <button onClick={() => s.save("거두지 못했어요", { feedback: null }, "보낸 말을 거뒀어요.")} disabled={s.busy} className="btn-sub min-h-10 text-sm">거두기</button>}
-        <button onClick={() => s.save("보내지 못했어요", { feedback: text }, "학생에게 보냈어요.")} disabled={s.busy || !text.trim() || text.trim() === sent?.text} className="btn-main min-h-10 text-sm">
+        {sent && <button onClick={() => s.save("거두지 못했어요", { feedback: null }, "보낸 말을 거뒀어요.")} disabled={s.busy} className="no-print btn-sub min-h-10 text-sm">거두기</button>}
+        <button onClick={() => s.save("보내지 못했어요", { feedback: text }, "학생에게 보냈어요.")} disabled={s.busy || !text.trim() || text.trim() === sent?.text} className="no-print btn-main min-h-10 text-sm">
           {sent ? "고쳐서 다시 보내기" : "학생에게 보내기"}
         </button>
       </div>

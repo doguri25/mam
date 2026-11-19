@@ -38,15 +38,25 @@ export function pushEndpointOk(v: unknown): v is string {
     return false;
   }
 }
+// IPv4를 담은 IPv6(「::ffff:10.0.0.1」「::ffff:a00:1」)는 안의 IPv4로 본다
+const v4of = (a: string) => {
+  const m = a.match(/^::ffff:(?:0:)?(.+)$/i);
+  if (!m) return a;
+  if (m[1].includes(".")) return m[1];
+  const h = m[1].split(":").map((x) => parseInt(x, 16));
+  return h.length === 2 && h.every((x) => x >= 0 && x <= 0xffff) ? [h[0] >> 8, h[0] & 255, h[1] >> 8, h[1] & 255].join(".") : a;
+};
+export const innerAddr = (raw: string) => {
+  const a = v4of(raw);
+  return /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) || a === "::1" || a === "::" || /^f[cd]/i.test(a) || /^fe[89ab]/i.test(a);
+};
 // 등록할 때 이름을 실제로 찾아 안쪽 주소(사설·루프백·링크 로컬)를 가리키면 받지 않는다
 export async function pushHostSafe(endpoint: string): Promise<boolean> {
   try {
     const { lookup } = await import("node:dns/promises");
     const host = new URL(endpoint).hostname.replace(/\.+$/, "");
     const addrs = await lookup(host, { all: true });
-    const inner = (a: string) =>
-      /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) || a === "::1" || /^f[cd]/i.test(a) || /^fe80/i.test(a) || a.startsWith("::ffff:127.");
-    return addrs.length > 0 && !addrs.some((x) => inner(x.address));
+    return addrs.length > 0 && !addrs.some((x) => innerAddr(x.address));
   } catch {
     return false;
   }

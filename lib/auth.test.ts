@@ -42,10 +42,12 @@ test("처음 비밀번호 1324는 처음부터 있던 반에서만", () => {
 });
 
 test("끊김 대비 표는 그 학생·그날만, 고치면 무효, 코드는 지문으로만", () => {
-  const tk = queueToken(3, "ABC234", "2026-10-21", "c1a2b3c4");
+  const tk = queueToken(3, "ABC234", "2026-10-21", "c1a2b3c4", 1795050000000);
   assert.ok(!tk.includes("ABC234")); // 공용 태블릿에 남아도 코드가 보이지 않게
   const q = readQueueToken(tk)!;
-  assert.deepEqual({ ...q, code: "" }, { no: 3, code: "", date: "2026-10-21", space: "c1a2b3c4" });
+  assert.deepEqual({ ...q, code: "" }, { no: 3, code: "", date: "2026-10-21", space: "c1a2b3c4", at: 1795050000000 }); // at: 표를 준 때
+  // 때가 없는 예전 표도 읽는다
+  assert.deepEqual({ ...readQueueToken(sign(`q:3:${q.code}:2026-10-21:c1a2b3c4`))!, code: "" }, { no: 3, code: "", date: "2026-10-21", space: "c1a2b3c4" });
   assert.ok(queueCodeOk("ABC234", q.code));
   assert.ok(!queueCodeOk("ZZZ999", q.code));
   assert.ok(queueCodeOk("ABC234", "ABC234")); // 예전 표

@@ -645,7 +645,7 @@ test("기록을 저장할 때마다 불러도 빠르다", () => {
 const addsOf = (v: number) => RISK_WORDS_BY_V[v].flatMap((g) => g.add);
 
 test("기본 목록 판: 판마다 더한 말은 기본 목록에도 있고, 저장한 판 뒤에 더한 말만 돌려준다", () => {
-  assert.equal(RISK_WORDS_V, 10);
+  assert.equal(RISK_WORDS_V, 11);
   for (const v of Object.keys(RISK_WORDS_BY_V).map(Number)) {
     for (const g of RISK_WORDS_BY_V[v]) {
       for (const w of g.add) assert.ok(DEFAULT_RISK_WORDS.includes(w), w);
@@ -654,26 +654,27 @@ test("기본 목록 판: 판마다 더한 말은 기본 목록에도 있고, 저
     }
   }
   assert.equal(new Set(DEFAULT_RISK_WORDS).size, DEFAULT_RISK_WORDS.length);
-  assert.deepEqual(riskWordsAfter(9), addsOf(10));
-  assert.deepEqual(riskWordsAfter(8), [...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(7), [...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(6), [...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(5), [...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(4), [...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(3), [...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(2), [...addsOf(3), ...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-  assert.deepEqual(riskWordsAfter(1), [...addsOf(2), ...addsOf(3), ...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
+  assert.deepEqual(riskWordsAfter(10), addsOf(11));
+  assert.deepEqual(riskWordsAfter(9), [...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(8), [...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(7), [...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(6), [...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(5), [...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(4), [...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(3), [...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(2), [...addsOf(3), ...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+  assert.deepEqual(riskWordsAfter(1), [...addsOf(2), ...addsOf(3), ...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
   assert.deepEqual(riskWordsAfter(RISK_WORDS_V), []);
   // 기본 목록으로 옮긴 말·뺄 수 있게 더한 말은 늘 살피는 말에 없다(선생님이 빼면 정말 빠지게)
-  for (const w of [...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]) assert.ok(!RISK_CORE.includes(w), w);
+  for (const w of [...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]) assert.ok(!RISK_CORE.includes(w), w);
 });
 
 test("기본 목록 판: 선생님이 지운 줄기의 다른 꼴은 다시 넣지 않는다(줄기 없는 말은 늘 넣는다)", () => {
-  const v3 = DEFAULT_RISK_WORDS.filter((w) => ![4, 5, 6, 7, 8, 9, 10].some((v) => addsOf(v).includes(w)));
+  const v3 = DEFAULT_RISK_WORDS.filter((w) => ![4, 5, 6, 7, 8, 9, 10, 11].some((v) => addsOf(v).includes(w)));
   // 고치지 않은 v3 목록은 v4·v5·v6·v7·v8·v9 말을 모두 받는다
-  assert.deepEqual(riskWordsAfter(3, v3), [...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
+  assert.deepEqual(riskWordsAfter(3, v3), [...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
   // 「한테 맞」을 지운 v4 반은 「한테 마자」「한테 마져」를 받지 않고, 줄기 없는 v5 말은 받는다
-  const v4 = DEFAULT_RISK_WORDS.filter((w) => ![5, 6, 7, 8, 9, 10].some((v) => addsOf(v).includes(w)) && w !== "한테 맞");
+  const v4 = DEFAULT_RISK_WORDS.filter((w) => ![5, 6, 7, 8, 9, 10, 11].some((v) => addsOf(v).includes(w)) && w !== "한테 맞");
   const got5 = riskWordsAfter(4, v4);
   assert.ok(!got5.includes("한테 마자") && !got5.includes("한테 마져"));
   for (const w of ["죽었으면 좋겠", "두들겨 맞", "don't want to go home", "pushing me", "不想回家", "không muốn về nhà", "にかえりたくない"]) assert.ok(got5.includes(w), w);
@@ -701,19 +702,19 @@ test("설정 판 올리기: 뒤 판에 더한 말을 받되, 지운 줄기의 �
     // 때린·괴롭히·다치게 해·집에 가기 시러·죽이고 싶·뒤질래처럼 지운 줄기의 꼴은 들어오지 않는다
     assert.deepEqual(s.riskWords, [
       ...v2List, "따돌", "은따", "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
-      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말", ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10),
+      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말", ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11),
     ]);
-    assert.equal(s.riskWordsV, 10);
+    assert.equal(s.riskWordsV, 11);
     // 선생님이 설정을 저장하면 판도 같이 남아, 그 뒤에 지운 말은 다시 들어오지 않는다
     await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "발로 차") });
     assert.ok(!(await getSettings()).riskWords.includes("발로 차"));
   });
   await inSpace("crisk3", async () => {
-    const v3List = DEFAULT_RISK_WORDS.filter((w) => ![4, 5, 6, 7, 8, 9, 10].some((v) => addsOf(v).includes(w)));
+    const v3List = DEFAULT_RISK_WORDS.filter((w) => ![4, 5, 6, 7, 8, 9, 10, 11].some((v) => addsOf(v).includes(w)));
     await db().set("meta", "settings", { riskWords: v3List, riskWordsV: 3 });
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, [...v3List, ...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-    assert.equal(s.riskWordsV, 10);
+    assert.deepEqual(s.riskWords, [...v3List, ...addsOf(4), ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+    assert.equal(s.riskWordsV, 11);
   });
   await inSpace("crisk1", async () => {
     await db().set("meta", "settings", { riskWords: ["죽고 싶", "왕따", "때렸"] }); // 판이 없던 예전 저장
@@ -722,22 +723,22 @@ test("설정 판 올리기: 뒤 판에 더한 말을 받되, 지운 줄기의 �
       "죽고 싶", "왕따", "때렸", "자살", "살기 싫", "때리", "한테 맞", "에게 맞", "죽여", "죽일", "때린", "때릴", "때림", "따돌",
       "죽이고 싶", "죽인다", "은따", "떄리", "떄려", "떄렸",
       "집에 가기 무서", "발로 차", "뺨을 맞", "뺨 맞", "매를 맞", "매 맞", "주먹으로 맞", "주먹으로 쳤",
-      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말", ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10),
+      "없어졌으면 좋겠", "사라졌으면 좋겠", "태어나지 않았으면", "안 태어났으면", "태어나지 말", ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11),
     ]);
-    assert.equal(s.riskWordsV, 10);
+    assert.equal(s.riskWordsV, 11);
   });
   await inSpace("crisk0", async () => {
     const s = await getSettings(); // 설정을 한 번도 저장하지 않은 반
     assert.deepEqual(s.riskWords, DEFAULT_RISK_WORDS);
-    assert.equal(s.riskWordsV, 10);
+    assert.equal(s.riskWordsV, 11);
   });
   await inSpace("crisk6", async () => {
     // 6판까지 받은 반은 7판 말(「掐我」)과 그 뒤 판 말만 받고, 선생님이 빼고 저장하면 다시 들어오지 않는다
-    const v6List = DEFAULT_RISK_WORDS.filter((w) => ![7, 8, 9, 10].some((v) => addsOf(v).includes(w)));
+    const v6List = DEFAULT_RISK_WORDS.filter((w) => ![7, 8, 9, 10, 11].some((v) => addsOf(v).includes(w)));
     await db().set("meta", "settings", { riskWords: v6List, riskWordsV: 6 });
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, [...v6List, ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-    assert.equal(s.riskWordsV, 10);
+    assert.deepEqual(s.riskWords, [...v6List, ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+    assert.equal(s.riskWordsV, 11);
     assert.deepEqual(matchRisk("奶奶掐我的脸", s.riskWords), ["掐我"]);
     await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "掐我") });
     const after = await getSettings();
@@ -762,11 +763,11 @@ test("설정 판 올리기(5판): 늘 살피던 다른 나라 말이 저장한 �
   const { inSpace, db } = await import("./db.ts");
   const { getSettings, saveSettings } = await import("./data.ts");
   await inSpace("crisk4", async () => {
-    const v4List = DEFAULT_RISK_WORDS.filter((w) => ![5, 6, 7, 8, 9, 10].some((v) => addsOf(v).includes(w)));
+    const v4List = DEFAULT_RISK_WORDS.filter((w) => ![5, 6, 7, 8, 9, 10, 11].some((v) => addsOf(v).includes(w)));
     await db().set("meta", "settings", { riskWords: v4List, riskWordsV: 4 });
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, [...v4List, ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-    assert.equal(s.riskWordsV, 10);
+    assert.deepEqual(s.riskWords, [...v4List, ...addsOf(5), ...addsOf(6), ...addsOf(7), ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+    assert.equal(s.riskWordsV, 11);
     // 옮기기 전(늘 살피는 말)처럼 그대로 걸린다
     const swing = "My dad was pushing me on the swing";
     assert.deepEqual(matchRisk(swing, s.riskWords), ["pushing me"]);
@@ -1207,11 +1208,11 @@ test("설정 판 올리기(8판): 7판 반은 8판 뒤 말만 받고, 선생님�
   const { inSpace, db } = await import("./db.ts");
   const { getSettings, saveSettings } = await import("./data.ts");
   await inSpace("crisk7", async () => {
-    const v7List = DEFAULT_RISK_WORDS.filter((w) => ![8, 9, 10].some((v) => addsOf(v).includes(w)));
+    const v7List = DEFAULT_RISK_WORDS.filter((w) => ![8, 9, 10, 11].some((v) => addsOf(v).includes(w)));
     await db().set("meta", "settings", { riskWords: v7List, riskWordsV: 7 });
     const s = await getSettings();
-    assert.deepEqual(s.riskWords, [...v7List, ...addsOf(8), ...addsOf(9), ...addsOf(10)]);
-    assert.equal(s.riskWordsV, 10);
+    assert.deepEqual(s.riskWords, [...v7List, ...addsOf(8), ...addsOf(9), ...addsOf(10), ...addsOf(11)]);
+    assert.equal(s.riskWordsV, 11);
     assert.deepEqual(matchRisk("おまえ しね", s.riskWords), ["しね"]);
     await saveSettings({ ...s, riskWords: s.riskWords.filter((w) => w !== "しね") });
     const after = await getSettings();
@@ -1301,11 +1302,26 @@ test("10판: 무엇으로·때·몸이 낀 맞은 말, 손목을 벤 말, 아이
     assert.deepEqual(matchRisk(t, D), [], t);
   // 늘 살피는 말
   for (const t of ["손목 그엇어", "손목을 베었어", "칼로 손목을 베었어", "손목 자르고 싶어", "칼로 내 팔을 그었어", "죽고만 싶어", "죽는 게 더 나아", "죽는게 차라리 나아", "죽는 게 편해",
-    "어제 죽으려고 했어", "하늘나라 가고 싶어", "주꼬시퍼", "ㅈㄱㅅㄷ", "그냥 사라질래", "살아서 뭐해", "나 죽어야 돼", "con ko muốn sống nữa", "我割了手腕", "生きてる意味ない", "自分が嫌い", "i hope i die"])
+    "어제 죽으려고 했어", "하늘나라 가고 싶어", "주꼬시퍼", "ㅈㄱㅅㄷ", "살아서 뭐해", "이 세상에 살아서 뭐해", "con ko muốn sống nữa", "我割了手腕", "生きてる意味ない", "自分が嫌い", "i hope i die"])
     assert.ok(matchRisk(t, []).length > 0, t);
   for (const t of ["손목을 베개 삼아 잤어", "칼로 손가락을 베었어", "손목시계를 잘랐어", "햇볕에 손목이 그을렸어", "할머니가 하늘나라에 가셨어", "주꼬 시퍼런 하늘", "모기나 죽어야지",
     "k sao đâu", "ko thích ăn rau", "自分が嫌いな野菜", "わたしのうちにきてね", "과자살때 엄마랑 갔어", "피자살꺼야", "의자살 때", "피자살사람"])
     assert.deepEqual(matchRisk(t, []), [], t);
   // 띄어 쓴 영어 글자의 k는 không으로 바꾸지 않는다
   assert.deepEqual(matchRisk("k i l l m y s e l f", []), ["killmyself"]);
+});
+
+test("11판: 평범한 말(사는 곳·산 기간·놀이·칭찬)에 걸리지 않고, 붙여 쓴 「자살」은 다시 찾는다", () => {
+  const D = DEFAULT_RISK_WORDS;
+  for (const t of ["걍자살께", "그냥자살 꺼야", "엄마가자살 때 나도 갈래", "이 세상에 살아서 뭐해", "살아서 뭐하냐", "살아봤자 뭐해", "손목을 베었어", "I hate my self", "我讨厌自己", "自分が嫌いなんだ", "ước gì con không được sinh ra"])
+    assert.ok(matchRisk(t, []).length > 0, t);
+  for (const t of ["과자살때 엄마랑 갔어", "피자살꺼야", "우리 예전에 부산에서 살아봤잖아", "매미는 땅 위에서 살아봤자 2주밖에 못 산대", "옛날 사람들은 동굴에 살아서 뭐 했어?", "손목을 베고 잤어",
+    "게임에서 캐릭터가 죽는 거 다 편집했어", "I hate my selfie", "我讨厌自己做作业", "Em không được sinh ra ở Việt Nam mà ở Hàn Quốc", "自分が嫌いな野菜"])
+    assert.deepEqual(matchRisk(t, D), [], t);
+  for (const t of ["선생님께서 다 맞았다고 칭찬해 주셨어", "할머니께서 맞아 맞아 하고 웃으셨어", "피구하다가 친구한테 피구공으로 맞았어", "친구한테 카톡으로 맞아 맞아 했어", "닌자처럼 사라질래", "모기나 죽어야지"])
+    assert.deepEqual(matchRisk(t, D), [], t);
+  for (const [t, w] of [["아빠께 맞았어요", "께 맞았"], ["엄마한테 머리를 세게 맞았어", "한테 맞"], ["엄마한테 맞장 떴어", "한테 맞"], ["그냥 사라질래", "사라질래"], ["나 죽어야 돼", "나 죽어야"]] as const)
+    assert.ok(matchRisk(t, D).includes(w), t);
+  // 「사라질래」「나 죽어야」는 뺄 수 있는 기본 목록 말
+  for (const t of ["그냥 사라질래", "나 죽어야 돼"]) assert.deepEqual(matchRisk(t, []), [], t);
 });

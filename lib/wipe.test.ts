@@ -117,7 +117,7 @@ test("글이 없어진 조치 기록: 쓴 때(recordAt)로 가리고, 번호를 
   assert.equal(actionOwnBy(st, a({ recordAt: "2026-11-10T05:00:00.000Z" })), true); // 넘긴 뒤 새 학생 글
   assert.equal(actionOwnBy(st, a({})), false); // 쓴 때를 모르는 넘긴 날 조치
   assert.equal(actionOwnBy(st, a({ recordDate: "2026-11-12", date: "2026-11-12" })), true);
-  assert.equal(actionOwnBy(st, a({ recordId: "3_2026-11-12_am_pAB12", recordDate: "2026-11-12" })), false);
+  assert.equal(actionOwnBy(st, a({ recordId: "3_2026-11-12_am_pmhx1a2b3", recordDate: "2026-11-12" })), false);
   assert.equal(actionOwnBy(undefined, a({})), true); // 번호를 넘긴 적 없는 학생
 });
 
@@ -129,5 +129,35 @@ test("새 코드를 주는 사이 다른 기기에서 표시한 보호자 동의
     const next = before.map((s) => ({ ...s, code: "WPE999" }));
     const saved = await D.saveRoster(next, false, { recoded: { 1: "WPE111" } });
     assert.deepEqual([saved[0].code, saved[0].consent], ["WPE999", "2026-11-19"]);
+  });
+});
+
+test("하교 전 기록(…_pm)은 번호를 넘길 때 옮긴 기록(…_p+때)으로 보지 않는다", async () => {
+  const { actionOwnBy, isMovedId } = await import("./shared.ts");
+  assert.deepEqual(["3_2026-10-10_pm", "draft:3_2026-10-10_pm", "3_2026-11-10_am_pmhx1a2b3", "draft:3_2026-11-10_pm_pmhx1a2b3"].map(isMovedId), [false, false, true, true]);
+  const st = { since: "2026-11-10T04:00:00.000Z" };
+  assert.equal(actionOwnBy(st, { recordId: "3_2026-11-12_pm", recordDate: "2026-11-12", date: "2026-11-12" }), true);
+});
+
+test("자료를 지운 번호를 다시 넣으면 남은 조치 기록 때문에 새 학생인지 묻는다", async () => {
+  await inSpace("cwipe6", async () => {
+    await D.saveRoster([{ no: 1, alias: "가나", code: "WPF111" }]);
+    assert.equal((await D.withDataFor([5])).has(5), false);
+    await D.saveRiskActions([{ id: "a5", no: 5, recordId: "5_2026-11-12_am", recordDate: "2026-11-12", date: "2026-11-12", kinds: ["parent"], note: "보호자 통화", createdAt: at("2026-11-12") }] as never);
+    assert.equal((await D.withDataFor([5])).has(5), true);
+  });
+});
+
+test("쓴 때가 없는 예전 조치 기록에 글을 쓴 때를 채운다(글이 없으면 다시 찾지 않게 표시)", async () => {
+  await inSpace("cwipe7", async () => {
+    await db().set("records", "3_2026-11-12_pm", rec(3, "2026-11-12", { id: "3_2026-11-12_pm", slot: "pm", createdAt: "2026-11-12T06:30:00.000Z" }));
+    await D.saveRiskActions([
+      { id: "b1", no: 3, recordId: "3_2026-11-12_pm", recordDate: "2026-11-12", date: "2026-11-12", kinds: ["talk"], note: "", createdAt: at("2026-11-12") },
+      { id: "b2", no: 3, recordId: "draft:3_2026-10-01_am", recordDate: "2026-10-01", date: "2026-10-01", kinds: ["talk"], note: "", createdAt: at("2026-10-01") },
+    ] as never);
+    assert.equal(await D.backfillRecordAt(), 2);
+    const got = Object.fromEntries((await D.getRiskActions()).map((a) => [a.id, [a.recordAt ?? null, !!a.atGone]]));
+    assert.deepEqual(got, { b1: ["2026-11-12T06:30:00.000Z", false], b2: [null, true] });
+    assert.equal(await D.backfillRecordAt(), 0);
   });
 });

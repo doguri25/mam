@@ -1,6 +1,6 @@
 "use client";
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Doodle from "../Doodle";
 import { MOVED_MSG, RiskActionForm, RiskHistory, RiskTexts, movedTo, riskItems, type FormState } from "./RiskActions";
 import { EmotionArt } from "../Art";
@@ -26,6 +26,17 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
     setOpenRaw(no);
     if (no != null) onPick?.(no);
   };
+  // 기록 창은 Esc로 닫는다(창 안 글을 눌러 초점이 창 밖으로 빠져도). 위에 뜬 AI 도우미 창·메뉴가 먼저 Esc를 받아 닫으면(defaultPrevented) 그대로 둔다
+  useEffect(() => {
+    if (open === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      setOpenRaw(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
   const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 폼에 고른 것
   const flagAct = useAct(); // 먼저 살펴볼 학생 「살펴봤어요」(실패하면 그 목록 위에 까닭을)
@@ -244,8 +255,8 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
       <Weather records={records} today={today} />
 
       {open !== null && (
-        <div className="no-print fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" onClick={() => setOpen(null)} onKeyDown={(e) => e.key === "Escape" && setOpen(null)}>
-          <div className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${open}번 기록`}>
+        <div className="no-print fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" onClick={() => setOpen(null)}>
+          <div className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${open}번 기록`}>
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-display text-2xl">
                 <BuddyFace look={data.looks[open]} emotion={myRecords(data, open).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />

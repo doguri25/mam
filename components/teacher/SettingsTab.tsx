@@ -14,7 +14,7 @@ import { whileRosterChanges } from "./rosterBusy";
 import { api } from "@/lib/api";
 import { useLocal } from "@/lib/local";
 import { matchRisk } from "@/lib/rules";
-import { CALM_KO, CONTACT_EMAIL, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, formerAt, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "@/lib/shared";
+import { CALM_KO, CONTACT_EMAIL, FELT_KO, PROVIDERS, PROVIDER_IDS, RISK_ACTION_KO, RISK_WORDS_MAX, RISK_WORD_LEN, actionOwnBy, formerAt, type MoodRecord, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "@/lib/shared";
 
 const LANG_KO: Record<string, string> = { ko: "한국어", en: "영어", zh: "중국어", vi: "베트남어", ja: "일본어" };
 
@@ -88,18 +88,34 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
     }
   });
 
+  // 나눠 받는 동안 다시 누르면 파일이 두 번 받아지지 않게
+  const [exporting, setExporting] = useState(false);
   async function exportCsv() {
+    if (exporting) return;
+    setExporting(true);
+    say("export", "내보내는 중…");
+    try {
+      await exportRun();
+    } finally {
+      setExporting(false);
+    }
+  }
+  async function exportRun() {
     let got: {
       records: MoodRecord[]; students: Pick<Student, "no" | "alias" | "since" | "formers">[]; riskActions?: RiskAction[];
       riskDrafts?: Overview["riskDrafts"]; reflects?: Overview["reflects"]; letters?: Overview["letters"];
     };
     try {
-      // 한 해 기록을 한 번에 받으면 응답 한도를 넘을 수 있어 달마다 나눠 받는다(예전 서버면 한 번에 온 것을 그대로)
-      const head = await api<Omit<typeof got, "records"> & { records?: MoodRecord[]; months?: string[] }>("teacher", "export", { paged: true });
-      if (head.months) {
+      // 한 해 기록을 한 번에 받으면 응답 한도를 넘을 수 있어 학생 번호마다 나눠 받는다(예전 서버면 한 번에 온 것을 그대로)
+      const head = await api<Omit<typeof got, "records"> & { records?: MoodRecord[]; nos?: number[]; count?: number }>("teacher", "export", { paged: true });
+      if (head.nos) {
         const records: MoodRecord[] = [];
-        for (const month of head.months) records.push(...(await api<{ records: MoodRecord[] }>("teacher", "export", { paged: true, month })).records);
-        got = { ...head, records };
+        for (const [i, no] of head.nos.entries()) {
+          say("export", `내보내는 중… (${i + 1}/${head.nos.length}번째 학생)`);
+          records.push(...((await api<{ records?: MoodRecord[] }>("teacher", "export", { paged: true, no })).records ?? []));
+        }
+        // 그사이 기록이 늘 수는 있어도 줄면(나눠 받다 빠진 것) 한 번에 다시 받는다
+        got = { ...head, records: records.length >= (head.count ?? 0) ? records : (await api<typeof got>("teacher", "export")).records };
       } else got = { ...head, records: head.records ?? [] };
     } catch (e) {
       return say("export", `내보내지 못했어요: ${(e as Error).message}`);
@@ -165,16 +181,20 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
       const status = { wait: "허락 기다림", ok: "전함", no: "돌려보냄" }[l.status];
       extra.push(other({ id: `letter:${l.id}`, date: kday(l.createdAt), at: l.createdAt, no: l.from, method: "쪽지", line: `(→ ${l.to}번 · ${status}${l.toPractice ? " · 받을 학생 없음" : ""}) ${l.text}${l.original ? ` (처음 쓴 글: ${l.original})` : ""}`, risk: hitsOf(l.original ?? l.text), checked: l.riskChecked, lang: l.lang }));
     }
-    // 화면에 없는(오래됐거나 지워진) 것은 조치 기록에 남긴 글로
-    const METHOD = { draft: "마치지 않은 기록", reflect: "돌아보기", letter: "쪽지" } as const;
+    // 화면에 없는(오래됐거나 지워진) 것은 조치 기록에 남긴 글로. 지운 학생의 마음 기록에 한 조치도(글은 지워져 비어 있어도 한 일·날짜는 남긴다)
+    const METHOD = { record: "마음 기록", draft: "마치지 않은 기록", reflect: "돌아보기", letter: "쪽지" } as const;
+    const recIds = new Set(records.map((r) => r.id));
     for (const id of new Set(actions.map((a) => a.recordId))) {
       const as = actions.filter((a) => a.recordId === id);
       const kind = as.find((a) => a.kind)?.kind ?? kindOfId(id);
-      if (kind === "record" || done.has(id)) continue;
+      if (done.has(id) || (kind === "record" && recIds.has(id))) continue;
       const text = [...as].reverse().find((a) => a.text)?.text ?? "";
       const first = [...as].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+      // 가명은 그 글을 쓴 때로(recordAt). 쓴 때를 모르는 번호 넘긴 날 것·옮겨 둔 앞 학생 것은 앞 학생으로
+      const st = students.find((x) => x.no === first.no);
+      const at = first.recordAt ?? (st?.since && !actionOwnBy(st, first) ? new Date(Date.parse(st.since) - 1).toISOString() : undefined);
       // recordDate가 없던 예전 조치 기록은 한 날로(없으면 날짜 정렬이 깨진다)
-      extra.push(other({ id, date: first.recordDate || first.date, no: first.no, method: METHOD[kind], line: text, risk: text ? hitsOf(text) : "있음", checked: first.createdAt }));
+      extra.push(other({ id, date: first.recordDate || first.date, at, no: first.no, method: METHOD[kind], line: text, risk: text ? hitsOf(text) : "있음", checked: first.createdAt }));
     }
     const all = [...rows, ...extra].sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no || a.k.localeCompare(b.k));
     const csv = "﻿" + [head, ...all.map((r) => r.cells)].map((row) => row.map(cell).join(",")).join("\r\n"); // 엑셀 한글이 깨지지 않게 BOM
@@ -311,7 +331,7 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
         </div>
       </section>
 
-      <RetentionCard data={data} reload={reload} onExport={exportCsv} exportMsg={msg.export ?? ""} onAlerts={onAlerts} />
+      <RetentionCard data={data} reload={reload} onExport={exportCsv} exporting={exporting} exportMsg={msg.export ?? ""} onAlerts={onAlerts} />
 
       <button onClick={() => setAdv(adv ? "" : "1")} aria-expanded={adv} className="btn-sub w-full">
         {adv ? "▴ 자세한 설정 접기" : "▾ 자세한 설정 펼치기 (휴대폰 알림 · 단어 목록 · 말투 · 살펴볼 학생 규칙 · 연습 데이터)"}

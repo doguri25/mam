@@ -7,7 +7,7 @@ import { clientIp, passwordAttempt, resetWait, testPushWait, trialEditWait, wait
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, backfillRecordAt, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -177,9 +177,18 @@ async function handle(req: NextRequest) {
       // 위험 표현이 있는 기록·돌아보기·마치지 않은 글은 34일이 지나도 선생님이 살펴볼 때까지 보낸다(알림이 날짜 때문에 사라지지 않게).
       // 저장해 둔 기록만 받는 때(partial)에도 늘 보낸다 — 예전 화면이 34일로 잘라 버렸어도 다시 받게.
       const records = withOpenRisks(recent, risky);
+      // 쓴 때가 없는 예전 조치 기록이 있으면 응답 뒤에 채운다(체험 반은 함께 쓰는 공간이라 건너뜀). 다 채우면 다시 하지 않는다
+      if (!isDemo() && riskActions.some((a) => !a.recordAt && !a.atGone)) {
+        const sp = spaceId();
+        after(() => inSpace(sp, backfillRecordAt).catch((e) => console.error("[조치 기록 쓴 때 채우기] 실패", (e as Error).message)));
+      }
       const reflects = [...recentReflects, ...riskyReflects.filter((x) => !x.riskChecked && !recentReflects.some((y) => y.id === x.id))];
       const sharedAi = sharedUsed === null ? null : { used: sharedUsed, cap: SHARED_AI_PER_DAY };
       const newest = <T extends { createdAt: string }>(xs: T[]) => xs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const perStudent = <T extends { no: number }>(xs: T[], n: number) => {
+        const k = new Map<number, number>();
+        return xs.filter((x) => (k.set(x.no, (k.get(x.no) ?? 0) + 1).get(x.no) ?? 0) <= n);
+      };
       return NextResponse.json({
         today: date,
         weekStart: addDays(date, -6),
@@ -192,7 +201,7 @@ async function handle(req: NextRequest) {
         records: records.map(lean),
         demo: demo || records.some((r) => r.demo),
         cheers: newest(cheers).slice(0, 200),
-        notes: newest(notes).slice(0, 400), // 학생마다 모두 보는 곳은 학생별 누적 기록(studentAll)
+        notes: perStudent(newest(notes), 40), // 학생마다 최근 40개(반 전체로 자르면 메모가 많은 반에서 다른 학생 메모가 안 보인다)
         push: { ready: pushReady(), key: pushPublicKey(), devices: subs },
         lessons,
         // 마음 친구 이름은 학생이 실명을 쓸 수 있어 선생님 화면에 보내지 않는다
@@ -292,9 +301,11 @@ async function handle(req: NextRequest) {
 
     // 기록 내보내기(전체). 화면에서 CSV로 만든다.
     if (body.action === "export") {
-      // 한 해 기록을 한 번에 보내면 응답 한도(4.5MB)를 넘는다 → 새 화면은 달마다 나눠 받는다(paged).
-      // 처음 부르면 기록이 있는 달 목록과 나머지(명단·조치·위험 표현)를, 그다음 달마다 그달 기록만
+      // 한 해 기록을 한 번에 보내면 응답 한도(4.5MB)를 넘는다 → 새 화면은 학생 번호마다 나눠 받는다(paged).
+      // 처음 부르면 기록이 있는 번호 목록·전체 수와 나머지(명단·조치·위험 표현)를, 그다음 번호마다 그 번호 기록만
+      // (번호로 나누면 기록마다 한 번씩만 읽는다 — 달로 나누면 「그달부터」를 달마다 다시 읽어 읽기가 몇 배로 는다)
       if (body.paged === true) {
+        if (Number.isInteger(body.no)) return NextResponse.json({ records: (await recordsOf(body.no)).map(lean) });
         if (typeof body.month === "string" && /^\d{4}-\d{2}$/.test(body.month)) {
           const m = body.month;
           const [y, mo] = m.split("-").map(Number);
@@ -304,7 +315,8 @@ async function handle(req: NextRequest) {
         }
         const [all, reflects, riskyLetters] = await Promise.all([allRecords(), db().all<Reflect>("reflects"), db().find<Letter>("letters", "risk", "==", true)]);
         return NextResponse.json({
-          months: [...new Set(all.map((r) => r.date.slice(0, 7)))].sort(), count: all.length,
+          nos: [...new Set(all.map((r) => r.no))].filter(Number.isInteger).sort((a, b) => a - b), count: all.length,
+          months: [...new Set(all.map((r) => r.date.slice(0, 7)))].sort(), // 예전 화면(달마다 받기)용
           students: await getRoster(), riskActions: await getRiskActions(), riskDrafts: await getRiskDrafts(),
           reflects: reflects.filter(reflectEverRisk), letters: riskyLetters,
         });
@@ -325,7 +337,7 @@ async function handle(req: NextRequest) {
       const st = (await getRoster()).find((x) => x.no === Number(body.no));
       if (!st) return bad("학생을 찾지 못했어요.", 404);
       // 체험 반은 여러 사람이 함께 쓴다 → 메모를 끝없이 쌓지 못하게(한도는 넉넉히)
-      if (isDemo() && (await db().all("notes")).length >= 200) return bad("체험 반 메모가 가득 찼어요. 메모를 몇 개 지우고 써 주세요.", 429);
+      if (isDemo() && (await db().count("notes", "no", ">=", 0)) >= 200) return bad("체험 반 메모가 가득 찼어요. 메모를 몇 개 지우고 써 주세요.", 429);
       const n: Note = { id: `${Date.now()}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
       await db().set("notes", n.id, { ...n });
       await touch("other");
@@ -382,7 +394,7 @@ async function handle(req: NextRequest) {
       // 코드·동의 날짜도 남긴다: 「같은 학생 · 다시 넣음」을 고르면 되살린다(고르지 않고 다시 넣은 번호는 예전처럼 새 코드)
       for (const o of old)
         if (!o.demo && !nowNos.has(o.no))
-          nextLeft[o.no] = { alias: o.alias, at: now, code: o.code, ...(o.consent ? { consent: o.consent } : {}), ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}) };
+          nextLeft[o.no] = { alias: o.alias, at: now, code: o.code, ...(o.consent ? { consent: o.consent } : {}), ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}), ...(o.wipedAt ? { wipedAt: o.wipedAt } : {}) };
       if (JSON.stringify(nextLeft) !== JSON.stringify(left)) await saveLeft(nextLeft);
       // 오늘 칸의 앞 학생 기록을 옮겼으면 다른 기기 선생님 화면도 예전 id 기록을 버리고 다시 읽게
       if (await startFresh([...fresh])) await touch("wipe");
@@ -492,8 +504,8 @@ async function handle(req: NextRequest) {
       const first = body.action === "checkAlert";
       const id = String(first ? body.id : body.recordId);
       const items = await getRiskActions();
-      // 체험 반은 여러 사람이 함께 쓴다 → 조치 기록 한 문서가 끝없이 커지지 않게
-      if (isDemo() && items.length >= 300) return bad("체험 반 조치 기록이 가득 찼어요. 체험 시작 화면의 「체험 반을 처음 판으로」로 처음부터 해 볼 수 있어요.", 429);
+      // 체험 반은 여러 사람이 함께 쓴다 → 조치 기록 한 문서가 끝없이 커지지 않게(알림 닫기는 열린 알림 수만큼이라 막지 않는다)
+      if (isDemo() && !first && items.length >= 300) return bad("체험 반 조치 기록이 가득 찼어요. 체험 시작 화면의 「체험 반을 처음 판으로」로 처음부터 해 볼 수 있어요.", 429);
       const pre = id.match(/^(reflect|draft|letter):(.+)$/);
       const kind = (pre?.[1] ?? "record") as "record" | "reflect" | "draft" | "letter";
       const key = pre ? pre[2] : id;
@@ -568,7 +580,7 @@ async function handle(req: NextRequest) {
         title: String(a.title ?? "").slice(0, 30), how: String(a.how ?? "").slice(0, 120), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
       })).filter((a: { title: string }) => a.title);
       // 읽고 고쳐 쓰기를 한 번에(두 기기가 같은 때 차시를 넣어도 하나가 사라지지 않게)
-      const item = { id: String(Date.now()), unit: String(body.unit ?? "").slice(0, 40), words, activities, createdAt: new Date().toISOString() };
+      const item = { id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`, unit: String(body.unit ?? "").slice(0, 40), words, activities, createdAt: new Date().toISOString() };
       await db().update<{ items: Awaited<ReturnType<typeof getLessons>> }>("meta", "lessons", (cur) => ({ items: [item, ...(cur?.items ?? [])].slice(0, 30) }));
       // 감정 단어만 고친다(먼저 읽어 둔 설정 전체로 덮으면 그사이 바꾼 위험 표현·키가 되돌아간다).
       // 60개가 차면 오래된 단어부터 뺀다(새 차시 단어가 말없이 빠지지 않게 — 차시 카드에는 새 단어가 보이므로)
@@ -672,6 +684,8 @@ async function handle(req: NextRequest) {
       if (body.seen && JSON.stringify(body.seen) !== JSON.stringify(peek.counts)) return NextResponse.json({ error: "그사이 이 학생 자료가 바뀌었어요. 지울 자료를 다시 확인해 주세요.", code: "changed", ...peek }, { status: 409 });
       // 미리 보고 지우는 사이 살펴보지 않은 위험 표현이 새로 오거나 학생 목록이 바뀌면 409와 새로 센 것을 돌려준다(화면이 다시 보여 주게)
       const done = await wipeStudent(no, false, who).catch((e: Error) => e);
+      // 저장소 오류(연결 끊김 등)는 409로 감추지 않는다(지우다 만 것은 다시 누르면 이어서 지운다)
+      if (done instanceof Error && !/살펴보지 않았어요|찾지 못했어요/.test(done.message)) throw done;
       if (done instanceof Error) {
         const again = await wipeStudent(no, true, who).catch(() => null);
         return NextResponse.json({ error: done.message, code: again?.held ? "heldRisk" : "changed", ...(again ?? {}) }, { status: again ? 409 : 404 });

@@ -14,7 +14,7 @@ type Info = { cutoff: string; counts: Record<string, number>; logs: PurgeLog[]; 
 const sum = (c: Record<string, number>) => Object.values(c).reduce((a, b) => a + b, 0);
 const full = (d: string) => `${d.slice(0, 4)}년 ${label(d)}`; // 지난해 날짜도 헷갈리지 않게
 
-export default function RetentionCard({ data, reload, onExport, exportMsg, onAlerts }: { data: Overview; reload: Reload; onExport: () => void; exportMsg: string; onAlerts?: () => void }) {
+export default function RetentionCard({ data, reload, onExport, exporting = false, exportMsg, onAlerts }: { data: Overview; reload: Reload; onExport: () => void; exporting?: boolean; exportMsg: string; onAlerts?: () => void }) {
   const [info, setInfo] = useState<Info | null>(null);
   const [ret, setRet] = useState<Retention>(data.settings.retention);
   const [sure, setSure] = useState(false);
@@ -70,8 +70,8 @@ export default function RetentionCard({ data, reload, onExport, exportMsg, onAle
       <h2 className="font-display text-xl">기록 내보내기 · 보관 · 정리</h2>
       <p className="text-sm text-soft">모든 기록을 엑셀에서 열 수 있는 CSV로 받아요(가명 기준, 녹음·목소리 숫자는 빠짐).</p>
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={onExport} className="btn-sub"><Doodle name="download" /> 기록 CSV 내보내기</button>
-        <span className="text-sm">{exportMsg}</span>
+        <button onClick={onExport} disabled={exporting} className="btn-sub disabled:opacity-60"><Doodle name="download" /> {exporting ? "내보내는 중…" : "기록 CSV 내보내기"}</button>
+        <span role="status" className="text-sm">{exportMsg}</span>
       </div>
 
       <div className="space-y-2 border-t border-line pt-3">

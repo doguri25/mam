@@ -279,6 +279,11 @@ const UI = {
   sensesFound: { ko: "찾았어요", en: "Found it", zh: "找到了", vi: "Tìm thấy rồi", ja: "みつけた" },
   drawHint: { ko: "그림은 저장되지 않아요. 마음껏 그려요.", en: "Your drawing isn't saved. Draw freely.", zh: "画不会被保存，尽情画吧。", vi: "Tranh không được lưu. Cứ vẽ thoải mái nhé.", ja: "えは のこらないよ。すきに かいてね。" },
   drawClear: { ko: "다 지우기", en: "Clear", zh: "全部擦掉", vi: "Xóa hết", ja: "ぜんぶ けす" },
+  // 그림 도구 단추 이름(화면 읽기 프로그램용)
+  drawInk: { ko: "색", en: "Color", zh: "颜色", vi: "Màu", ja: "いろ" },
+  drawInks: { ko: "검정|빨강|노랑|초록|파랑|보라|분홍", en: "black|red|yellow|green|blue|purple|pink", zh: "黑色|红色|黄色|绿色|蓝色|紫色|粉色", vi: "đen|đỏ|vàng|xanh lá|xanh dương|tím|hồng", ja: "くろ|あか|きいろ|みどり|あお|むらさき|ピンク" },
+  drawWidths: { ko: "가는 선|보통 선|굵은 선", en: "thin line|medium line|thick line", zh: "细线|中等线|粗线", vi: "nét mảnh|nét vừa|nét đậm", ja: "ほそい せん|ふつうの せん|ふとい せん" },
+  voiceBox: { ko: "있었던 일과 마음", en: "What happened and how you feel", zh: "发生的事和心情", vi: "Chuyện đã xảy ra và cảm xúc", ja: "あったことと きもち" },
   drawDone: { ko: "다 그렸어요", en: "I'm done", zh: "画好了", vi: "Em vẽ xong rồi", ja: "かけた" },
   feltAsk: { ko: "지금 마음은 어때?", en: "How do you feel now?", zh: "现在心情怎么样？", vi: "Bây giờ em thấy thế nào?", ja: "いまの きもちは どう？" },
   felt_better: { ko: "조금 나아졌어요", en: "A bit better", zh: "好一点了", vi: "Đỡ hơn một chút", ja: "すこし よくなった" },

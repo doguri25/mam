@@ -95,17 +95,34 @@ export default function TeacherPage() {
   // 오른쪽 아래 「AI 도우미」: 한 번 연 뒤에는 닫아도 대화가 남게 숨기기만 한다
   const [fab, setFab] = useState(false);
   const [fabUsed, setFabUsed] = useState(false);
-  // 서랍·AI 도우미 창은 Esc로도 닫는다(열어 둔 지도 기록 창은 제 Esc를 쓴다)
+  // 서랍·AI 도우미 창은 Esc로도 닫는다. 맨 위 창 하나만(AI 도우미 창 → 서랍 차례), 닫았으면 아래 지도 기록 창이 같은 Esc로 닫히지 않게
+  // 먼저 받아(capture) defaultPrevented로 알린다. 닫으면 연 단추로 초점을 돌려준다
+  const fabBtn = useRef<HTMLButtonElement>(null);
+  const menuBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!drawer && !fab) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      setDrawer(false);
-      setFab(false);
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      if (fab) setFab(false);
+      else setDrawer(false);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [drawer, fab]);
+  // 창을 열면 초점을 창 안으로(AI 도우미는 묻는 칸, 서랍은 첫 메뉴), 닫으면 연 단추로
+  const wasFab = useRef(false);
+  useEffect(() => {
+    if (fab) setTimeout(() => document.getElementById("assist-q-mini")?.focus(), 0);
+    else if (wasFab.current) fabBtn.current?.focus();
+    wasFab.current = fab;
+  }, [fab]);
+  const wasDrawer = useRef(false);
+  useEffect(() => {
+    if (drawer) setTimeout(() => document.querySelector<HTMLElement>("[aria-label='선생님 메뉴'] nav button")?.focus(), 0);
+    else if (wasDrawer.current) menuBtn.current?.focus();
+    wasDrawer.current = drawer;
+  }, [drawer]);
   // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(역량 진단·누적 기록)도 다시 불러온다
   const [version, setVersion] = useState(0);
   const demoAct = useAct(); // 위 띠의 「연습 데이터 지우기」(두 번 눌림·실패 알림)
@@ -459,14 +476,14 @@ export default function TeacherPage() {
       <aside className="no-print sticky top-0 hidden h-dvh border-r border-line bg-card lg:block">{menu}</aside>
       {/* 좁은 화면: ☰로 여는 서랍 */}
       {drawer && (
-        <div className="no-print fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="선생님 메뉴">
+        <div className="no-print fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="선생님 메뉴">
           <button className="absolute inset-0 bg-black/30" aria-label="메뉴 닫기" onClick={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] bg-card shadow-xl">{menu}</aside>
         </div>
       )}
       <div className="min-w-0">
         <header className="no-print sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-paper/95 px-3 py-2 backdrop-blur lg:hidden">
-          <button onClick={() => setDrawer(true)} className="btn-sub relative min-h-11 px-3 text-lg" aria-label="메뉴 열기">
+          <button ref={menuBtn} onClick={() => setDrawer(true)} className="btn-sub relative min-h-11 px-3 text-lg" aria-label="메뉴 열기">
             ☰{(badge.map || badge.letters) ? <span className="absolute -right-1 -top-1 size-3 rounded-full bg-alert" /> : null}
           </button>
           <p className="flex min-w-0 flex-1 items-center gap-2 font-display text-xl"><Doodle name={current[1]} size={26} /><span className="truncate">{current[2]}</span></p>
@@ -515,6 +532,7 @@ export default function TeacherPage() {
         {tab !== "assist" && (
           <>
             <button
+              ref={fabBtn}
               onClick={() => { setFab(true); setFabUsed(true); }}
               className="no-print fixed bottom-4 right-4 z-30 inline-flex min-h-14 items-center gap-2 rounded-full bg-leaf px-4 font-bold text-white shadow-lg hover:brightness-110 sm:bottom-6 sm:right-6"
               aria-label="AI 도우미 열기"

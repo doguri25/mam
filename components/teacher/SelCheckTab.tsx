@@ -273,7 +273,7 @@ function StudentTable({ rows, base, who, pick, onPick }: { rows: SelRow[]; base:
     <section className="card space-y-3 print:break-inside-auto">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-display text-xl">학생별 결과 <span className="text-sm text-soft">(선생님만 · 이름을 누르면 지도 가이드·보낼 말)</span></h3>
-        <div className="flex gap-1" role="radiogroup" aria-label="표에 보일 것">
+        <div className="no-print flex gap-1" role="radiogroup" aria-label="표에 보일 것">
           {([["self", "학생 스스로"], ["obs", "선생님 관찰"]] as const).map(([id, name]) => (
             <button key={id} role="radio" aria-checked={show === id} onClick={() => setShow(id)} className={`chip min-h-10 px-3 text-sm font-bold ${show === id ? "chip-on" : ""}`}>{name}</button>
           ))}

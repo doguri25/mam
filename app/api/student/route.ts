@@ -115,7 +115,9 @@ async function handle(req: NextRequest, body: Body) {
       const roster = await getRoster();
       const s = roster.find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
       // 보호자 요청으로 이 학생 자료를 지운 뒤에 온, 그 앞에 담아 둔 기록은 받지 않는다(지운 기록이 되살아나지 않게)
-      const wipedBefore = !!s?.wipedAt && (Date.parse(String(body.madeAt ?? "")) || 0) < Date.parse(s.wipedAt);
+      // 만든 때는 기기 시계라 지금보다 뒤면 지금으로 본다(시계가 빨라 지우기 전 기록이 들어오지 않게)
+      const madeMs = Math.min(Date.parse(String(body.madeAt ?? "")) || 0, Date.now());
+      const wipedBefore = !!s?.wipedAt && madeMs < Date.parse(s.wipedAt);
       if (!s || wipedBefore) {
         // 그사이 선생님이 코드를 새로 줬거나 자료를 지웠으면 기록은 받지 않는다. 다만 담아 둔 글에 위험한 말이 있으면 마치지 않은 위험 표현으로
         // 선생님께 남긴다(끊긴 채 쓴 위험한 글이 아무에게도 닿지 않고 사라지지 않게). 그 번호를 새 학생이 받았으면 「앞 학생」으로 보인다
@@ -130,7 +132,9 @@ async function handle(req: NextRequest, body: Body) {
           // (새 학생 기록으로 보이거나 새 학생 자료 지우기를 막지 않게)
           let ms = when.madeAt ?? Date.now();
           const since = !s && st.since ? Date.parse(st.since) : NaN;
-          if (Number.isFinite(since) && q.date <= today(new Date(since)) && ms >= since) ms = since - 1;
+          // 표를 준 때가 있으면 그것으로(받은 뒤 새 코드를 받은 새 학생 표는 그대로), 없는 예전 표는 날짜로
+          const formerToken = q.at !== undefined ? q.at < since : q.date <= today(new Date(since));
+          if (Number.isFinite(since) && formerToken && ms >= since) ms = since - 1;
           const at = new Date(ms).toISOString();
           const d: RiskDraft = { id: `${st.no}_${when.date}_${slot}`, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
           if (await putRiskDraft(d).catch(() => false)) alertTeacher(st.no, "기록", `risk-${d.id}`);

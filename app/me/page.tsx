@@ -884,7 +884,7 @@ export default function MePage() {
               )}
               <p className="text-center text-sm text-soft">{speech.listening ? tt("listening") : speech.supported ? tt("micHint") : tt("typeHint")}</p>
               {speech.error && <p className="text-center text-alert">{msg(speech.error)}</p>}
-              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 180))} rows={3} className="field text-lg" placeholder={tt("example")} aria-label={tt("example")} />
+              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 180))} rows={3} className="field text-lg" placeholder={tt("example")} aria-label={tt("voiceBox")} />
               {me.vocab.length > 0 && (
                 <p className="text-sm text-soft">
                   {tt("classWords")}:{" "}
