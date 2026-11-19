@@ -83,7 +83,8 @@ export function aiError(e: unknown): Error {
   const status = Number(err.status) || 0;
   // 상태 번호만으로는 모자라다: 제미나이는 틀린 키를 400으로, 클로드는 크레딧 부족을 400으로, OpenAI는 사용량 소진을 429로 알린다
   if (/API key not valid|API_KEY_INVALID|invalid[ _-]?(x-)?api[ _-]?key|incorrect api key/i.test(message)) return new Error("AI 키가 맞지 않아요. 「설정」에서 키를 확인해 주세요.");
-  if (/credit balance|insufficient_quota|billing|exceeded your current quota/i.test(message)) return new Error("이 AI 키의 사용 한도(크레딧)를 다 썼어요. AI 회사 누리집에서 결제·한도를 확인하거나 다른 키를 넣어 주세요.");
+  // 잠깐 넘친 것(분당 한도 — 「retry in 30s」「rate limit」)은 크레딧 소진이 아니다
+  if (!/retry in|rate.?limit|per minute|requests per/i.test(message) && /credit balance|insufficient_quota/i.test(message)) return new Error("이 AI 키의 사용 한도(크레딧)를 다 썼어요. AI 회사 누리집에서 결제·한도를 확인하거나 다른 키를 넣어 주세요.");
   if (status === 401 || status === 403) return new Error("AI 키가 맞지 않아요. 「설정」에서 키를 확인해 주세요.");
   if (status === 404) return new Error("AI 모델을 찾지 못했어요. 「설정」에서 모델 이름을 확인해 주세요.");
   if (status === 429) return new Error("AI 사용량이 잠시 넘쳤어요. 조금 뒤 다시 눌러 주세요.");

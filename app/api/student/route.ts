@@ -112,8 +112,10 @@ async function handle(req: NextRequest, body: Body) {
       if (!q) return bad("보낼 수 없는 기록이에요.", 410);
       const roster = await getRoster();
       const s = roster.find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
-      if (!s) {
-        // 그사이 선생님이 코드를 새로 줬으면 기록은 받지 않는다. 다만 담아 둔 글에 위험한 말이 있으면 마치지 않은 위험 표현으로
+      // 보호자 요청으로 이 학생 자료를 지운 뒤에 온, 그 앞에 담아 둔 기록은 받지 않는다(지운 기록이 되살아나지 않게)
+      const wipedBefore = !!s?.wipedAt && (Date.parse(String(body.madeAt ?? "")) || 0) < Date.parse(s.wipedAt);
+      if (!s || wipedBefore) {
+        // 그사이 선생님이 코드를 새로 줬거나 자료를 지웠으면 기록은 받지 않는다. 다만 담아 둔 글에 위험한 말이 있으면 마치지 않은 위험 표현으로
         // 선생님께 남긴다(끊긴 채 쓴 위험한 글이 아무에게도 닿지 않고 사라지지 않게). 그 번호를 새 학생이 받았으면 「앞 학생」으로 보인다
         const st = roster.find((x) => x.no === q.no);
         const rec = (body.record ?? {}) as Record<string, unknown>;
@@ -126,7 +128,7 @@ async function handle(req: NextRequest, body: Body) {
           const d: RiskDraft = { id: `${st.no}_${when.date}_${slot}`, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
           if (await putRiskDraft(d).catch(() => false)) alertTeacher(st.no, "기록", `risk-${d.id}`);
         }
-        return bad("학생 코드가 바뀌었어요.", 410);
+        return bad(wipedBefore ? "예전에 담아 둔 기록이라 받지 않았어요." : "학생 코드가 바뀌었어요.", 410);
       }
       const when = queuedWhen(body.madeAt, q.date);
       if (!when) return bad("너무 오래전에 담아 둔 기록이에요.", 410);

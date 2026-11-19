@@ -47,6 +47,8 @@ test("알림 등록: 브라우저 알림 서버처럼 이름 있는 https 주소
     "https://fcm.googleapis.com:8443/x", "https://intranet/x", `https://fcm.googleapis.com/${"a".repeat(1000)}`, 3, null])
     assert.equal(pushEndpointOk(u), false, String(u));
   assert.equal(pushEndpointOk("https://push.whale.naver.com/abc"), true); // 목록에 없는 브라우저 알림 서버도
+  for (const u of ["https://localhost./x", "https://metadata.google.internal./x", "https://foo.local./x", "https://kubernetes.default.svc./x", "https://169.254.169.254.nip.io/x", "https://127.0.0.1.sslip.io/x", "https://localtest.me/x"])
+    assert.equal(pushEndpointOk(u), false, u);
   assert.equal(pushKeyOk("BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM"), true);
   assert.equal(pushKeyOk("x".repeat(201)), false);
   assert.equal(pushKeyOk({}), false);

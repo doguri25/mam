@@ -231,7 +231,7 @@ export const RISK_CORE = [
   "제가 사라지면 좋겠", "제가 없어지면 좋겠", "제가 사라졌으면 좋겠", "제가 없어졌으면 좋겠", "제가 죽었으면 좋겠", "저는 죽었으면 좋겠", "전 죽었으면 좋겠",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   // 앞 낱말은 꼴이 같아야 해서(「killing」은 「kill」에 걸리지 않음) 흔한 다른 꼴도 따로
-  "killing myself", "killing my self", "cutting myself", "hurting myself", "wanted to die", "rather be dead", "want to stop living", "not worth living",
+  "killing myself", "killing my self", "cutting myself", "hurting myself", "wanted to die", "want to stop living", "not worth living",
   "disappear forever", "want to disappear", "don't want to live",
   "want to be dead", "wish i was dead", "wish i were dead", "hate my life", "end my life", "don't want to be alive",
   "want die", "wish i could disappear", "hate myself", "killmyself", "selfharm", "cut my self", "hurt my self",
@@ -287,9 +287,10 @@ export interface Student {
   since?: string;
   formers?: Former[]; // 앞서 이 번호를 쓴 학생들(오래된 차례, 몇 명까지만)
   joined?: string; // 이 반에 처음 넣은 때(ISO, 새 번호·연습 학생을 실제 학생으로 바꾼 번호). 첫날부터 「기록 없음」으로 세지 않게
+  wipedAt?: string; // 보호자 요청으로 이 학생 자료를 지운 때(그 앞에 기기에 담아 둔 기록은 받지 않는다)
 }
 // 앞서 이 번호를 쓴 학생: 가명과, 그 학생이 이 번호를 쓴 마지막 때(ISO)
-export interface Former { alias: string; until: string }
+export interface Former { alias: string; until: string; wiped?: boolean } // wiped: 보호자 요청으로 이 앞 학생 자료를 지움(가명도 비움)
 
 // 이 번호의 지금 학생 것인가. at: 글을 쓴 때(ISO)나 날짜(YYYY-MM-DD, 한국 날짜). since 앞이면 앞 학생 것.
 // 날짜만 있으면(조치 기록의 기록 날짜 등) 새 학생이 번호를 받은 날부터 지금 학생 것으로 본다.

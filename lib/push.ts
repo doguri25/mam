@@ -28,11 +28,25 @@ export function pushEndpointOk(v: unknown): v is string {
   if (typeof v !== "string" || v.length > 1000) return false;
   try {
     const u = new URL(v);
-    const h = u.hostname.toLowerCase();
+    const h = u.hostname.toLowerCase().replace(/\.+$/, ""); // 끝의 점(「localhost.」)으로 빠져나가지 않게
     if (u.protocol !== "https:" || u.port || u.username || u.password) return false;
-    if (!h.includes(".") || h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return false;
+    if (!h.includes(".") || h === "localhost" || /\.(localhost|local|internal|lan|home|corp|svc|intranet)$/.test(h) || h.startsWith("metadata.")) return false;
+    if (/(^|\.)(nip\.io|sslip\.io|xip\.io|localtest\.me|lvh\.me)$/.test(h)) return false; // 이름 속 숫자 주소로 안쪽을 가리키는 서비스
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith("[") || h.includes(":")) return false; // IP 숫자 주소
     return /^[a-z0-9.-]+$/.test(h);
+  } catch {
+    return false;
+  }
+}
+// 등록할 때 이름을 실제로 찾아 안쪽 주소(사설·루프백·링크 로컬)를 가리키면 받지 않는다
+export async function pushHostSafe(endpoint: string): Promise<boolean> {
+  try {
+    const { lookup } = await import("node:dns/promises");
+    const host = new URL(endpoint).hostname.replace(/\.+$/, "");
+    const addrs = await lookup(host, { all: true });
+    const inner = (a: string) =>
+      /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) || a === "::1" || /^f[cd]/i.test(a) || /^fe80/i.test(a) || a.startsWith("::ffff:127.");
+    return addrs.length > 0 && !addrs.some((x) => inner(x.address));
   } catch {
     return false;
   }

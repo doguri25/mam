@@ -101,16 +101,18 @@ export function searchDocs(query: string, docs: { meta: DocMeta; text: string }[
 
 // ── 물음에서 학생 찾기: 「3번」「3 번」, 가명(학생 코드·QR의 이름) ──
 // 이름 뒤에 붙는 말(조사). 이것이나 빈칸·문장부호·끝이 와야 이름으로 본다(「단풍」 가명이 「단풍잎」, 「슬기」가 「슬기로운」에 걸리지 않게)
-// 조사는 여러 개 이어질 수 있다(민준이한테서, 민준이랑은, 서연이는요?)
-const PARTICLES = "이|가|는|를|을|은|의|에게|한테|하고|랑|와|과|도|만|야|아|께|께서|에|처럼|보다|네|라고|까지|부터|요|에요|예요|서|학생|씨|마저|조차";
-const AFTER_NAME = String.raw`(?=(?:${PARTICLES}){0,4}(?![가-힣]))`;
-const ALIAS_AFTER = String.raw`(?=(?:${PARTICLES}){1,4}(?![가-힣])|\s?(?:학생|친구)|\s*[,·]|\s+(?:요즘|이번|오늘|어제|어때|상담|기록|마음)|\s*[?？!.]*\s*$)`;
+// 성을 뗀 이름 뒤: 이름에 붙는 「이·아·야」(민준이라서, 민준아, 민준인데)면 뒤에 무엇이 와도 이름으로 보고,
+// 그 밖에는 조사(여러 개도 — 민준한테서는)와 빈칸·문장부호·끝일 때만. 「요·에서·부터·까지·에」는 넣지 않는다
+// (「해야 하나요」「바다에서」「가을부터」「가을에는」이 이름으로 바뀌지 않게)
+const PARTICLES = "가|는|를|을|은|의|에게|에게서|한테|한테서|하고|랑|와|과|도|만|께|께서|처럼|보다|네|라고|씨|학생|마저|조차|더러|보고|밖에|만큼";
+const AFTER_NAME = String.raw`(?=[이아야인]|(?:${PARTICLES}){1,3}(?![가-힣])|(?![가-힣]))`;
+const ALIAS_AFTER = String.raw`(?=(?:이|${PARTICLES}){1,4}(?![가-힣])|\s?(?:학생|친구)|\s*[?？!.]*\s*$)`;
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function mentionedNos(text: string, students: { no: number; alias: string }[]): number[] {
   const out = new Set<number>();
   const known = new Set(students.map((s) => s.no));
   // 「하루 2번 해도」「3번째」「가정통신문 3번 항목」처럼 횟수·차례를 말한 「번」은 빼고
-  for (const m of text.matchAll(/(\d{1,2})\s?번(?!\s?(?:째|정도|씩|해|하(?![고구랑])|더\s?(?:해|하)|만에|항목|문항|문제|줄|칸))/g)) {
+  for (const m of text.matchAll(/(\d{1,2})\s?번(?!\s?(?:째|정도|씩|해|하(?![고구랑])|더\s?(?:해|하|읽|봐|보|말|써|쓰|했)|이나(?!\s?\d)|만에|항목|문항|문제|줄|칸))/g)) {
     const n = Number(m[1]);
     if (known.has(n)) out.add(n);
   }

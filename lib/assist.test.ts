@@ -141,14 +141,17 @@ test("실명 가리기: 조사가 여러 개 붙어도, 소식지처럼 성까�
   assert.equal(hideNames("박가을 어머니께", names, { full: true }).text, "9번 어머니께");
 });
 
-test("학생 찾기: 「3번하고 7번」「3번이나 7번」「3번 더 살펴볼」, 「단풍, 요즘 어때?」", () => {
+test("학생 찾기: 「3번하고 7번」「3번이나 7번」「3번 더 살펴볼」, 횟수를 말한 「3번이나 말했는데」는 빼고", () => {
   const st = [{ no: 3, alias: "단풍" }, { no: 7, alias: "구름" }];
   assert.deepEqual(mentionedNos("3번하고 7번 사이가 안 좋아요", st), [3, 7]);
   assert.deepEqual(mentionedNos("3번이나 7번 중에", st), [3, 7]);
   assert.deepEqual(mentionedNos("3번 더 살펴봐야 할까요", st), [3]);
   assert.deepEqual(mentionedNos("하루 3번 더 해도 될까", st), []);
-  assert.deepEqual(mentionedNos("단풍, 요즘 어때?", st), [3]);
-  assert.deepEqual(mentionedNos("단풍 요즘 어때?", st), [3]);
+  // 가명은 흔한 낱말이라 조사가 붙을 때만(「구름, 비, 바람 주제로」「햇살 오늘 따뜻하네」는 학생이 아니다)
+  assert.deepEqual(mentionedNos("단풍이 요즘 어때?", st), [3]);
+  assert.deepEqual(mentionedNos("구름, 비, 바람 주제로", st), []);
+  assert.deepEqual(mentionedNos("벌써 3번이나 말했는데", st), []);
+  assert.deepEqual(mentionedNos("그림책을 3번 더 읽어 줘", st), []);
 });
 
 test("위기 안내: 「아이들에게 맞는 활동」「말씀이 맞아요」는 아니고, 「극단적인 선택」「아이가 맞았는데」「맞는대요」는 위기", () => {
@@ -159,4 +162,19 @@ test("위기 안내: 「아이들에게 맞는 활동」「말씀이 맞아요�
   assert.deepEqual(crisisOf("아이가 맞았는데 어떻게 처리해요?"), ["violence"]);
   assert.deepEqual(crisisOf("친구들한테 여러 번 맞았대요"), ["violence"]);
   assert.deepEqual(crisisOf("엄마한테 자꾸 맞아요"), ["abuse"]);
+});
+
+test("실명 가리기: 「이·아·야」가 붙은 이름은 뒤에 무엇이 와도, 「해야 하나요」「바다에서」「가을부터」는 그대로", () => {
+  const names = { 7: "김하나", 5: "김바다", 11: "김민준", 9: "박가을" };
+  for (const q of ["학교폭력 신고는 어떻게 해야 하나요?", "바다에서 하는 생존수영 안내문", "가을부터 시작", "가을에는", "하나부터 열까지"])
+    assert.equal(hideNames(q, names).text, q, q);
+  for (const q of ["민준이라서", "민준이니까", "민준인데", "민준한테서는", "민준이지만"]) assert.ok(!/민준/.test(hideNames(q, names).text), q);
+});
+
+test("위기 안내: 「부모님께 맞았대요」는 아동학대, 「예방주사 맞았는지」「비를 맞았어요」「저한테 맞아요」「극단적인 행동」은 아니다", () => {
+  assert.deepEqual(crisisOf("부모님께 맞았대요"), ["abuse"]);
+  assert.deepEqual(crisisOf("친구한테 맞아요"), ["violence"]);
+  assert.deepEqual(crisisOf("친구에게 맞는 것 같아요"), ["violence"]);
+  for (const q of ["독감 예방주사 맞았는지 가정통신문", "비를 맞았어요", "숫자가 맞았는지", "선생님 말씀이 맞았어요", "이 방법이 저한테 맞아요", "아이가 극단적인 행동을 해요"])
+    assert.deepEqual(crisisOf(q), [], q);
 });

@@ -40,13 +40,22 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
 
   const whole = `${title}\n\n■ 이번 주 우리 반 마음\n${mood}\n\n■ 이번 주 배운 감정 단어\n${wordsText}\n\n■ 교실에서 한 활동\n${acts}\n\n■ 집에서 해 볼 마음 놀이\n${play}\n\n■ 선생님 한마디\n${note}`;
 
-  async function translate() {
+  // 성을 뗀 이름처럼 보이는 말이 있으면 번역하기 전에 묻는다: 학생 이름(민준이가)이면 번호로 바꾸고,
+  // 「가을 하늘」처럼 이름과 같은 낱말이면 그대로(바꾼 번역본이 집으로 가지 않게). 성까지 쓴 이름은 늘 번호로
+  const [ask, setAsk] = useState<{ given: string; full: string; words: string[] } | null>(null);
+  function translate() {
+    const full = hideNames(whole, names, { full: true }).text;
+    const given = hideNames(whole, names).text;
+    if (given === full) return send(full);
+    const words = [...new Set(Object.values(names).filter((n) => /^[가-힣]{3,4}$/.test(n.trim())).map((n) => n.trim().slice(-2)).filter((g) => full.includes(g)))];
+    setAsk({ given, full, words });
+  }
+  async function send(text: string) {
+    setAsk(null);
     setBusy(true);
     setErr("");
     try {
-      // 선생님이 쓴 글에 학생 실명(성까지 다 쓴 이름)이 있으면 번호로 바꿔 보낸다(실명은 이 기기에만).
-      // 성을 뗀 이름은 바꾸지 않는다: 「가을 하늘」 같은 말이 번호로 바뀐 번역본이 집으로 가지 않게
-      setTranslated((await api<{ text: string }>("teacher", "translate", { text: hideNames(whole, names, { full: true }).text, lang })).text);
+      setTranslated((await api<{ text: string }>("teacher", "translate", { text, lang })).text);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -90,6 +99,16 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
         {translated && <button onClick={() => setTranslated("")} className="btn-sub">번역본 지우기</button>}
         {err && <span className="text-sm text-alert">{err}</span>}
       </div>
+      {ask && (
+        <div role="dialog" aria-label="이름처럼 보이는 말" className="no-print space-y-2 rounded-2xl border border-sun bg-[#fff8e1] p-4 text-sm">
+          <p>소식지에 학생 이름처럼 보이는 말이 있어요: <b>{ask.words.join(", ")}</b>. 학생 이름이면 번호로 바꿔 AI에 보내요(실명은 이 기기에만).</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => send(ask.given)} className="btn-main min-h-10">학생 이름이에요 · 번호로 바꿔 번역</button>
+            <button onClick={() => send(ask.full)} className="btn-sub min-h-10">이름이 아니에요 · 그대로 번역</button>
+            <button onClick={() => setAsk(null)} className="btn-sub min-h-10">그만두기</button>
+          </div>
+        </div>
+      )}
       <p className="no-print -mt-2 text-xs text-soft">반 전체 이야기만 담겨요. 학생 이름·번호는 들어가지 않아요. 자동으로 보내지 않아요.</p>
       {translated && (
         <article className="card mx-auto max-w-[210mm] whitespace-pre-wrap bg-white p-6 text-lg leading-relaxed sm:p-8 print:border-0 print:p-0">{translated}</article>

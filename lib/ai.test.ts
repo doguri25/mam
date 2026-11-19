@@ -171,4 +171,6 @@ test("AI 오류: 상태 번호가 400·429여도 틀린 키·크레딧 소진은
   assert.match(aiError(Object.assign(new Error("Your credit balance is too low to access the Anthropic API."), { status: 400 })).message, /크레딧/);
   assert.match(aiError(Object.assign(new Error("You exceeded your current quota (insufficient_quota)"), { status: 429 })).message, /크레딧/);
   assert.match(aiError(Object.assign(new Error("Rate limit"), { status: 429 })).message, /사용량이 잠시/);
+  // 제미나이 무료 분당 한도 글(「quota」「billing」이 들어 있어도 잠깐 넘친 것)
+  assert.match(aiError(Object.assign(new Error("You exceeded your current quota, please check your plan and billing details. Please retry in 30s."), { status: 429 })).message, /사용량이 잠시/);
 });

@@ -7,12 +7,12 @@ import { clientIp, passwordAttempt, resetWait, testPushWait, trialEditWait, wait
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, HELD_STUDENT, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
-import { PUSH_MAX, countSubs, hasSub, notifyTeachers, pushEndpointOk, pushKeyOk, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
+import { PUSH_MAX, countSubs, hasSub, notifyTeachers, pushEndpointOk, pushHostSafe, pushKeyOk, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
 import type { PushSubscription } from "web-push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
@@ -634,20 +634,19 @@ async function handle(req: NextRequest) {
     }
 
     // ── 학생 한 명 자료 지우기(보호자 요청): 고를 수 있는 번호 / 지울 것 미리 보기(dry) / 지우기 ──
-    if (body.action === "wipeTargets") {
-      const left = await getLeft();
-      return NextResponse.json({ left: Object.entries(left).map(([no, v]) => ({ no: Number(no), alias: v.alias, at: v.at })).sort((a, b) => a.no - b.no) });
-    }
+    if (body.action === "wipeTargets") return NextResponse.json({ targets: await wipeTargets() });
     if (body.action === "wipeStudent") {
       const no = Number(body.no);
       if (!Number.isInteger(no) || no < 1 || no > 999) return bad("번호를 확인해 주세요.");
+      const who = typeof body.who === "string" && body.who.length < 60 ? body.who : "now";
       const dry = body.dry !== false;
-      const peek = await wipeStudent(no, true);
+      const peek = await wipeStudent(no, true, who).catch((e: Error) => e);
+      if (peek instanceof Error) return bad(peek.message, 404);
       if (dry) return NextResponse.json(peek);
       if (peek.held) return NextResponse.json({ error: HELD_STUDENT(peek.held), code: "heldRisk", held: peek.held }, { status: 409 });
       // 미리 본 뒤 그사이 자료가 늘었으면(학생이 새로 기록함) 다시 보고 지우게
       if (body.seen && JSON.stringify(body.seen) !== JSON.stringify(peek.counts)) return NextResponse.json({ error: "그사이 이 학생 자료가 바뀌었어요. 지울 자료를 다시 확인해 주세요.", code: "changed", ...peek }, { status: 409 });
-      return NextResponse.json({ ...(await wipeStudent(no, false)), done: true });
+      return NextResponse.json({ ...(await wipeStudent(no, false, who)), done: true });
     }
 
     // ── 학급 역량 진단(학생 화면 「마음 점검」): 회차 열기·닫기·다시 열기·지우기. 열린 회차는 하나만, 학생 화면에 그 회차만 보인다 ──
@@ -824,6 +823,7 @@ async function handle(req: NextRequest) {
       const sub = body.subscription;
       // 브라우저 알림 서버 주소만(크롬·엣지·파이어폭스·사파리), 키는 짧은 글자만 — 서버가 아무 주소로나 보내지 않게
       if (!pushEndpointOk(sub?.endpoint) || !pushKeyOk(sub?.keys?.p256dh) || !pushKeyOk(sub?.keys?.auth)) return bad("알림 등록 정보가 맞지 않아요.");
+      if (!(await pushHostSafe(sub.endpoint))) return bad("알림 등록 정보가 맞지 않아요.");
       if (!(await hasSub(sub.endpoint)) && (await countSubs()) >= PUSH_MAX) return bad(`알림 받는 기기는 ${PUSH_MAX}대까지예요. 「모두 끄기」로 정리한 뒤 다시 켜 주세요.`);
       await saveSub({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } } as PushSubscription, String(body.label ?? ""));
       // 알림 받는 기기가 바뀌면 변경 표시를 남긴다: 설정을 열어 둔 다른 기기도 20초 안에 기기 수·「받는 중」을 다시 본다

@@ -30,7 +30,7 @@ async function seed() {
   await db().set("meta", "self_r1_3", { kind: "selfAnswer", round: "r1", no: 3, answers: Array(32).fill(3), at: at("2026-11-13") });
   await D.saveLook(3, { name: "콩이", color: 0, acc: "none" } as never);
   await D.saveRiskActions([
-    { id: "a1", no: 3, recordId: "3_2026-11-12_am", recordDate: "2026-11-12", date: "2026-11-12", kinds: ["talk"], note: "", createdAt: at("2026-11-12") },
+    { id: "a1", no: 3, recordId: "3_2026-11-12_am", recordDate: "2026-11-12", date: "2026-11-12", kinds: ["talk"], note: "이야기 나눔", text: "지금 학생 글", createdAt: at("2026-11-12") },
     { id: "a0", no: 3, recordId: "3_2026-11-05_am", recordDate: "2026-11-05", date: "2026-11-05", kinds: ["talk"], note: "", createdAt: at("2026-11-05") },
   ] as never);
 }
@@ -52,7 +52,10 @@ test("미리 보기는 지우지 않고 세기만, 지우면 지금 학생 것�
     assert.equal(await db().get("cheers", "c3"), null);
     assert.equal(await db().get("meta", "self_r1_3"), null);
     assert.equal(3 in (await D.getLooks()), false);
-    assert.deepEqual((await D.getRiskActions()).map((a) => a.id), ["a0"]);
+    // 조치 기록은 남기고 학생 글만 지운다(앞 학생 조치는 그대로)
+    assert.deepEqual((await D.getRiskActions()).map((a) => a.id).sort(), ["a0", "a1"]);
+    const a1 = (await D.getRiskActions()).find((a) => a.id === "a1")!;
+    assert.deepEqual([a1.text, a1.note, a1.kinds], [undefined, "이야기 나눔", ["talk"]]);
     assert.equal((await D.getRoster()).length, 2); // 명단은 그대로
   });
 });
@@ -67,15 +70,41 @@ test("살펴보지 않은 위험 표현이 있으면 지우지 않는다", async
   });
 });
 
-test("명단에서 뺀 번호는 그 번호로 남은 것을 모두 지우고 뺀 학생 기록도 지운다", async () => {
+test("명단에서 뺀 학생은 그 학생 것을 지우고 뺀 학생 기록(가명·코드)도 지운다", async () => {
   await inSpace("cwipe3", async () => {
     await D.saveRoster([{ no: 1, alias: "가나", code: "WPA112" }]);
     await db().set("records", "5_2026-11-05_am", rec(5, "2026-11-05"));
     await D.saveLeft({ 5: { alias: "떠난친구", at: at("2026-11-06") } });
-    const peek = await D.wipeStudent(5, true);
-    assert.deepEqual([peek.onRoster, peek.counts.records], [false, 1]);
-    await D.wipeStudent(5, false);
+    assert.deepEqual((await D.wipeTargets()).map((t) => [t.no, t.who]), [[1, "now"], [5, "left"]]);
+    const peek = await D.wipeStudent(5, true, "left");
+    assert.deepEqual([peek.onRoster, peek.counts.records, peek.counts.left], [false, 1, 1]);
+    await D.wipeStudent(5, false, "left");
     assert.equal(await db().get("records", "5_2026-11-05_am"), null);
     assert.equal(5 in (await D.getLeft()), false);
+  });
+});
+
+test("번호를 넘겨받은 학생: 앞 학생은 따로 골라 지우고, 지금 학생을 지워도 앞 학생 것(넘긴 날 조치 기록 포함)은 남는다", async () => {
+  await inSpace("cwipe4", async () => {
+    await seed();
+    // 넘긴 날(11월 10일) 앞 학생 기록과 그 조치(글은 startFresh가 _p로 옮김)
+    await db().set("records", "3_2026-11-10_am_pX", rec(3, "2026-11-10", { id: "3_2026-11-10_am_pX", createdAt: "2026-11-09T23:30:00.000Z", text: "" }));
+    const acts = await D.getRiskActions();
+    await D.saveRiskActions([...acts, { id: "a2", no: 3, recordId: "3_2026-11-10_am_pX", recordDate: "2026-11-10", date: "2026-11-10", kinds: ["parent"], note: "", text: "앞 학생 글", createdAt: at("2026-11-10") }] as never);
+    const targets = await D.wipeTargets();
+    const former = targets.find((t) => t.no === 3 && t.who.startsWith("f:"))!;
+    assert.match(former.label, /앞 학생 앞친구/);
+    // 지금 학생을 지워도 넘긴 날 앞 학생 조치는 그대로
+    await D.wipeStudent(3, false, "now");
+    assert.equal((await D.getRiskActions()).find((a) => a.id === "a2")?.text, "앞 학생 글");
+    assert.ok(await db().get("records", "3_2026-11-05_am"));
+    // 앞 학생을 지우면 앞 학생 기록이 사라지고 가명도 비운다
+    const peek = await D.wipeStudent(3, true, former.who);
+    assert.equal(peek.counts.records, 2);
+    await D.wipeStudent(3, false, former.who);
+    assert.equal(await db().get("records", "3_2026-11-05_am"), null);
+    assert.equal(await db().get("records", "3_2026-11-10_am_pX"), null);
+    assert.deepEqual((await D.getRoster()).find((s) => s.no === 3)?.formers?.map((f) => [f.alias, !!f.wiped]), [["", true]]);
+    assert.equal((await D.wipeTargets()).some((t) => t.no === 3 && t.who.startsWith("f:")), false);
   });
 });
