@@ -440,6 +440,15 @@ export async function startFresh(nos: number[]): Promise<boolean> {
     await editRiskDrafts((items) => items.map((d) => (drafts.has(d.id) ? { ...d, id: d.id + tag } : d)));
     for (const id of had) await renameRiskActions(`draft:${id}`, `draft:${id}${tag}`);
   }
+  // 글은 이미 없어도(지웠거나 정리됨) 오늘 칸 이름을 가리키는 조치 기록은 옮긴다(새 학생이 같은 칸에 쓰면 옛 조치가 붙지 않게)
+  for (const no of nos) {
+    for (const slot of ["am", "pm"] as const) {
+      const id = `${no}_${day}_${slot}`;
+      await renameRiskActions(id, id + tag);
+      await renameRiskActions(`draft:${id}`, `draft:${id}${tag}`);
+    }
+    await renameRiskActions(`reflect:${no}_${ws}`, `reflect:${no}_${ws}${tag}`);
+  }
   const gone = new Set(nos);
   await pruneChecks((no) => gone.has(no));
   return moved;
@@ -1483,8 +1492,17 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   await eachIn(myNotes, (x) => db().del("notes", x.id));
   await eachIn(mySelf, (x) => db().del("meta", x.docId ?? (x.kind === "selfAnswer" ? selfDocId(x.round, x.no) : selNoteId(x.round, x.no))));
   // 조치 기록은 남기고 학생 글(살펴볼 때의 글)만 지운다
+  // 조치 기록은 남기고 학생 글만 지운다. 가리키던 글이 지워졌으면 그 이름도 다시 쓰이지 않는 이름(…_w때)으로 바꾼다:
+  // 같은 날 같은 칸에 다시 쓰면(같은 학생이든 번호를 받은 새 학생이든) 같은 이름이 되어, 옛 조치가 새 글에 붙어 보이지 않게
+  const keptIds = new Set([...keepNew].map((k) => (k[0] === "r" ? k.slice(1) : k[0] === "f" ? `reflect:${k.slice(1)}` : `letter:${k.slice(1)}`)));
+  const wtag = `_w${Date.now().toString(36)}`;
   const actIds = new Set(myActs.map((a) => a.id));
-  if (actIds.size) await editRiskActions((xs) => xs.map((a) => (actIds.has(a.id) && a.text ? withoutText(a) : a)));
+  if (actIds.size) await editRiskActions((xs) => xs.map((a) => {
+    if (!actIds.has(a.id)) return a;
+    const b = a.text ? withoutText(a) : a;
+    // 이미 다시 쓰이지 않는 이름(번호를 넘길 때 옮긴 …_p때, 앞서 지운 …_w때)은 그대로
+    return keptIds.has(a.recordId) || isMovedId(a.recordId) || /_w[a-z0-9]{6,}$/i.test(a.recordId) ? b : { ...b, recordId: a.recordId + wtag };
+  }));
   const draftIds = new Set(myDrafts.map((d) => d.id));
   if (draftIds.size) await editRiskDrafts((xs) => xs.filter((d) => !(draftIds.has(d.id) && d.no === no && d.checked && mine(d.at))));
   await eachIn(myRuns, (r) => db().update<SheetRun>("sheets", r.id, (cur) => (cur ? { ...cur, items: cur.items.filter((x) => x.no !== no) } : undefined)));

@@ -161,3 +161,18 @@ test("쓴 때가 없는 예전 조치 기록에 글을 쓴 때를 채운다(글�
     assert.equal(await D.backfillRecordAt(), 0);
   });
 });
+
+test("지운 학생 조치 기록은 다시 쓰이지 않는 이름으로 옮겨, 같은 날 같은 칸에 새로 쓴 글에 붙지 않는다", async () => {
+  await inSpace("cwipe8", async () => {
+    await D.saveRoster([{ no: 4, alias: "라온", code: "WPG444" }]);
+    await db().set("records", "4_2026-11-12_am", rec(4, "2026-11-12", { id: "4_2026-11-12_am", risk: true, riskHits: ["죽고 싶"], riskChecked: at("2026-11-12") }));
+    await D.saveRiskActions([{ id: "c1", no: 4, recordId: "4_2026-11-12_am", recordDate: "2026-11-12", date: "2026-11-12", kinds: ["parent"], note: "보호자 통화", text: "죽고 싶어", recordAt: at("2026-11-12"), createdAt: at("2026-11-12") }] as never);
+    await D.wipeStudent(4, false, "now");
+    const [a] = await D.getRiskActions();
+    assert.match(a.recordId, /^4_2026-11-12_am_w[a-z0-9]{6,}$/);
+    assert.deepEqual([a.text, a.note], [undefined, "보호자 통화"]);
+    // 같은 칸에 새 글이 와도 옛 조치는 그 글 이름을 가리키지 않는다
+    await db().set("records", "4_2026-11-12_am", rec(4, "2026-11-12", { id: "4_2026-11-12_am" }));
+    assert.equal((await D.getRiskActions()).some((x) => x.recordId === "4_2026-11-12_am"), false);
+  });
+});

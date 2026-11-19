@@ -107,16 +107,27 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
     };
     try {
       // 한 해 기록을 한 번에 받으면 응답 한도를 넘을 수 있어 학생 번호마다 나눠 받는다(예전 서버면 한 번에 온 것을 그대로)
-      const head = await api<Omit<typeof got, "records"> & { records?: MoodRecord[]; nos?: number[]; count?: number }>("teacher", "export", { paged: true });
-      if (head.nos) {
+      // 나눠 받는 사이 다른 기기에서 자료를 지우거나 정리하면(wipe 표시가 바뀜) 앞뒤가 다른 때의 자료가 섞이므로 처음부터 한 번 더 받는다
+      type Head = Omit<typeof got, "records"> & { records?: MoodRecord[]; nos?: number[]; count?: number; wipe?: number };
+      let tries = 0;
+      for (;;) {
+        const head = await api<Head>("teacher", "export", { paged: true });
+        if (!head.nos) {
+          got = { ...head, records: head.records ?? [] };
+          break;
+        }
         const records: MoodRecord[] = [];
+        let changed = false;
         for (const [i, no] of head.nos.entries()) {
           say("export", `내보내는 중… (${i + 1}/${head.nos.length}번째 학생)`);
-          records.push(...((await api<{ records?: MoodRecord[] }>("teacher", "export", { paged: true, no })).records ?? []));
+          const part = await api<{ records?: MoodRecord[]; wipe?: number }>("teacher", "export", { paged: true, no });
+          records.push(...(part.records ?? []));
+          if (part.wipe !== undefined && head.wipe !== undefined && part.wipe !== head.wipe) changed = true;
         }
-        // 나눠 받는 사이 기록이 지워지면 처음 센 수보다 적을 수 있다(그대로 쓴다 — 한 번에 다시 받으면 큰 반은 응답 한도를 넘는다)
         got = { ...head, records };
-      } else got = { ...head, records: head.records ?? [] };
+        if (!changed) break;
+        if (++tries >= 2) return say("export", "내보내는 사이 다른 기기에서 자료를 지우고 있어요. 잠시 뒤 다시 눌러 주세요.");
+      }
     } catch (e) {
       return say("export", `내보내지 못했어요: ${(e as Error).message}`);
     }
@@ -192,7 +203,9 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
       const first = [...as].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
       // 가명은 그 글을 쓴 때로(recordAt). 쓴 때를 모르는 번호 넘긴 날 것·옮겨 둔 앞 학생 것은 앞 학생으로
       const st = students.find((x) => x.no === first.no);
-      const at = first.recordAt ?? (st?.since && !actionOwnBy(st, first) ? new Date(Date.parse(st.since) - 1).toISOString() : undefined);
+      // (넘긴 날 것만 since 바로 앞으로 — 그보다 앞 날짜는 날짜로 그때 앞 학생을 고른다: 번호를 두 번 넘긴 반)
+      const day = first.recordDate || first.date;
+      const at = first.recordAt ?? (st?.since && !actionOwnBy(st, first) && day === kday(st.since) ? new Date(Date.parse(st.since) - 1).toISOString() : undefined);
       // recordDate가 없던 예전 조치 기록은 한 날로(없으면 날짜 정렬이 깨진다)
       extra.push(other({ id, date: first.recordDate || first.date, at, no: first.no, method: METHOD[kind], line: text, risk: text ? hitsOf(text) : "있음", checked: first.createdAt }));
     }

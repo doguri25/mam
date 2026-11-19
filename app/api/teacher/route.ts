@@ -305,7 +305,8 @@ async function handle(req: NextRequest) {
       // 처음 부르면 기록이 있는 번호 목록·전체 수와 나머지(명단·조치·위험 표현)를, 그다음 번호마다 그 번호 기록만
       // (번호로 나누면 기록마다 한 번씩만 읽는다 — 달로 나누면 「그달부터」를 달마다 다시 읽어 읽기가 몇 배로 는다)
       if (body.paged === true) {
-        if (Number.isInteger(body.no)) return NextResponse.json({ records: (await recordsOf(body.no)).map(lean) });
+        // wipe: 지우기·정리 표시 — 화면이 처음 받은 것과 다르면 나눠 받는 사이 자료가 바뀐 것
+        if (Number.isInteger(body.no)) return NextResponse.json({ records: (await recordsOf(body.no)).map(lean), wipe: (await getStamp()).wipe ?? 0 });
         if (typeof body.month === "string" && /^\d{4}-\d{2}$/.test(body.month)) {
           const m = body.month;
           const [y, mo] = m.split("-").map(Number);
@@ -315,7 +316,7 @@ async function handle(req: NextRequest) {
         }
         const [all, reflects, riskyLetters] = await Promise.all([allRecords(), db().all<Reflect>("reflects"), db().find<Letter>("letters", "risk", "==", true)]);
         return NextResponse.json({
-          nos: [...new Set(all.map((r) => r.no))].filter(Number.isInteger).sort((a, b) => a - b), count: all.length,
+          nos: [...new Set(all.map((r) => r.no))].filter(Number.isInteger).sort((a, b) => a - b), count: all.length, wipe: (await getStamp()).wipe ?? 0,
           months: [...new Set(all.map((r) => r.date.slice(0, 7)))].sort(), // 예전 화면(달마다 받기)용
           students: await getRoster(), riskActions: await getRiskActions(), riskDrafts: await getRiskDrafts(),
           reflects: reflects.filter(reflectEverRisk), letters: riskyLetters,
