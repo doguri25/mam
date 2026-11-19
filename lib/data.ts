@@ -1203,8 +1203,15 @@ export async function expiredCounts(cut: string) {
   // 마음 친구 모습은 기한 앞에 명단에서 뺀 학생 것만(오늘 뺀 학생 것은 다시 넣을 수 있어 남긴다)
   const onRoster = new Set((await getRoster()).map((s) => s.no));
   counts.looks = Object.keys(await getLooks()).filter((no) => !onRoster.has(Number(no)) && leftNow[Number(no)]?.at !== undefined && leftNow[Number(no)].at < cutIso(cut)).length;
+  counts.formers = oldFormers(await getRoster(), leftNow, cutIso(cut));
   return counts;
 }
+// 기한 앞에 번호를 넘긴 앞 학생 가명(그 학생 기록은 모두 기한 앞이라 정리에서 함께 지워진다). 명단에서 뺀 학생 기록째 지우는 것은 빼고 센다.
+// 비울 때는 때(until)를 남겨 뒤 학생 구간이 그대로 이어지게 한다(학생 자료 지우기의 앞 학생 가명 지우기와 같게)
+const oldFormer = (f: Former, iso: string) => !f.wiped && f.until < iso;
+const blankOld = (fs: Former[] | undefined, iso: string) => fs?.map((f) => (oldFormer(f, iso) ? { alias: "", until: f.until, wiped: true } : f));
+const oldFormers = (roster: Student[], left: Record<string, { at: string; formers?: Former[] }>, iso: string) =>
+  [...roster.map((s) => s.formers), ...Object.values(left).filter((v) => v.at >= iso).map((v) => v.formers)].flatMap((fs) => fs ?? []).filter((f) => oldFormer(f, iso)).length;
 export async function purgeLogs(): Promise<PurgeLog[]> {
   return (await db().get<{ items: PurgeLog[] }>("meta", "purges"))?.items ?? [];
 }
@@ -1247,7 +1254,13 @@ export async function purgeBefore(cut: string): Promise<PurgeLog> {
   const leftNow = await getLeft();
   const oldLeft = Object.entries(leftNow).filter(([, v]) => v.at < iso).map(([no]) => no);
   counts.left = oldLeft.length;
-  if (oldLeft.length) await saveLeft(Object.fromEntries(Object.entries(leftNow).filter(([no]) => !oldLeft.includes(no))));
+  counts.formers = oldFormers(await getRoster(), leftNow, iso);
+  const keptLeft = Object.entries(leftNow).filter(([no]) => !oldLeft.includes(no));
+  const blanked = keptLeft.map(([no, v]) => [no, v.formers?.some((f) => oldFormer(f, iso)) ? { ...v, formers: blankOld(v.formers, iso) } : v] as const);
+  if (oldLeft.length || blanked.some(([no, v]) => v !== leftNow[Number(no)])) await saveLeft(Object.fromEntries(blanked));
+  // 명단 학생의 기한 앞 앞 학생 가명도 비운다(그사이 명단이 바뀌어도 읽고 고쳐 쓰기로)
+  await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) =>
+    cur?.students?.some((x) => x.formers?.some((f) => oldFormer(f, iso))) ? { ...cur, students: cur.students.map((x) => (x.formers?.some((f) => oldFormer(f, iso)) ? { ...x, formers: blankOld(x.formers, iso) } : x)) } : undefined);
   const onRoster = new Set((await getRoster()).map((s) => s.no));
   const goneBefore = new Set(oldLeft.map(Number));
   let looksGone = 0;
@@ -1500,62 +1513,88 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   }
   // 지우는 사이 학생이 같은 칸에 위험한 글을 새로 남겼으면(살펴보지 않은 위험 표현) 그 글은 지우지 않는다 — 읽고 지우기를 한 번에
   let skipped = 0;
-  const unseen = (x: { risk?: boolean; riskChecked?: unknown } | null) => !!x?.risk && !x.riskChecked;
-  // 마음 기록 하나하나에 갈래 문서가 붙어 있지 않으니 함께 지워도 된다(20개씩)
-  const keepNew = new Set<string>();
-  // 남기는 글도 지우기 시작한 뒤에 쓴 판만 남긴다(같은 칸에 쌓인 지우기 전 글·마음 다스리기·알림 판은 지운다)
-  const postWipe = (t?: string) => !!t && t >= start;
-  const trimRec = (cur: MoodRecord): MoodRecord => ({
-    ...cur,
-    ...(cur.prev ? { prev: cur.prev.filter((p) => postWipe(p.createdAt)) } : {}),
-    ...(cur.calm ? { calm: cur.calm.filter((c) => postWipe(c.at)) } : {}),
-    ...(cur.riskSrc ? { riskSrc: cur.riskSrc.filter(postWipe) } : {}),
-  });
-  await eachIn(myRecs, (r) => db().update<MoodRecord>("records", r.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`r${r.id}`), trimRec(cur)) : null)));
-  await eachIn(myRefs, (x) => db().update<Reflect>("reflects", x.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`f${x.id}`), cur.prev ? { ...cur, prev: cur.prev.filter((p) => postWipe(p.createdAt)) } : cur) : null)));
-  await eachIn([...mySent, ...myGot], (l) => db().update<Letter>("letters", l.id, (cur) => (!cur ? undefined : cur.status === "wait" && unseen(cur) ? (keepNew.add(`l${l.id}`), undefined) : null)));
-  skipped = keepNew.size; // 거래가 다시 돌아도 한 번만 센다
-  await eachIn(myCheers, (x) => db().del("cheers", x.id));
-  await eachIn(myNotes, (x) => db().del("notes", x.id));
-  await eachIn(mySelf, (x) => db().del("meta", x.docId ?? (x.kind === "selfAnswer" ? selfDocId(x.round, x.no) : selNoteId(x.round, x.no))));
-  // 조치 기록은 남기고 학생 글(살펴볼 때의 글)만 지운다
-  // 조치 기록은 남기고 학생 글만 지운다. 가리키던 글이 지워졌으면 그 이름도 다시 쓰이지 않는 이름(…_w때)으로 바꾼다:
-  // 같은 날 같은 칸에 다시 쓰면(같은 학생이든 번호를 받은 새 학생이든) 같은 이름이 되어, 옛 조치가 새 글에 붙어 보이지 않게
-  // (지우는 사이 새 글이 와서 남긴 칸이어도 옛 조치는 지우기 전 글에 한 것이라 이름을 바꾼다 — 새 글에 붙지 않게)
-  const wtag = `_w${Date.now().toString(36)}`;
-  const actIds = new Set(myActs.map((a) => a.id));
-  if (actIds.size) await editRiskActions((xs) => xs.map((a) => {
-    if (!actIds.has(a.id)) return a;
-    const b = a.text ? withoutText(a) : a;
-    // 이미 다시 쓰이지 않는 이름(번호를 넘길 때 옮긴 …_p때, 앞서 지운 …_w때)은 그대로
-    return isMovedId(a.recordId) || /_w[a-z0-9]{6,}$/i.test(a.recordId) ? b : { ...b, recordId: a.recordId + wtag };
-  }));
-  const draftIds = new Set(myDrafts.map((d) => d.id));
-  if (draftIds.size) await editRiskDrafts((xs) => xs.filter((d) => !(draftIds.has(d.id) && d.no === no && d.checked && mine(d.at))));
-  await eachIn(myRuns, (r) => db().update<SheetRun>("sheets", r.id, (cur) => (cur ? { ...cur, items: cur.items.filter((x) => x.no !== no) } : undefined)));
-  if (hasLook) await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
-    if (!cur?.items || !(no in cur.items)) return undefined;
-    const items = { ...cur.items };
-    delete items[no];
-    return { ...cur, items };
-  });
-  if (!former) await pruneChecks((n) => n === no);
-  // 가명 지우기: 앞 학생이면 앞 학생 가명을 비우고(때는 남겨 다른 학생 구간을 그대로), 뺀 학생이면 가명·코드·동의 날짜를 지운다
-  const blankFormer = (fs: Former[] | undefined) => (fs ?? []).map((f) => (f.until === who.slice(2) ? { alias: "", until: f.until, wiped: true } : f));
-  if (former && st) await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, formers: blankFormer(x.formers) } : x)) });
-  if (lt) {
-    const next = { ...left };
-    const e = left[no];
-    const kept = former ? { ...e, formers: blankFormer(e.formers) } : { alias: "", at: e.at, ...(e.since ? { since: e.since } : {}), ...(e.formers ? { formers: e.formers } : {}), wiped: true, wipedAt: new Date().toISOString() };
-    // 뺀 학생도 지웠고 지우지 않은 앞 학생도 없으면 기록째 지운다
-    if (kept.wiped && !(kept.formers ?? []).some((f) => !f.wiped)) delete next[no];
-    else next[no] = kept;
-    await saveLeft(next);
+  // 여기부터 지운다: 중간에 실패해도(저장소가 끊김 등) 지운 만큼은 다른 기기 선생님 화면에도 사라지게 표시를 올린다(finally)
+  try {
+    const unseen = (x: { risk?: boolean; riskChecked?: unknown } | null) => !!x?.risk && !x.riskChecked;
+    // 마음 기록 하나하나에 갈래 문서가 붙어 있지 않으니 함께 지워도 된다(20개씩)
+    const keepNew = new Set<string>();
+    // 남기는 글도 지우기 시작한 뒤에 쓴 판만 남긴다(같은 칸에 쌓인 지우기 전 글·마음 다스리기·알림 판은 지운다)
+    const postWipe = (t?: string) => !!t && t >= start;
+    const trimRec = (cur: MoodRecord): MoodRecord => ({
+      ...cur,
+      ...(cur.prev ? { prev: cur.prev.filter((p) => postWipe(p.createdAt)) } : {}),
+      ...(cur.calm ? { calm: cur.calm.filter((c) => postWipe(c.at)) } : {}),
+      ...(cur.riskSrc ? { riskSrc: cur.riskSrc.filter(postWipe) } : {}),
+    });
+    // 남기는 칸의 열린 알림이 지우기 앞 글만 가리키면(앞서 담아 둔 글이 지우는 사이에 늦게 온 것) 자르지 않고 통째로 남긴다 —
+    // 자르면 알림은 열려 있는데 가리키는 글이 비고, 지우기 앞 지금 글만 남는다. 살펴본 뒤 다시 지우면 된다(살펴보지 않은 글은 지우지 않는 규칙과 같게)
+    const keepRec = (id: string) => db().update<MoodRecord>("records", id, (cur) =>
+      !cur ? undefined : unseen(cur) ? (keepNew.add(`r${id}`), riskSrcOf(cur).some(postWipe) ? trimRec(cur) : cur) : null);
+    await eachIn(myRecs, (r) => keepRec(r.id));
+    // 읽은 뒤에 저장된 이 학생의 지우기 앞 기록(지우기 시작 전에 명단을 읽은 담아 둔 기록 보내기가 늦게 쓴 것)도 한 번 더 찾아 지운다
+    if (who === "now") {
+      const late = (await recordsOf(no)).filter((r) => mine(r.createdAt) && r.createdAt < start && !keepNew.has(`r${r.id}`));
+      await eachIn(late, (r) => keepRec(r.id));
+    }
+    await eachIn(myRefs, (x) => db().update<Reflect>("reflects", x.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`f${x.id}`), cur.prev ? { ...cur, prev: cur.prev.filter((p) => postWipe(p.createdAt)) } : cur) : null)));
+    await eachIn([...mySent, ...myGot], (l) => db().update<Letter>("letters", l.id, (cur) => (!cur ? undefined : cur.status === "wait" && unseen(cur) ? (keepNew.add(`l${l.id}`), undefined) : null)));
+    skipped = keepNew.size; // 거래가 다시 돌아도 한 번만 센다
+    await eachIn(myCheers, (x) => db().del("cheers", x.id));
+    await eachIn(myNotes, (x) => db().del("notes", x.id));
+    await eachIn(mySelf, (x) => db().del("meta", x.docId ?? (x.kind === "selfAnswer" ? selfDocId(x.round, x.no) : selNoteId(x.round, x.no))));
+    // 조치 기록은 남기고 학생 글만 지운다. 가리키던 글이 지워졌으면 그 이름도 다시 쓰이지 않는 이름(…_w때)으로 바꾼다:
+    // 같은 날 같은 칸에 다시 쓰면(같은 학생이든 번호를 받은 새 학생이든) 같은 이름이 되어, 옛 조치가 새 글에 붙어 보이지 않게
+    // (지우는 사이 새 글이 와서 남긴 칸이어도 옛 조치는 지우기 전 글에 한 것이라 이름을 바꾼다 — 새 글에 붙지 않게)
+    const wtag = `_w${Date.now().toString(36)}`;
+    const actIds = new Set(myActs.map((a) => a.id));
+    if (actIds.size) await editRiskActions((xs) => xs.map((a) => {
+      if (!actIds.has(a.id)) return a;
+      const b = a.text ? withoutText(a) : a;
+      // 이미 다시 쓰이지 않는 이름(번호를 넘길 때 옮긴 …_p때, 앞서 지운 …_w때)은 그대로
+      return isMovedId(a.recordId) || /_w[a-z0-9]{6,}$/i.test(a.recordId) ? b : { ...b, recordId: a.recordId + wtag };
+    }));
+    const draftIds = new Set(myDrafts.map((d) => d.id));
+    // 지우는 사이 같은 칸에 새 위험한 글이 와서 남기는 글(살펴보지 않음)은, 그때 끼워 둔 지우기 앞 글(earlier)을 뺀다
+    let keptDrafts = 0;
+    if (draftIds.size) await editRiskDrafts((xs) => {
+      keptDrafts = 0;
+      return xs.flatMap((d) => {
+        if (!draftIds.has(d.id) || d.no !== no) return [d];
+        if (d.checked && mine(d.at)) return [];
+        if (d.checked) return [d];
+        keptDrafts++;
+        const earlier = d.earlier?.filter((e) => postWipe(e.at));
+        if (!d.earlier || earlier?.length === d.earlier.length) return [d];
+        const rest: RiskDraft = { ...d };
+        delete rest.earlier;
+        return [earlier?.length ? { ...rest, earlier } : rest];
+      });
+    });
+    skipped += keptDrafts;
+    await eachIn(myRuns, (r) => db().update<SheetRun>("sheets", r.id, (cur) => (cur ? { ...cur, items: cur.items.filter((x) => x.no !== no) } : undefined)));
+    if (hasLook) await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
+      if (!cur?.items || !(no in cur.items)) return undefined;
+      const items = { ...cur.items };
+      delete items[no];
+      return { ...cur, items };
+    });
+    if (!former) await pruneChecks((n) => n === no);
+    // 가명 지우기: 앞 학생이면 앞 학생 가명을 비우고(때는 남겨 다른 학생 구간을 그대로), 뺀 학생이면 가명·코드·동의 날짜를 지운다
+    const blankFormer = (fs: Former[] | undefined) => (fs ?? []).map((f) => (f.until === who.slice(2) ? { alias: "", until: f.until, wiped: true } : f));
+    if (former && st) await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, formers: blankFormer(x.formers) } : x)) });
+    if (lt) {
+      const next = { ...left };
+      const e = left[no];
+      const kept = former ? { ...e, formers: blankFormer(e.formers) } : { alias: "", at: e.at, ...(e.since ? { since: e.since } : {}), ...(e.formers ? { formers: e.formers } : {}), wiped: true, wipedAt: new Date().toISOString() };
+      // 뺀 학생도 지웠고 지우지 않은 앞 학생도 없으면 기록째 지운다
+      if (kept.wiped && !(kept.formers ?? []).some((f) => !f.wiped)) delete next[no];
+      else next[no] = kept;
+      await saveLeft(next);
+    }
+    // 무엇을 언제 지웠는지만 남긴다(내용 없이 번호와 수)
+    await db().update<{ items: { at: string; no: number; who: string; counts: WipeCounts }[] }>("meta", "studentWipes", (cur) => ({ items: [...(cur?.items ?? []), { at: new Date().toISOString(), no, who: who.startsWith("f:") ? "former" : who, counts }].slice(-50) }));
+  } finally {
+    for (const k of ["wipe", "records", "other"] as const) await touch(k).catch(() => {});
   }
-  // 무엇을 언제 지웠는지만 남긴다(내용 없이 번호와 수)
-  await db().update<{ items: { at: string; no: number; who: string; counts: WipeCounts }[] }>("meta", "studentWipes", (cur) => ({ items: [...(cur?.items ?? []), { at: new Date().toISOString(), no, who: who.startsWith("f:") ? "former" : who, counts }].slice(-50) }));
-  await touch("wipe");
-  await touch("records");
-  await touch("other");
   return { counts, held: 0, onRoster: !!st, ...(skipped ? { skipped } : {}) };
 }

@@ -148,7 +148,10 @@ async function handle(req: NextRequest, body: Body) {
           const formerToken = Number.isFinite(since) && (q.at !== undefined ? q.at < since : q.date <= today(new Date(since)));
           if (Number.isFinite(since) && formerToken && ms >= since) ms = since - 1;
           const at = new Date(ms).toISOString();
-          const d: RiskDraft = { id: `${st.no}_${when.date}_${slot}`, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
+          // 앞 학생 글은 앞 학생 이름(…_p때, 번호를 넘길 때 옮긴 것과 같은 꼴)으로: 같은 칸 이름이면 새 학생이 그날 쓴 글과 한 글로 합쳐져
+          // 한 아이의 위험한 글이 다른 아이의 「먼저 쓴 글」로 보인다
+          const id = `${st.no}_${when.date}_${slot}${formerToken ? `_p${since.toString(36)}` : ""}`;
+          const d: RiskDraft = { id, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
           if (await putRiskDraft(d).catch(() => false)) alertTeacher(st.no, "기록", `risk-${d.id}`);
         }
         return bad(wipedBefore ? "예전에 담아 둔 기록이라 받지 않았어요." : "학생 코드가 바뀌었어요.", 410);

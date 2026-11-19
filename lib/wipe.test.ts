@@ -176,3 +176,74 @@ test("지운 학생 조치 기록은 다시 쓰이지 않는 이름으로 옮겨
     assert.equal((await D.getRiskActions()).some((x) => x.recordId === "4_2026-11-12_am"), false);
   });
 });
+
+// 지우는 사이에 끼어든 쓰기를 흉내 낸다: 그 문서를 처음 고쳐 쓰기 바로 앞에 한 번 fn을 부른다
+async function during(col: string, id: string, fn: () => Promise<unknown>, run: () => Promise<unknown>) {
+  const store = db() as unknown as { update: (...a: unknown[]) => Promise<unknown> };
+  const orig = store.update.bind(store);
+  let fired = false;
+  store.update = async (...a: unknown[]) => {
+    if (!fired && a[0] === col && a[1] === id) {
+      fired = true;
+      await fn();
+    }
+    return orig(...a);
+  };
+  try {
+    return await run();
+  } finally {
+    store.update = orig;
+  }
+}
+
+test("지우는 사이 같은 칸에 새 위험한 글이 와서 남기는 마치지 않은 글에는 지우기 앞 글(earlier)이 남지 않는다", async () => {
+  await inSpace("cwipe9", async () => {
+    await D.saveRoster([{ no: 5, alias: "다솜", code: "WPH555" }]);
+    const base = { id: "5_2026-11-13_am", no: 5, date: "2026-11-13", slot: "am" as const, lang: "ko" as const };
+    await D.putRiskDraft({ ...base, text: "학교 가기 싫고 죽고 싶어", hits: ["죽고 싶"], at: "2026-11-12T23:30:00.000Z", checked: "2026-11-12T23:40:00.000Z" });
+    const r = await during("meta", "riskDrafts", () => D.putRiskDraft({ ...base, text: "그냥 사라지고 싶어", hits: ["사라지고 싶"], at: new Date().toISOString(), checked: null }),
+      () => D.wipeStudent(5, false, "now"));
+    const ds = (await D.getRiskDrafts()).filter((d) => d.no === 5);
+    assert.deepEqual(ds.map((d) => [d.text, d.earlier]), [["그냥 사라지고 싶어", undefined]]);
+    assert.equal((r as { skipped?: number }).skipped, 1); // 남긴 글로 센다(선생님께 살펴보라고)
+  });
+});
+
+test("지우는 사이 늦게 온 지우기 앞 위험한 글이 칸의 알림을 열면, 알림이 가리키는 글을 잘라 내지 않는다", async () => {
+  await inSpace("cwipe10", async () => {
+    await D.saveRoster([{ no: 6, alias: "누리", code: "WPJ666" }]);
+    const id = "6_2026-11-13_am";
+    await db().set("records", id, rec(6, "2026-11-13", { id, summary: "아침에 쓴 보통 글", createdAt: "2026-11-12T23:30:00.000Z" }));
+    const early = "2026-11-12T23:25:00.000Z";
+    const lateRisky = () => db().update<Record<string, unknown>>("records", id, (cur) => cur && {
+      ...cur, risk: true, riskSelf: false, riskChecked: null, riskAt: new Date().toISOString(), riskSrc: [early],
+      prev: [{ ...cur, summary: "죽고 싶어", risk: true, riskHits: ["죽고 싶"], createdAt: early }],
+    });
+    const r = await during("records", id, lateRisky, () => D.wipeStudent(6, false, "now"));
+    const got = await db().get<{ riskSrc?: string[]; prev?: { summary: string; createdAt: string }[] }>("records", id);
+    assert.deepEqual(got?.riskSrc, [early]);
+    assert.deepEqual(got?.prev?.map((p) => p.summary), ["죽고 싶어"]); // 알림 글이 남아 선생님이 살펴볼 수 있다
+    assert.equal((r as { skipped?: number }).skipped, 1);
+  });
+});
+
+test("지우는 사이 늦게 저장된 지우기 앞 기록도 지운다", async () => {
+  await inSpace("cwipe11", async () => {
+    await D.saveRoster([{ no: 7, alias: "보미", code: "WPK777" }]);
+    await db().set("records", "7_2026-11-12_am", rec(7, "2026-11-12"));
+    const late = () => db().set("records", "7_2026-11-13_am", rec(7, "2026-11-13", { id: "7_2026-11-13_am", createdAt: "2026-11-12T23:25:00.000Z" }));
+    await during("records", "7_2026-11-12_am", late, () => D.wipeStudent(7, false, "now"));
+    assert.deepEqual((await D.recordsOf(7)).map((x) => x.id), []);
+  });
+});
+
+test("지우다가 저장소가 끊겨도 다른 기기 선생님 화면이 지운 기록을 다시 읽게 표시를 올린다", async () => {
+  await inSpace("cwipe12", async () => {
+    await D.saveRoster([{ no: 8, alias: "하람", code: "WPL888" }]);
+    await db().set("records", "8_2026-11-12_am", rec(8, "2026-11-12", { id: "8_2026-11-12_am" }));
+    await D.saveRiskActions([{ id: "d1", no: 8, recordId: "8_2026-11-12_am", recordDate: "2026-11-12", date: "2026-11-12", kinds: ["talk"], note: "", text: "글", recordAt: at("2026-11-12"), createdAt: at("2026-11-12") }] as never);
+    const before = (await D.getStamp()).wipe ?? 0;
+    await assert.rejects(during("meta", "riskActions", async () => { throw new TypeError("fetch failed"); }, () => D.wipeStudent(8, false, "now")), /fetch failed/);
+    assert.ok(((await D.getStamp()).wipe ?? 0) > before);
+  });
+});

@@ -73,3 +73,22 @@ test("기한 앞에 살펴보지 않은 위험 표현이 있으면 정리하지 
     assert.deepEqual((await db().all<{ id: string }>("records")).map((r) => r.id), ["3_new_am"]);
   });
 });
+
+test("기한 앞에 번호를 넘긴 앞 학생 가명도 비운다(때는 남겨 뒤 학생 구간은 그대로)", async () => {
+  await inSpace("cpurgef", async () => {
+    const D = await import("./data.ts");
+    await D.saveRoster([{ no: 3, alias: "나래", code: "ABC333", since: "2026-06-01T00:00:00.000Z", formers: [{ alias: "가온", until: "2026-06-01T00:00:00.000Z" }] },
+      { no: 4, alias: "보라", code: "ABC444", since: "2026-04-01T00:00:00.000Z", formers: [{ alias: "시월", until: "2026-04-01T00:00:00.000Z" }] }]);
+    await D.saveLeft({ 5: { alias: "라온", at: "2027-03-03T00:00:00.000Z", since: "2026-06-01T00:00:00.000Z", formers: [{ alias: "다온", until: "2026-06-01T00:00:00.000Z" }] } });
+    assert.equal((await expiredCounts("2026-05-01")).formers, 1); // 4번 앞 학생(4월에 넘김)만
+    const log = await purgeBefore("2026-05-01");
+    assert.equal(log.counts.formers, 1);
+    const roster = await D.getRoster();
+    assert.deepEqual(roster.map((s) => s.formers?.map((f) => f.alias)), [["가온"], [""]]);
+    assert.equal(roster[1].formers?.[0].until, "2026-04-01T00:00:00.000Z");
+    await purgeBefore("2027-03-01");
+    assert.deepEqual((await D.getRoster()).map((s) => s.formers?.map((f) => f.alias)), [[""], [""]]);
+    assert.deepEqual((await D.getLeft())[5].formers, [{ alias: "", until: "2026-06-01T00:00:00.000Z", wiped: true }]);
+    assert.deepEqual((await D.wipeTargets()).map((t) => t.label), ["3번 나래", "4번 보라", "5번 라온 (명단에서 뺌)"]);
+  });
+});

@@ -7,6 +7,7 @@ import { assistReply, inTime } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
 import { aiConfig, aiMissing, getPin, getRiskDrafts, getRoster, getSelNotes, getSelfAnswers, getSelfRounds, getSettings, recordsFrom, recordsOf, riskyRecords, withOpenRisks } from "@/lib/data";
 import { addDays, today } from "@/lib/date";
+import { isNetworkError } from "@/lib/turso";
 import { db, inSpace, isDemo } from "@/lib/db";
 import { clientIp, trialEditWait, waitText, withIp } from "@/lib/limit";
 import { riskAlerts } from "@/components/teacher/alerts";
@@ -133,7 +134,8 @@ async function handle(req: NextRequest) {
   } catch (e) {
     console.error("선생님 도우미 실패", e);
     // 모양이 틀린 값(글자 자리에 객체 등)은 400, 우리가 쓴 안내(한글)만 보여 주고 실행 오류 글은 내보내지 않는다
-    if (e instanceof TypeError) return bad("요청이 올바르지 않아요.", 400);
+    // (저장소 연결이 끊긴 「fetch failed」도 TypeError다 — 그것은 400이 아니라 아래 「잠시 뒤 다시」로: 다시 하면 되는 일이라고 알리게)
+    if (e instanceof TypeError && !isNetworkError(e)) return bad("요청이 올바르지 않아요.", 400);
     return bad(e instanceof Error && /[가-힣]/.test(e.message) ? e.message.slice(0, 200) : "잠시 뒤 다시 해 주세요.", 500);
   }
 }
