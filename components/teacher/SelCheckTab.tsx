@@ -45,10 +45,13 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
   const first = useRef(true); // 처음 불러올 때만 볼 회차·견줄 회차를 골라 준다
   const detail = useRef<HTMLDivElement>(null);
 
+  // 이 화면에서 바꾼 횟수: 그보다 먼저 나간 다시 읽기 답은 버린다(방금 연 회차·적은 관찰이 옛 답으로 잠깐 되돌아가지 않게)
+  const mut = useRef(0);
   useEffect(() => {
     let live = true;
+    const m = mut.current;
     api<SelData>("teacher", "selfChecks").then((r) => {
-      if (!live) return;
+      if (!live || m !== mut.current) return;
       setD(r);
       const has = (id: string | null) => !!id && r.rounds.some((x) => x.id === id);
       if (first.current) {
@@ -68,6 +71,7 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
   }, [version]);
 
   async function act(action: string, body: Record<string, unknown>) {
+    mut.current++;
     setBusy(true);
     setErr("");
     try {
@@ -96,7 +100,12 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
     if (no != null) onPick?.(no); // AI 도우미의 「이 학생」이 지금 보는 학생이 되게
     if (no != null) requestAnimationFrame(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
-  const onSaved = (note: SelNote) => setD((cur) => cur && { ...cur, notes: [...cur.notes.filter((n) => !(n.round === note.round && n.no === note.no)), note] });
+  const onSaved = (note: SelNote) => {
+    mut.current++;
+    // 번호를 새 학생에게 줄 때 옮겨 둔 앞 학생 것(docId)은 그대로 둔다
+    setD((cur) => cur && { ...cur, notes: [...cur.notes.filter((n) => n.docId || !(n.round === note.round && n.no === note.no)), note] });
+  };
+  const onData = (x: SelData) => { mut.current++; setD(x); };
   const answeredIn = (id: string) => rowsOf(d, data.students, id, null).filter((r) => r.scores).length;
 
   return (
@@ -181,7 +190,7 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
           {mode === "obs" ? "관찰을 적을 회차가 필요해요. 위에서 회차 이름을 쓰고 「선생님 관찰만 하기」를 누르면 학생 화면에 열지 않고 회차를 만들어요." : "아직 회차가 없어요. 위에서 「학기 초」 회차를 열어 보세요."}
         </div>
       ) : mode === "paper" ? (
-        <SelPaper round={round} rows={rows} data={data} who={who} onData={setD} />
+        <SelPaper round={round} rows={rows} data={data} who={who} onData={onData} />
       ) : mode === "obs" ? (
         <ObsSheet round={round} rows={rows} who={who} onSaved={onSaved} />
       ) : (

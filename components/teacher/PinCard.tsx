@@ -5,6 +5,9 @@ import Doodle from "../Doodle";
 import { api } from "@/lib/api";
 import type { Reload } from "./types";
 
+// 비밀번호를 바꾸기 바로 전에 보내는 알림(선생님 화면 page.tsx가 받는다)
+export const PIN_CHANGING = "mb-pin-changing";
+
 export default function PinCard({ pinSet, reload }: { pinSet: boolean; reload: Reload }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -30,6 +33,7 @@ export default function PinCard({ pinSet, reload }: { pinSet: boolean; reload: R
     try {
       // 이 기기의 휴대폰 알림은 그대로 두고, 다른 기기 알림은 모두 끈다
       const keep = await navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).catch(() => null);
+      window.dispatchEvent(new Event(PIN_CHANGING)); // 페이지가 옛 표로 떠난 요청의 401로 이 기기를 잠그지 않게
       const r = await api<{ pushRemoved?: number }>("teacher", "changePin", { current, next, ...(keep ? { keepEndpoint: keep.endpoint } : {}) });
       const off = r.pushRemoved ? ` 알림 받던 다른 기기 ${r.pushRemoved}대의 알림도 껐어요.` : "";
       setMsg({ ok: true, text: `바꿨어요. 다른 기기에서 열려 있던 선생님 화면은 잠겼어요. 새 비밀번호로 다시 열면 돼요.${off}` });

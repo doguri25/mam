@@ -39,8 +39,9 @@ export default function LettersPage() {
     if (sending) return;
     setSending(true);
     setMsg(null);
+    let reply = "";
     try {
-      await api("student", "letter", { to, text, showName, lang });
+      reply = (await api<{ reply?: string }>("student", "letter", { to, text, showName, lang })).reply ?? "";
     } catch (e) {
       setMsg({ ok: false, text: errText(lang, (e as Error).message) });
       setSending(false);
@@ -48,10 +49,11 @@ export default function LettersPage() {
     }
     // 쪽지는 갔다. 「보낸 쪽지」를 다시 읽지 못해도(와이파이가 잠깐 끊김) 못 보낸 것처럼 보이지 않게 따로 다룬다
     // → 아이가 같은 쪽지를 또 보내지 않게. 다시 읽기는 조용히 몇 초 뒤 한 번 더 해 본다.
-    setMsg({ ok: true, text: tt("lettersSentOk") });
+    // 위험한 말이 있었으면 축하하지 않고 고맙다는 말(선생님께는 이미 알렸다)
+    setMsg({ ok: true, text: reply || tt("lettersSentOk") });
     setText("");
     setTo(null);
-    setCheer((n) => n + 1);
+    if (!reply) setCheer((n) => n + 1);
     setSending(false);
     load().catch(() => setTimeout(() => load().catch(() => {}), 3_000));
   }

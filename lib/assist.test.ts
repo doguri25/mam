@@ -132,3 +132,31 @@ test("AI 답 정리: 번호는 한 학생을 여는 화면에만, 영어 글의 
   assert.equal(out.reply, "Answer yes or no: please reply. 3번을 보세요.");
   assert.deepEqual(out.go, [{ tab: "sel" }, { tab: "student", no: 3 }, { tab: "cheer", no: 3 }]);
 });
+
+test("실명 가리기: 조사가 여러 개 붙어도, 소식지처럼 성까지 쓴 이름만 바꿀 때는 낱말을 건드리지 않는다", () => {
+  const names = { 11: "김민준", 12: "이서연", 7: "김하나", 9: "박가을" };
+  for (const q of ["민준이까지", "민준이요?", "민준이한테서", "민준이랑은", "민준이에게는", "민준이부터", "민준이에요", "민준이한테도", "서연이와도", "서연이는요?"])
+    assert.ok(!/민준|서연/.test(hideNames(q, names).text), q);
+  assert.equal(hideNames("가을 하늘이 높고 학습지 하나 더", names, { full: true }).text, "가을 하늘이 높고 학습지 하나 더");
+  assert.equal(hideNames("박가을 어머니께", names, { full: true }).text, "9번 어머니께");
+});
+
+test("학생 찾기: 「3번하고 7번」「3번이나 7번」「3번 더 살펴볼」, 「단풍, 요즘 어때?」", () => {
+  const st = [{ no: 3, alias: "단풍" }, { no: 7, alias: "구름" }];
+  assert.deepEqual(mentionedNos("3번하고 7번 사이가 안 좋아요", st), [3, 7]);
+  assert.deepEqual(mentionedNos("3번이나 7번 중에", st), [3, 7]);
+  assert.deepEqual(mentionedNos("3번 더 살펴봐야 할까요", st), [3]);
+  assert.deepEqual(mentionedNos("하루 3번 더 해도 될까", st), []);
+  assert.deepEqual(mentionedNos("단풍, 요즘 어때?", st), [3]);
+  assert.deepEqual(mentionedNos("단풍 요즘 어때?", st), [3]);
+});
+
+test("위기 안내: 「아이들에게 맞는 활동」「말씀이 맞아요」는 아니고, 「극단적인 선택」「아이가 맞았는데」「맞는대요」는 위기", () => {
+  for (const q of ["우리 반 아이들에게 맞는 활동 추천해 줘", "3학년에게 맞는 그림책", "저한테 맞는 업무 정리 방법", "어머니 말씀이 맞아요", "보호자 연락처가 맞아요?", "정답 맞았어요"])
+    assert.deepEqual(crisisOf(q), [], q);
+  assert.deepEqual(crisisOf("학생이 극단적인 선택을 하고 싶다고 했어요"), ["suicide"]);
+  assert.deepEqual(crisisOf("극단 선택 시도"), ["suicide"]);
+  assert.deepEqual(crisisOf("아이가 맞았는데 어떻게 처리해요?"), ["violence"]);
+  assert.deepEqual(crisisOf("친구들한테 여러 번 맞았대요"), ["violence"]);
+  assert.deepEqual(crisisOf("엄마한테 자꾸 맞아요"), ["abuse"]);
+});

@@ -19,14 +19,20 @@ interface Sub {
   createdAt: string;
 }
 
-// 브라우저가 주는 알림 서버 주소(크롬·삼성 인터넷=FCM, 엣지=WNS, 파이어폭스=Mozilla, 사파리=Apple)만 받는다
-const PUSH_HOSTS = ["fcm.googleapis.com", "android.googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com"];
+// 브라우저가 주는 알림 서버 주소. 크롬·삼성 인터넷=FCM(fcm.googleapis.com), 엣지=WNS(*.notify.windows.com),
+// 파이어폭스=Mozilla(updates.push.services.mozilla.com), 사파리=Apple(web.push.apple.com). 웨일 같은 다른 브라우저 주소도
+// 받아야 해서 목록으로 막지는 않고, 서버가 학교·서버 안쪽 주소로 보내지 않게만 막는다:
+// https, 기본 포트, 이름 있는 주소(IP 숫자 주소·localhost·점 없는 이름은 빼고), 1000자까지.
 export const PUSH_MAX = 10; // 학급마다 알림 받는 기기 수
 export function pushEndpointOk(v: unknown): v is string {
   if (typeof v !== "string" || v.length > 1000) return false;
   try {
     const u = new URL(v);
-    return u.protocol === "https:" && PUSH_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
+    const h = u.hostname.toLowerCase();
+    if (u.protocol !== "https:" || u.port || u.username || u.password) return false;
+    if (!h.includes(".") || h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return false;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.startsWith("[") || h.includes(":")) return false; // IP 숫자 주소
+    return /^[a-z0-9.-]+$/.test(h);
   } catch {
     return false;
   }

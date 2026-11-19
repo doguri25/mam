@@ -2,7 +2,7 @@
 // 학생 이름은 보내지 않는다(가명·기록만).
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { leaks } from "./rules.ts";
+import { leaks, matchRisk } from "./rules.ts";
 import { STYLE_RULES, polish, polishAll, styleHits } from "./style.ts";
 import { SKIP, fallbackFor, langOf, type Lang } from "./i18n.ts";
 import { ALL_SUB_WORDS, EMOTION_NAMES, REASON_NAMES, SUB_WORDS, isWordOf, SEL_AREAS, TONES, emotionOf, type MoodRecord, type Provider, type SheetItem, type SheetPoint } from "./shared.ts";
@@ -81,6 +81,9 @@ export function aiError(e: unknown): Error {
   const message = String(err.message ?? "");
   if (/abort|timeout/i.test(name) || /timed? ?out|aborted/i.test(message)) return new Error("AI 답이 너무 늦어요. 잠시 뒤 다시 눌러 주세요.");
   const status = Number(err.status) || 0;
+  // 상태 번호만으로는 모자라다: 제미나이는 틀린 키를 400으로, 클로드는 크레딧 부족을 400으로, OpenAI는 사용량 소진을 429로 알린다
+  if (/API key not valid|API_KEY_INVALID|invalid[ _-]?(x-)?api[ _-]?key|incorrect api key/i.test(message)) return new Error("AI 키가 맞지 않아요. 「설정」에서 키를 확인해 주세요.");
+  if (/credit balance|insufficient_quota|billing|exceeded your current quota/i.test(message)) return new Error("이 AI 키의 사용 한도(크레딧)를 다 썼어요. AI 회사 누리집에서 결제·한도를 확인하거나 다른 키를 넣어 주세요.");
   if (status === 401 || status === 403) return new Error("AI 키가 맞지 않아요. 「설정」에서 키를 확인해 주세요.");
   if (status === 404) return new Error("AI 모델을 찾지 못했어요. 「설정」에서 모델 이름을 확인해 주세요.");
   if (status === 429) return new Error("AI 사용량이 잠시 넘쳤어요. 조금 뒤 다시 눌러 주세요.");
@@ -282,10 +285,12 @@ export function shape(input: AnalyzeInput, out: Record<string, unknown>): Analys
   const reason = card?.reason ?? (REASON_NAMES.includes(str(out.reason)) ? str(out.reason) : "그냥");
   const lang = input.lang ?? "ko";
   const ko = (s: string) => (lang === "ko" ? polish(s) : s);
-  const opts = [...new Set(strs(out.options).map((o) => o.trim()).filter((o) => o !== SKIP[lang]))].slice(0, 2).map(ko);
+  const opts = [...new Set(strs(out.options).map((o) => o.trim()).filter((o) => o !== SKIP[lang]))].slice(0, 2).map(ko).map((o) => o.slice(0, 24));
   const question = ko(str(out.question).trim()).slice(0, 80);
   const fb = fallbackQuestion(reason, emotion, lang);
-  const fromAI = !!question && opts.length > 0;
+  // AI가 지은 되묻기·답 단추에 위험한 말이 있으면 쓰지 않는다(아이에게 그 말을 건네거나, 아이가 누른 AI의 말이 아이 답으로 남아
+  // 위험 알림이 되지 않게) — 기본 되묻기로
+  const fromAI = !!question && opts.length > 0 && !matchRisk([question, ...opts].join(" "), []).length;
   const word = str(out.word);
   return {
     emotion,
@@ -331,8 +336,10 @@ export async function cheer(ai: AI, alias: string, records: MoodRecord[], vocab:
   const found = [...new Set(drafts.flatMap(leaks))];
   if (found.length) {
     const again = await ask(`\n- 지난 초안에 「${found.join("」, 「")}」 같은 말이 들어갔어. 이런 말은 빼고 다시 써.`).catch(() => drafts);
-    if (again.flatMap(leaks).length < drafts.flatMap(leaks).length) drafts = again;
+    // 다시 쓴 것이 비었거나 줄었으면 앞 초안을 둔다(빈 초안으로 바꿔 화면이 아무것도 보이지 않게 되지 않게)
+    if (again.length >= drafts.length && again.flatMap(leaks).length < drafts.flatMap(leaks).length) drafts = again;
   }
+  if (!drafts.length) throw new Error("AI 답이 비어 있어요. 다시 눌러 주세요.");
   // styles: 바로 고치지 못한 번역투·기계식 표현(선생님이 보고 다듬게)
   return { drafts, warns: drafts.map((d) => leaks(d).join(", ")), styles: drafts.map((d) => styleHits(d)) };
 }
@@ -362,8 +369,9 @@ export async function selFeedback(ai: AI, input: SelDraftInput) {
   const found = hits(drafts);
   if (found.length) {
     const again = await ask(`\n- 지난 초안에 「${found.join("」, 「")}」 같은 말이 들어갔어. 이런 말은 빼고 다시 써.`).catch(() => drafts);
-    if (hits(again).length < found.length) drafts = again;
+    if (again.length >= drafts.length && hits(again).length < found.length) drafts = again;
   }
+  if (!drafts.length) throw new Error("AI 답이 비어 있어요. 다시 눌러 주세요.");
   return { drafts, warns: drafts.map((d) => (d.match(SEL_LEAK) ?? []).join(", ")), styles: drafts.map((d) => styleHits(d)) };
 }
 
@@ -499,7 +507,8 @@ export async function reflectReply(ai: AI, input: { lang: Lang; text: string; we
   const out = await callJSON(ai, REFLECT_SYSTEM, JSON.stringify({ ...input, lang: langOf(input.lang).ai }), "reflect", obj({ reply: { type: "string" } }));
   const raw = str(out.reply).trim();
   const reply = (input.lang === "ko" ? polish(raw) : raw).slice(0, 160);
-  if (!reply || leaks(reply).length) throw new Error("답이 알맞지 않아요"); // 빈 배열도 참이라 .length로 본다
+  // 빈 배열도 참이라 .length로 본다. 마음 친구 답에 위험한 말이 섞이면 쓰지 않는다(화면은 기본 「고마워」로)
+  if (!reply || leaks(reply).length || matchRisk(reply, []).length) throw new Error("답이 알맞지 않아요");
   return reply;
 }
 
@@ -523,8 +532,10 @@ export async function referralDraft(ai: AI, input: { alias: string; records: unk
 export async function translateNotice(ai: AI, text: string, lang: Exclude<Lang, "ko">) {
   const system = `너는 초등학교 가정 안내문을 번역하는 도우미야. 받은 한국어 안내문을 ${langOf(lang).ai}로 자연스럽게 번역해.
 줄 나눔과 제목·목록 모양은 그대로 두고, 학부모가 읽기 쉬운 공손한 말로. 새 내용을 더하지 마.`;
-  const out = await callJSON(ai, system, text.slice(0, 4000), "translate", obj({ text: { type: "string" } }));
-  return str(out.text).slice(0, 6000);
+  // 뒷부분이 말없이 잘린 번역본이 집으로 가지 않게: 너무 긴 글은 받지 않고, 번역본은 넉넉히(한국어보다 2~3배 길어질 수 있다)
+  if (text.length > 4000) throw new Error(`소식지가 너무 길어요(${text.length}자). 4,000자 안으로 줄여서 번역해 주세요.`);
+  const out = await callJSON(ai, system, text, "translate", obj({ text: { type: "string" } }));
+  return str(out.text).slice(0, 15000);
 }
 
 // ── 활동지 피드백: 스캔한 활동지(글·그림)를 보고 사회정서교육 4대 핵심역량에 비추어 피드백과 그 이유를 쓴다 ──

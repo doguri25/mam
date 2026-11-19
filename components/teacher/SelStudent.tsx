@@ -26,7 +26,7 @@ export function Delta({ v, small }: { v: number; small?: boolean }) {
   return <span className={`ml-1 font-bold ${small ? "text-[10px]" : "text-xs"} ${r > 0 ? "text-[#1d7144]" : "text-[#b8352d]"}`}>{r > 0 ? "▲" : "▼"}{Math.abs(r)}</span>;
 }
 
-const LEAK = /아주 ?잘함|자라나는 ?중|도움 ?필요|점수|진단|검사|\d+ ?점/g;
+const LEAK = /아주 ?잘함|자라나는 ?중|도움 ?필요|점수|진단|검사|결과|\d+ ?점/g; // lib/ai.ts SEL_LEAK과 같게
 const when = (iso: string) => {
   const d = today(new Date(iso));
   return `${label(d)} ${new Date(iso).toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Seoul" })}`;

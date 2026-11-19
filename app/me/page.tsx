@@ -16,6 +16,7 @@ import { atMe, leftMe, useBackGuard, useBackSteps } from "@/lib/back";
 import { useSpeech } from "@/components/useSpeech";
 import { slotNow, today as kToday } from "@/lib/date";
 import { api, isTimeout } from "@/lib/api";
+import { matchRisk } from "@/lib/rules";
 import { CHEER, CHEER_TIRED, LANGS, RISK_REPLY, errText, fallbackFor, isLang, langOf, t, w, type Lang, type UIKey } from "@/lib/i18n";
 import { speak, useLocal } from "@/lib/local";
 import { useStudentLang } from "@/components/StudentFrame";
@@ -619,6 +620,9 @@ export default function MePage() {
         record = { ...payload, id: `${me!.no}_${me!.today}_${sl}`, no: me!.no, date: me!.today, createdAt: "" } as unknown as MoodRecord;
         queued = payload.saveId;
         setOffline(true);
+        // 끊긴 채 담아 두면 서버가 위험한 말을 살펴 고맙다는 말을 줄 수 없다 → 늘 살피는 말로 이 기기에서 먼저 살핀다
+        // (선생님 알림은 연결되면 서버가 보낸다)
+        if (matchRisk([payload.summary, ans].filter(Boolean).join(" "), []).length) said = RISK_REPLY[lang];
       }
       const today = me!.today;
       // 저장 전에 물은 me 답이 늦게 와도, 담아 둔 기록이 서버에 가기 전에 다시 물은 me 답이 와도 이 기록을 지우지 않게
@@ -849,6 +853,8 @@ export default function MePage() {
                   <p className="text-sm text-soft">{tt("youSaid")}</p>
                   <p className="mt-1 text-lg">“{text}”</p>
                   <p className="mt-2 font-bold">{tt("heard")}<SayBtn lang={lang} text={tt("heard")} /></p>
+                  {/* 위험한 말이라 되묻지 않을 때: 서버가 보낸 고맙다는 말을 바로 보인다(「다음」을 누르기 전에도) */}
+                  {qa.skip && qa.question && <p className="mt-3 rounded-2xl bg-card p-3">{qa.question}<SayBtn lang={lang} text={qa.question} /></p>}
                 </div>
               ) : (
                 note && <p className="rounded-2xl bg-leaf-soft p-3">{msg(note)}</p>

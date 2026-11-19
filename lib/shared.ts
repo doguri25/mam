@@ -230,6 +230,8 @@ export const RISK_CORE = [
   "그만 살고 싶", "나는 죽어야", "난 죽어야", "내가 죽어야", "목숨을 끊", "죽으면 편할", "삶이 싫",
   "제가 사라지면 좋겠", "제가 없어지면 좋겠", "제가 사라졌으면 좋겠", "제가 없어졌으면 좋겠", "제가 죽었으면 좋겠", "저는 죽었으면 좋겠", "전 죽었으면 좋겠",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
+  // 앞 낱말은 꼴이 같아야 해서(「killing」은 「kill」에 걸리지 않음) 흔한 다른 꼴도 따로
+  "killing myself", "killing my self", "cutting myself", "hurting myself", "wanted to die", "rather be dead", "want to stop living", "not worth living",
   "disappear forever", "want to disappear", "don't want to live",
   "want to be dead", "wish i was dead", "wish i were dead", "hate my life", "end my life", "don't want to be alive",
   "want die", "wish i could disappear", "hate myself", "killmyself", "selfharm", "cut my self", "hurt my self",
@@ -244,7 +246,7 @@ export const RISK_CORE = [
   "hang myself", "cut my wrist", "stab myself", "go die", "abuse me", "abuses me", "abused me", "abusing me", "beaten by my", "beaten up",
   "smack me", "smacked me", "smacks me", "smacking me", "spank me", "spanked me", "spanks me", "spanking me",
   "whip me", "whipped me", "whips me", "whipping me",
-  "想死", "不想活", "活不下去", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "想消失",
+  "想死", "我想要死", "不要活了", "不想活", "活不下去", "自杀", "自殺", "伤害自己", "傷害自己", "被打", "打我", "欺负", "欺負", "霸凌", "想消失",
   "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "活著沒意思", "想杀", "恨自己", "恨我自己",
   "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我", "揍了我", "踢我", "踢了我", "被踢",
   "把我打", "把我揍", "把我踢", "掐脖子", "扇我", "耳光", "抽我", "割自己", "自残", "踹我", "踹了我", "踹倒我", "踹倒了我", "被踹",
@@ -259,7 +261,8 @@ export const RISK_CORE = [
   "ぶたれ", "ころしたい", "殺したい", "ころしてやる", "殺してやる", "しねって", "死ね",
   "ぼくをたたく", "をなぐっ", "をなぐる", "殴っ", "殴る",
   "自分を傷つけ", "リストカット", "手首を切", "首をつり", "首をしめられ",
-  "しんだほうがまし", "死んだほうがまし", "死んだ方がまし", "しんじゃえ", "死んじゃえ",
+  "しんだほうがまし", "死んだほうがまし", "死んだ方がまし", "死んだほうがいい", "死んだ方がいい", "しんだほうがいい",
+  "生きてる意味がない", "生きる意味がない", "いきてるいみがない", "いきるいみがない", "しんじゃえ", "死んじゃえ",
 ];
 
 export function emotionOf(name: string) {
@@ -283,6 +286,7 @@ export interface Student {
   // 학생 화면에는 보이지 않고, 선생님 화면에는 「앞 학생」으로 보인다(전학 온 학생에게 빈 번호를 주거나 새 학년에 명단만 바꿀 때)
   since?: string;
   formers?: Former[]; // 앞서 이 번호를 쓴 학생들(오래된 차례, 몇 명까지만)
+  joined?: string; // 이 반에 처음 넣은 때(ISO, 새 번호·연습 학생을 실제 학생으로 바꾼 번호). 첫날부터 「기록 없음」으로 세지 않게
 }
 // 앞서 이 번호를 쓴 학생: 가명과, 그 학생이 이 번호를 쓴 마지막 때(ISO)
 export interface Former { alias: string; until: string }

@@ -44,8 +44,9 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
     setBusy(true);
     setErr("");
     try {
-      // 선생님이 쓴 글에 학생 실명이 있으면 번호로 바꿔 보낸다(실명은 이 기기에만)
-      setTranslated((await api<{ text: string }>("teacher", "translate", { text: hideNames(whole, names).text, lang })).text);
+      // 선생님이 쓴 글에 학생 실명(성까지 다 쓴 이름)이 있으면 번호로 바꿔 보낸다(실명은 이 기기에만).
+      // 성을 뗀 이름은 바꾸지 않는다: 「가을 하늘」 같은 말이 번호로 바뀐 번역본이 집으로 가지 않게
+      setTranslated((await api<{ text: string }>("teacher", "translate", { text: hideNames(whole, names, { full: true }).text, lang })).text);
     } catch (e) {
       setErr((e as Error).message);
     }

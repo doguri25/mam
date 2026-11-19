@@ -8,6 +8,7 @@ import { GO_TABS, hideNames, type ChatMsg, type Contact, type Go } from "@/lib/a
 import { crisisById, type CrisisId } from "@/lib/crisis";
 import { CrisisCard, Md } from "./assistUi";
 import type { OverviewRaw } from "./types";
+import { kday } from "./when"; // 시각은 UTC로 저장된다 — 한국 날짜로(아침 9시 전 대화가 전날로 보이지 않게)
 
 interface ThreadRow { id: string; title: string; updatedAt: string; count: number }
 type Shown = ChatMsg & { hid?: boolean; added?: string[]; fail?: boolean };
@@ -120,7 +121,7 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
           {saved && threads.length > 0 && (
             <select aria-label="지난 대화" value={thread ?? ""} disabled={busy} onChange={(e) => open(e.target.value)} className="h-10 max-w-[12rem] rounded-xl border border-line bg-card px-2 text-sm">
               <option value="">지난 대화 {threads.length}개</option>
-              {threads.map((t) => <option key={t.id} value={t.id}>{t.updatedAt.slice(5, 10).replace("-", "/")} {t.title}</option>)}
+              {threads.map((t) => <option key={t.id} value={t.id}>{kday(t.updatedAt).slice(5).replace("-", "/")} {t.title}</option>)}
             </select>
           )}
           {/* 답을 기다리는 동안에는 대화를 바꾸거나 지우지 않는다(늦게 온 답이 지운 대화를 되살리지 않게) */}

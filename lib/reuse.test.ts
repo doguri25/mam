@@ -145,3 +145,52 @@ test("withDataFor: 그 번호로 남은 기록·쪽지·돌아보기가 있는 �
     assert.deepEqual([...(await withDataFor([1, 2, 3]))].sort(), [2, 3]);
   });
 });
+
+test("withDataFor: 종이 검사·면담 메모·응원·마음 친구만 남은 번호도 묻는다", async () => {
+  await inSpace("creuse_paper", async () => {
+    await db().set("meta", "selnote_r1_7", { kind: "selNote", round: "r1", no: 7, paper: [20, 20, 20, 20], at: "2026-11-01T00:00:00Z" });
+    await db().set("notes", "n1", { id: "n1", no: 8, text: "메모", createdAt: "2026-11-01T00:00:00Z" });
+    await db().set("cheers", "c1", { id: "c1", no: 9, text: "응원", createdAt: "2026-11-01T00:00:00Z" });
+    await saveLook(10, { name: "콩이", color: 0, acc: "none" } as never);
+    assert.deepEqual([...(await withDataFor([6, 7, 8, 9, 10]))].sort((a, b) => a - b), [7, 8, 9, 10]);
+  });
+});
+
+test("startFresh: 역량 진단 답·선생님 관찰은 다른 이름으로 옮겨 새 학생이 덮지 않게(지울 때는 옮긴 이름으로)", async () => {
+  const { saveSelfRounds, getSelfAnswers, getSelNotes, deleteSelfData } = await import("./data.ts");
+  await inSpace("creuse_sel", async () => {
+    await saveSelfRounds([{ id: "r1", title: "학기 초", openedAt: "2026-11-01", closedAt: null } as never]);
+    await db().set("meta", "self_r1_5", { kind: "selfAnswer", round: "r1", no: 5, answers: Array(32).fill(3), at: "2026-11-02T00:00:00Z" });
+    await db().set("meta", "selnote_r1_5", { kind: "selNote", round: "r1", no: 5, memo: "앞 학생 메모", at: "2026-11-02T00:00:00Z" });
+    await startFresh([5]);
+    assert.equal(await db().get("meta", "self_r1_5"), null);
+    assert.equal(await db().get("meta", "selnote_r1_5"), null);
+    const a = await getSelfAnswers(), n = await getSelNotes();
+    assert.equal(a.length, 1);
+    assert.match(String(a[0].docId), /^self_r1_5_p/);
+    assert.equal(n[0].memo, "앞 학생 메모");
+    await deleteSelfData(() => false);
+    assert.deepEqual([(await getSelfAnswers()).length, (await getSelNotes()).length], [0, 0]);
+  });
+});
+
+test("명단 읽기: 처음 넣은 번호에는 넣은 때(joined)를 적고, 같은 학생이면 그대로 둔다", () => {
+  const first = readRoster("1 햇살\n2 구름\n4 새친구", old, { now: "2026-11-19T01:00:00Z" });
+  assert.equal(first.students.find((s) => s.no === 4)?.joined, "2026-11-19T01:00:00Z");
+  assert.equal(first.students.find((s) => s.no === 1)?.joined, undefined); // 전부터 있던 학생
+  const again = readRoster("1 햇살\n2 구름\n4 새친구", first.students, { now: "2026-11-25T01:00:00Z" });
+  assert.equal(again.students.find((s) => s.no === 4)?.joined, "2026-11-19T01:00:00Z");
+});
+
+test("명단 저장: 읽고 저장하는 사이 다른 기기에서 표시한 보호자 동의는 남는다", async () => {
+  const { saveRoster, getRoster } = await import("./data.ts");
+  await inSpace("creuse_consent", async () => {
+    const list = [{ no: 1, alias: "가", code: "ZZQ111" }, { no: 2, alias: "나", code: "ZZQ222" }];
+    await saveRoster(list);
+    const stale = await getRoster();
+    await db().update<{ students: { no: number; consent?: string }[] }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((s) => (s.no === 1 ? { ...s, consent: "2026-11-19" } : s)) });
+    await saveRoster(stale.map((s) => (s.no === 2 ? { ...s, alias: "나나" } : s)));
+    const now = await getRoster();
+    assert.deepEqual(now.map((s) => [s.no, s.alias, s.consent ?? null]), [[1, "가", "2026-11-19"], [2, "나나", null]]);
+  });
+});

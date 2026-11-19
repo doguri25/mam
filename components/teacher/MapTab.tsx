@@ -53,7 +53,8 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
 
   // 명단이 비어도(모두 지운 뒤 등) 남은 위험 표현 알림은 보인다 — 메뉴의 빨간 수와 어긋나지 않게
   const alertBox = alerts.length > 0 && (
-    <section className="rounded-3xl border-2 border-alert bg-alert-soft p-5" role="alert">
+    // 「오늘의 마음 칸 · 인쇄」는 칸만 인쇄한다: 위험 표현 글·먼저 살펴볼 학생 목록은 종이에 남기지 않는다
+    <section className="no-print rounded-3xl border-2 border-alert bg-alert-soft p-5" role="alert">
       <h2 className="font-display text-xl text-alert"><Doodle name="warning" /> 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
       <p className="mt-1 text-sm">
         학생 화면에는 아무 표시도 나가지 않았어요. 진단이 아닌 신호예요. 학교 위기관리 절차에 따라 Wee클래스·상담교사와 함께 살펴봐 주세요.
@@ -200,7 +201,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
           <p className="mt-3 text-xs text-soft">빈 동그라미: 아직 기록 전 · <Doodle name="dotYellow" /> 먼저 살펴볼 신호 · <Doodle name="dotRed" /> 위험 표현 · ↓ 하교 전에 마음이 가라앉음 · 점선: 기록 없음이 이어짐</p>
         </section>
 
-        <div className="space-y-5 self-start">
+        <div className="no-print space-y-5 self-start">
           <section className="card">
             <h2 className="font-display text-xl">이번 주 먼저 살펴볼 학생</h2>
             <p className="mb-3 text-xs text-soft">최근 7일 규칙에 걸린 학생이에요. 진단이 아니라 대화를 시작할 신호예요.</p>

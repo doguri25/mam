@@ -6,8 +6,13 @@ import { RETENTION_LETTER, type Retention } from "@/lib/retention";
 
 export default function ConsentLetter({ className, retention, origin, space = "" }: { className: string; retention: Retention; origin: string; space?: string }) {
   // 실명 명단처럼 학급마다 따로(같은 컴퓨터를 함께 쓰는 다른 반 선생님 이름·학교가 미리 채워지지 않게)
-  const [school, setSchool] = useLocal(space ? `mb_letter_school_${space}` : "mb_letter_school");
-  const [teacher, setTeacher] = useLocal(space ? `mb_letter_teacher_${space}` : "mb_letter_teacher");
+  const [mySchool, setSchool] = useLocal(space ? `mb_letter_school_${space}` : "mb_letter_school");
+  const [myTeacher, setTeacher] = useLocal(space ? `mb_letter_teacher_${space}` : "mb_letter_teacher");
+  // 학급마다 따로 적기 전(예전)에 적어 둔 이름은 이 학급에 아직 없을 때 한 번 보여 준다(고치면 이 학급 칸에 남는다)
+  const [oldSchool] = useLocal("mb_letter_school");
+  const [oldTeacher] = useLocal("mb_letter_teacher");
+  const school = mySchool || (space ? oldSchool : "");
+  const teacher = myTeacher || (space ? oldTeacher : "");
   const rows: [string, string][] = [
     ["쓰는 까닭", "아이가 자기 감정을 알아차리고 말로 나타내는 연습을 하고, 담임이 마음의 변화를 일찍 살펴 필요한 도움을 주기 위해서예요."],
     ["남기는 내용", "고른 감정 카드·마음 크기·까닭, 아이가 쓰거나 말한 한 문장(말은 음성 인식으로 글로 바꿔 남겨요), 마음 다스리기 뒤의 느낌, 한 주 돌아보기 글, 친구에게 보낸 공감 쪽지, 마음 점검(학급 역량 진단, 스스로 답하는 32문장), 활동지 피드백이에요. 학급 설정에 따라 목소리의 크기·높낮이·빠르기를 숫자로 재거나 AI가 말투를 살필 수 있어요. 녹음 파일은 남기지 않아요."],

@@ -2,7 +2,7 @@
 // 교실 TV 「우리 반 마음 날씨」: 아침 조회 때 큰 화면에 띄운다. 이름·번호·위험 표현 없이 반 전체 숫자만 보인다.
 // 마음 친구 행렬은 누구 것인지 알 수 없게 꾸미지 않은 기본 모습으로, 감정 무리 순서로만 늘어선다.
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
 import BuddyFace from "@/components/BuddyFace";
 import BuddyLazy from "@/components/BuddyLazy";
@@ -37,14 +37,18 @@ export default function ClassTV() {
   const [locked, setLocked] = useState(false);
   const [view, setView] = useState<"weather" | "words">("weather");
 
+  // 시간대(아침·하교 전)를 빨리 바꾸면 늦게 온 앞 시간대 답이 나중에 그려지지 않게 마지막 요청 답만 쓴다
+  const seq = useRef(0);
   const load = useCallback(async () => {
     if (document.visibilityState !== "visible") return;
+    const mine = ++seq.current;
     try {
       const d = await api<Data>("teacher", "classWeather", slot ? { slot } : { slot: "now" });
+      if (mine !== seq.current) return;
       setData(d);
       setLocked(false);
     } catch (e) {
-      if ((e as { status?: number }).status === 401) setLocked(true);
+      if (mine === seq.current && (e as { status?: number }).status === 401) setLocked(true);
     }
   }, [slot]);
 

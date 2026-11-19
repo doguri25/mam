@@ -474,6 +474,7 @@ const ERR: Record<string, Tr> = {
   "마음 점검이 새로 열렸어요. 처음부터 다시 해 주세요.": { en: "A new heart check has opened. Please start again from the beginning.", zh: "开启了新的心灵小检查，请从头再做一次。", vi: "Đã mở lần kiểm tra mới. Em làm lại từ đầu nhé.", ja: "あたらしい こころ チェックが ひらいたよ。さいしょから やりなおしてね。" },
   "카드나 문장이 필요해요.": { en: "Please pick a card or write a sentence.", zh: "请选卡片或写一句话。", vi: "Em hãy chọn thẻ hoặc viết một câu.", ja: "カードを えらぶか ぶんを かいてね。" },
   "인터넷 연결을 확인해 주세요.": { en: "Please check the internet connection.", zh: "请检查网络连接。", vi: "Em hãy kiểm tra kết nối mạng.", ja: "インターネットの つながりを たしかめてね。" },
+  "이 이름은 쓸 수 없어요. 마음이 힘들면 마음 기록에 남기거나 선생님께 말해 줘요.": { en: "You can't use this name. If your heart feels heavy, write it in your mood record or tell your teacher.", zh: "不能用这个名字。如果心里难受，可以写在心情记录里，或者告诉老师。", vi: "Em không dùng được tên này. Nếu em thấy buồn, hãy ghi vào nhật ký cảm xúc hoặc nói với thầy cô nhé.", ja: "この なまえは つかえないよ。こころが つらかったら きもちの きろくに かくか、せんせいに おはなししてね。" },
   "문제가 생겼어요.": { en: "Something went wrong. Please try again.", zh: "出了点问题，请再试一次。", vi: "Có lỗi xảy ra. Em thử lại nhé.", ja: "うまく いかなかったよ。もういちど やってみてね。" },
 };
 export function errText(lang: Lang, message: string) {

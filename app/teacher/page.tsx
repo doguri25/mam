@@ -22,6 +22,7 @@ import { AssistChat } from "@/components/teacher/AssistChat";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
 import { riskAlertCount } from "@/components/teacher/alerts";
 import { useAct } from "@/components/teacher/useAct";
+import { PIN_CHANGING } from "@/components/teacher/PinCard";
 import { whileRosterChanges } from "@/components/teacher/rosterBusy";
 import { api } from "@/lib/api";
 import { addDays, today as kToday } from "@/lib/date";
@@ -145,6 +146,13 @@ export default function TeacherPage() {
     setRetrying(true);
   }, []);
 
+  // 이 기기에서 비밀번호를 바꾸는 그때: 옛 표로 떠난 요청이 바뀐 뒤에 401로 돌아와도 잠그지 않게 그 응답들은 버린다(PinCard가 알림)
+  useEffect(() => {
+    const ignoreInFlight = () => { epoch.current = seq.current; };
+    window.addEventListener(PIN_CHANGING, ignoreInFlight);
+    return () => window.removeEventListener(PIN_CHANGING, ignoreInFlight);
+  }, []);
+
   // 잠그기·「학생 화면」을 누른 그때: 늦게 오는 응답을 모두 버리고, 이 기기에 저장해 둔 기록을 지우고 변경 확인도 멈춘다
   const freeze = useCallback(() => {
     locked.current = true;
@@ -166,7 +174,12 @@ export default function TeacherPage() {
   }, [freeze]);
   const show = useCallback((o: OverviewRaw) => {
     // 잠그지 않은 채 학급이 바뀌었으면(다른 창에서 다른 학급으로 들어와 표가 바뀜) 앞 학급에서 고른 학생 번호도 비운다
-    if (rawRef.current && rawRef.current.space !== o.space) setCheerNo(null);
+    // 떠 있는 AI 도우미 대화도 닫고 비운다(앞 학급 대화가 다른 학급 사람에게 보이거나, 앞 학급 대화를 이어 보내지 않게)
+    if (rawRef.current && rawRef.current.space !== o.space) {
+      setCheerNo(null);
+      setFab(false);
+      setFabUsed(false);
+    }
     rawRef.current = o;
     setRaw(o);
     setVersion((v) => v + 1);
@@ -320,7 +333,9 @@ export default function TeacherPage() {
   const owned = ownOnly(raw.records, raw.students, (r) => r.no, (r) => r.createdAt).filter((r) => onRoster.has(r.no));
   const recent = owned.filter((r) => r.date >= addDays(raw.today, -DAYS));
   // 번호를 새로 받은 학생은 받은 날부터 수업일을 센다(첫날부터 「기록 없음」이 되지 않게)
-  const since = Object.fromEntries(raw.students.filter((s) => s.since).map((s) => [s.no, kToday(new Date(s.since!))]));
+  // 처음 넣은 번호(joined)도 같게
+  const startOf = (s: { since?: string; joined?: string }) => [s.since, s.joined].filter((x): x is string => !!x).sort().at(-1);
+  const since = Object.fromEntries(raw.students.flatMap((s) => { const at = startOf(s); return at ? [[s.no, kToday(new Date(at))]] : []; }));
   const data: Overview = {
     ...raw,
     flags: watchFlags(owned, raw.today, raw.settings.rules),
@@ -500,7 +515,7 @@ export default function TeacherPage() {
               <div hidden={!fab} className="no-print fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="AI 도우미">
                 <button className="absolute inset-0 hidden bg-black/30 sm:block" aria-label="AI 도우미 닫기" onClick={() => setFab(false)} />
                 <aside className="absolute inset-0 flex flex-col bg-card p-4 sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[460px] sm:border-l sm:border-line sm:shadow-xl">
-                  <AssistChat compact data={data} ctx={{ tab, no: cheerNo }} names={nameMap} onGo={go} onClose={() => setFab(false)} />
+                  <AssistChat key={data.space} compact data={data} ctx={{ tab, no: cheerNo }} names={nameMap} onGo={go} onClose={() => setFab(false)} />
                 </aside>
               </div>
             )}

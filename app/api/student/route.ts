@@ -110,8 +110,24 @@ async function handle(req: NextRequest, body: Body) {
     if (body.action === "saveQueued") {
       const q = readQueueToken(body.qtoken);
       if (!q) return bad("보낼 수 없는 기록이에요.", 410);
-      const s = (await getRoster()).find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
-      if (!s) return bad("학생 코드가 바뀌었어요.", 410);
+      const roster = await getRoster();
+      const s = roster.find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
+      if (!s) {
+        // 그사이 선생님이 코드를 새로 줬으면 기록은 받지 않는다. 다만 담아 둔 글에 위험한 말이 있으면 마치지 않은 위험 표현으로
+        // 선생님께 남긴다(끊긴 채 쓴 위험한 글이 아무에게도 닿지 않고 사라지지 않게). 그 번호를 새 학생이 받았으면 「앞 학생」으로 보인다
+        const st = roster.find((x) => x.no === q.no);
+        const rec = (body.record ?? {}) as Record<string, unknown>;
+        const text = [rec.summary, rec.answer].filter((x): x is string => typeof x === "string").join(" ").trim().slice(0, 300);
+        const slot = rec.slot === "pm" ? "pm" : "am";
+        const hits = st && text ? matchRisk(text, (await getSettings()).riskWords) : [];
+        const when = queuedWhen(body.madeAt, q.date);
+        if (st && hits.length && when) {
+          const at = new Date(when.madeAt ?? Date.now()).toISOString();
+          const d: RiskDraft = { id: `${st.no}_${when.date}_${slot}`, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
+          if (await putRiskDraft(d).catch(() => false)) alertTeacher(st.no, "기록", `risk-${d.id}`);
+        }
+        return bad("학생 코드가 바뀌었어요.", 410);
+      }
       const when = queuedWhen(body.madeAt, q.date);
       if (!when) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
       // 이 번호를 받은 날 담아 둔 기록인데 기기 시계가 늦으면 받기 전 시각이 된다 → 앞 학생 것으로 보이지 않게 받은 때로 당긴다
@@ -272,7 +288,8 @@ async function handle(req: NextRequest, body: Body) {
       if (!letter) return bad(`쪽지는 하루에 ${LETTERS_PER_DAY}통까지 보낼 수 있어요.`, 429);
       await touch("other"); // 선생님 화면에 「허락 기다리는 쪽지」가 바로 보이게
       if (risk) alertTeacher(s.no, "공감 쪽지", `letter-${letter.id}`);
-      return NextResponse.json({ ok: true });
+      // 쪽지에 위험한 말이 있으면 「잘 보냈어」 축하 대신 다른 글쓰기처럼 고맙다는 말을 돌려준다
+      return NextResponse.json({ ok: true, ...(risk ? { reply: RISK_REPLY[isLang(body.lang) ? (body.lang as Lang) : "ko"] } : {}) });
     }
     if (body.action === "letters") {
       const [inbox, sent, roster] = await Promise.all([
@@ -465,7 +482,8 @@ async function handle(req: NextRequest, body: Body) {
     return bad("알 수 없는 요청이에요.");
   } catch (e) {
     console.error(e);
-    return bad(e instanceof Error ? e.message : "서버 오류", 500);
+    // 저장소 오류 글을 그대로 아이 화면에 보이지 않는다(다른 언어 화면은 늘 이 문장의 번역을 보인다)
+    return bad("문제가 생겼어요.", 500);
   }
 }
 

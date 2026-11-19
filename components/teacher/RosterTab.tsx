@@ -231,7 +231,8 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
                 </p>
               )}
             </div>
-            <button onClick={() => window.print()} className="btn-sub"><Doodle name="printer" /> QR 카드 인쇄</button>
+            {/* 안내문을 열어 두면 QR 카드는 인쇄에서 빠지므로(안내문을 인쇄) 이 단추는 안내문을 닫고 인쇄한다 */}
+            <button onClick={() => { if (letter) { setLetter(false); setTimeout(() => window.print(), 50); } else window.print(); }} className="btn-sub"><Doodle name="printer" /> QR 카드 인쇄</button>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 print:grid-cols-4">
             {data.students.map((s) => (

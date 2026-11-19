@@ -151,3 +151,24 @@ test("종이 검사지 읽기: 물은 문장의 1~5만, 번호는 물었을 때�
   assert.equal(cleanPaperRead({ no: 0 }, { ...ask, 번호도: true }).no, null);
   assert.equal(cleanPaperRead({ no: "열둘" }, { ...ask, 번호도: true }).no, null);
 });
+
+test("되묻기: AI가 지은 질문·답 단추에 위험한 말이 있으면 기본 되묻기로, 답 단추는 짧게", () => {
+  const risky = shape(base, { question: "그래서 사라지고 싶었어?", options: ["응, 죽고 싶었어", "아니"] });
+  const fb = shape(base, {});
+  assert.equal(risky.question, fb.question);
+  assert.deepEqual(risky.options, fb.options);
+  const long = shape(base, { question: "누구랑 있었어?", options: ["가".repeat(3000), "혼자"] });
+  assert.ok(long.options.every((o) => o.length <= 24));
+});
+
+test("한 주 돌아보기 답: 마음 친구 답에 위험한 말이 섞이면 버린다", async () => {
+  fakeChat('{"reply": "죽고 싶을 만큼 힘들었구나"}');
+  await assert.rejects(reflectReply(AI_UP, { lang: "ko", text: "힘들었다", week: [] }));
+});
+
+test("AI 오류: 상태 번호가 400·429여도 틀린 키·크레딧 소진은 그렇게 알린다", () => {
+  assert.match(aiError(Object.assign(new Error("API key not valid. Please pass a valid API key."), { status: 400 })).message, /키가 맞지 않아요/);
+  assert.match(aiError(Object.assign(new Error("Your credit balance is too low to access the Anthropic API."), { status: 400 })).message, /크레딧/);
+  assert.match(aiError(Object.assign(new Error("You exceeded your current quota (insufficient_quota)"), { status: 429 })).message, /크레딧/);
+  assert.match(aiError(Object.assign(new Error("Rate limit"), { status: 429 })).message, /사용량이 잠시/);
+});

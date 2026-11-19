@@ -11,7 +11,7 @@ import { flagChecked, kday } from "./when";
 import { api } from "@/lib/api";
 import { addDays, label, weekday } from "@/lib/date";
 import { calmStats } from "@/lib/rules";
-import { GROUPS, formerAt, groupOf, type Group } from "@/lib/shared";
+import { GROUPS, formerAt, groupOf, ownOnly, type Group } from "@/lib/shared";
 
 export default function ReportTab({ data, nameOf, reload }: { data: Overview; nameOf: NameOf; reload: Reload }) {
   const [onlyNo, setOnlyNo] = useState(true);
@@ -32,6 +32,9 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const { today, weekStart, students, flags, settings, absent } = data;
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const week = data.records.filter((r) => r.date >= weekStart && r.date <= today);
+  // 기록률·감정·단어는 지금 명단 학생 것만(명단에서 뺀 학생·앞 학생 기록이 세지면 기록률이 100%를 넘는다). 위험 표현 목록은 모두(「앞 학생」 표시)
+  const onRoster = new Set(students.map((s) => s.no));
+  const weekNow = ownOnly(week.filter((r) => onRoster.has(r.no)), students, (r) => r.no, (r) => r.createdAt);
   // 번호만 보일 때도 이 번호를 새 학생에게 주기 전 것이면 「앞 학생」을 붙인다(지금 그 번호 학생 일로 읽히지 않게)
   const who = (no: number, at?: string) =>
     onlyNo ? `${no}번${at && formerAt(students.find((s) => s.no === no), at) !== null ? " (앞 학생)" : ""}` : `${no}번 ${nameOf(no, at)}`;
@@ -49,11 +52,11 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const cheers = data.cheers.filter((c) => kday(c.createdAt) >= weekStart);
   const groups = Object.keys(GROUPS) as Group[];
   const total = students.length || 1;
-  const rates = days.map((d) => new Set(week.filter((r) => r.date === d).map((r) => r.no)).size);
+  const rates = days.map((d) => new Set(weekNow.filter((r) => r.date === d).map((r) => r.no)).size);
   const recDays = rates.filter((n) => n > 0);
   const counts = (rs: typeof week) => rs.reduce<Record<string, number>>((m, r) => (r.word ? { ...m, [r.word]: (m[r.word] ?? 0) + 1 } : m), {});
-  const wordsNow = Object.entries(counts(week)).sort((a, b) => b[1] - a[1]);
-  const calm = calmStats(week);
+  const wordsNow = Object.entries(counts(weekNow)).sort((a, b) => b[1] - a[1]);
+  const calm = calmStats(weekNow);
   const wordsPrev = Object.keys(counts(data.records.filter((r) => r.date < weekStart && r.date >= addDays(weekStart, -7)))).length;
 
   return (
@@ -153,10 +156,10 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
 
         <section>
           <h3 className="mb-2 font-bold">이번 주 마음 날씨</h3>
-          <Bars records={week} days={days} today={today} />
+          <Bars records={weekNow} days={days} today={today} />
           <Legend />
           <p className="mt-2 text-sm">
-            {groups.map((g) => `${GROUPS[g].label} ${week.filter((r) => groupOf(r.emotion) === g).length}건`).join(" · ")}
+            {groups.map((g) => `${GROUPS[g].label} ${weekNow.filter((r) => groupOf(r.emotion) === g).length}건`).join(" · ")}
           </p>
         </section>
 

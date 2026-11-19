@@ -77,6 +77,7 @@ export interface SelfAnswer {
   kind: "selfAnswer";
   round: string;
   no: number;
+  docId?: string; // 번호를 새 학생에게 줄 때 앞 학생 것을 다른 이름으로 옮겼으면 그 이름
   answers: number[]; // 32개, 1~5
   at: string;
   src?: "paper"; // 종이 검사지를 스캔하거나 선생님이 옮겨 넣은 답(없으면 학생이 화면에서 냄)
@@ -89,6 +90,7 @@ export interface SelNote {
   kind: "selNote";
   round: string;
   no: number;
+  docId?: string; // 번호를 새 학생에게 줄 때 앞 학생 것을 다른 이름으로 옮겼으면 그 이름
   obs?: SelObs | null;
   paper?: number[] | null; // 종이 검사지로 한 학생: 영역별 점수 4개(8~40)
   memo?: string; // 선생님만 — 학생 화면·AI로 보내지 않는다

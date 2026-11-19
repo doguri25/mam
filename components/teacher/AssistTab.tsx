@@ -9,6 +9,7 @@ import { AssistChat } from "./AssistChat";
 import { CrisisCard } from "./assistUi";
 import { useAct } from "./useAct";
 import type { OverviewRaw } from "./types";
+import { kday } from "./when";
 
 type Mode = "chat" | "todo" | "crisis" | "docs";
 const MODES: [Mode, DoodleName, string, string][] = [
@@ -55,9 +56,16 @@ function TodoPanel({ onGo, trial, names }: { onGo: (g: Go) => void; trial: boole
   }, [setErr]);
   const edit = (action: string, body: Record<string, unknown>, fail: string) =>
     act.run(fail, async () => setMine((await api<{ mine: Todo[] }>("teacher/assist", action, body)).mine));
+  const [masked, setMasked] = useState("");
   const add = async () => {
-    // 학생 실명은 번호로 바꿔 적는다(실명은 이 기기에만 — 할 일은 서버에 남고 업무를 물을 때 AI에도 간다)
-    if (await edit("todoAdd", { title: hideNames(title, names).text, due }, "할 일을 넣지 못했어요")) { setTitle(""); setDue(""); }
+    // 학생 실명은 번호로 바꿔 적는다(실명은 이 기기에만 — 할 일은 서버에 남고 업무를 물을 때 AI에도 간다).
+    // 바꿨으면 무엇으로 적었는지 보여 준다(이름과 같은 낱말 「하나」 같은 것이 바뀌었는지 선생님이 알게)
+    const safe = hideNames(title, names).text;
+    if (await edit("todoAdd", { title: safe, due }, "할 일을 넣지 못했어요")) {
+      setMasked(safe !== title.trim() && safe !== title ? safe : "");
+      setTitle("");
+      setDue("");
+    }
   };
   const open = mine.filter((t) => !t.done), done = mine.filter((t) => t.done);
   return (
@@ -85,6 +93,7 @@ function TodoPanel({ onGo, trial, names }: { onGo: (g: Go) => void; trial: boole
           <button disabled={act.busy || !title.trim()} className="btn-main">넣기</button>
         </form>
         <p className="text-xs text-soft">학생 이름을 적으면 번호로 바꿔서 남겨요(실명은 이 기기에만).</p>
+        {masked && <p role="status" className="text-sm">이름을 번호로 바꿔 「{masked}」로 적었어요. 다르게 바뀌었으면 지우고 다시 적어 주세요.</p>}
         {trial && <p className="text-xs text-soft">체험 반은 여러 사람이 함께 써요. 실제 업무는 적지 말아 주세요.</p>}
         {act.err && <p role="alert" className="text-sm text-alert">{act.err}</p>}
         {!open.length ? <p className="text-soft">적어 둔 할 일이 없어요. 대화에서 「할 일에 넣기」를 눌러도 여기에 모여요.</p> : (
@@ -288,7 +297,7 @@ function DocsPanel({ trial }: { trial: boolean }) {
               <li key={d.id} className="flex flex-wrap items-center gap-2 rounded-2xl border border-line p-3">
                 <span className="rounded-full bg-leaf-soft px-2 py-0.5 text-xs font-bold text-leaf">{d.kind}</span>
                 <span className="min-w-0 flex-1 truncate font-bold">{d.title}</span>
-                <span className="text-xs text-soft">{d.chars.toLocaleString()}자 · {d.at.slice(0, 10)}</span>
+                <span className="text-xs text-soft">{d.chars.toLocaleString()}자 · {kday(d.at)}</span>
                 {!trial && <button onClick={() => drop(d)} className="text-sm text-soft hover:text-alert">지우기</button>}
               </li>
             ))}

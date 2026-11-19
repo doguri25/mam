@@ -101,14 +101,16 @@ export function searchDocs(query: string, docs: { meta: DocMeta; text: string }[
 
 // ── 물음에서 학생 찾기: 「3번」「3 번」, 가명(학생 코드·QR의 이름) ──
 // 이름 뒤에 붙는 말(조사). 이것이나 빈칸·문장부호·끝이 와야 이름으로 본다(「단풍」 가명이 「단풍잎」, 「슬기」가 「슬기로운」에 걸리지 않게)
-const AFTER_NAME = String.raw`(?=(?:이)?(?:가|는|를|을|은|의|에게|한테|하고|랑|와|과|도|만|야|아|께|에|처럼|보다|네|라고|이)?(?![가-힣]))`;
-const ALIAS_AFTER = String.raw`(?=(?:이)?(?:가|는|를|을|은|의|에게|한테|하고|랑|와|과|도|만|야|아|네|이)(?![가-힣])|\s?(?:학생|친구)|\s*[?？!.]*\s*$)`;
+// 조사는 여러 개 이어질 수 있다(민준이한테서, 민준이랑은, 서연이는요?)
+const PARTICLES = "이|가|는|를|을|은|의|에게|한테|하고|랑|와|과|도|만|야|아|께|께서|에|처럼|보다|네|라고|까지|부터|요|에요|예요|서|학생|씨|마저|조차";
+const AFTER_NAME = String.raw`(?=(?:${PARTICLES}){0,4}(?![가-힣]))`;
+const ALIAS_AFTER = String.raw`(?=(?:${PARTICLES}){1,4}(?![가-힣])|\s?(?:학생|친구)|\s*[,·]|\s+(?:요즘|이번|오늘|어제|어때|상담|기록|마음)|\s*[?？!.]*\s*$)`;
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function mentionedNos(text: string, students: { no: number; alias: string }[]): number[] {
   const out = new Set<number>();
   const known = new Set(students.map((s) => s.no));
   // 「하루 2번 해도」「3번째」「가정통신문 3번 항목」처럼 횟수·차례를 말한 「번」은 빼고
-  for (const m of text.matchAll(/(\d{1,2})\s?번(?!\s?(?:째|정도|씩|더|해|하|만에|이나|항목|문항|문제|줄|칸))/g)) {
+  for (const m of text.matchAll(/(\d{1,2})\s?번(?!\s?(?:째|정도|씩|해|하(?![고구랑])|더\s?(?:해|하)|만에|항목|문항|문제|줄|칸))/g)) {
     const n = Number(m[1]);
     if (known.has(n)) out.add(n);
   }
@@ -163,7 +165,8 @@ export function cleanAssist(out: Record<string, unknown>, opts: { nos: number[];
 export const threadTitle = (text: string) => cleanTitle(text, 40) || "새 대화";
 
 // 화면에서 실명을 번호로 바꿔 보낸다(실명은 이 기기에만 있다). 긴 이름부터 바꿔 「김민」이 「김민준」 일부를 먼저 바꾸지 않게.
-export function hideNames(text: string, names: Record<number, string>): { text: string; hit: boolean } {
+// full: 성까지 다 쓴 이름만 바꾼다(가정 소식지처럼 「가을 하늘」 같은 낱말이 이름 일부로 바뀌면 안 되는 글)
+export function hideNames(text: string, names: Record<number, string>, opts: { full?: boolean } = {}): { text: string; hit: boolean } {
   let out = text, hit = false;
   const list = Object.entries(names).filter(([, n]) => n && n.trim().length >= 2).sort((a, b) => b[1].length - a[1].length);
   for (const [no, name] of list) {
@@ -172,7 +175,7 @@ export function hideNames(text: string, names: Record<number, string>): { text: 
     // 성을 뗀 이름(민준이, 민준한테, 민준,)도: 세 글자 이름은 뒤 두 글자, 네 글자 이름(남궁민수)도 뒤 두 글자.
     // 낱말 첫머리에서 시작하고(「서민준」의 「민준」은 앞 글자가 있어 건드리지 않음) 뒤에 조사·빈칸·문장부호·끝이 올 때만
     // (「슬기로운 생활」「보람찬」「다운로드」가 「3번로운」처럼 바뀌지 않게)
-    const given = /^[가-힣]{3,4}$/.test(n) ? n.slice(-2) : null;
+    const given = !opts.full && /^[가-힣]{3,4}$/.test(n) ? n.slice(-2) : null;
     const re = new RegExp(given ? `${esc}|(?<![가-힣])${given}${AFTER_NAME}` : esc, "g");
     if (re.test(out)) {
       hit = true;

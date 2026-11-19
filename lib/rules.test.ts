@@ -53,6 +53,7 @@ test("반 기록이 있던 최근 n일 동안 기록이 없는 학생만 「기�
   // 번호를 새로 받은 학생은 받은 날 뒤로 수업일이 그만큼 지나야 「기록 없음」
   assert.deepEqual(absentStudents(list, [1, 2, 3], TODAY, 2, { 3: TODAY }), [2]);
   assert.deepEqual(absentStudents(list, [1, 2, 3], TODAY, 2, { 3: "2000-01-01" }), [2, 3]);
+  // 처음 넣은 번호도 넣은 때를 적어 같은 규칙으로(lib/data.ts readRoster의 joined)
   assert.deepEqual(absentStudents([], [1], TODAY, 2), []); // 반 기록이 모자라면 판단하지 않음
 });
 

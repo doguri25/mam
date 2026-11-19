@@ -18,7 +18,7 @@ import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
 import { DOMAINS, SELF_ITEMS, cleanObs, cleanPaper, cleanSelfAnswers, levelOf, obsMax, obsScores, scoresOf, selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "@/lib/selfcheck";
 import { cutoffOf, isRetention } from "@/lib/retention";
-import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, ownBy, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun, type Student } from "@/lib/shared";
+import { CALM_KO, FELT_KO, PROVIDER_IDS, RISK_WORDS_MAX, RISK_WORD_LEN, ownBy, ownOnly, riskKinds, type Cheer, type Letter, type MoodRecord, type Note, type Provider, type Reflect, type RiskAction, type Rules, type SheetRun, type Student } from "@/lib/shared";
 
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
@@ -218,14 +218,17 @@ async function handle(req: NextRequest) {
     if (body.action === "classWeather") {
       const date = today();
       const which = body.slot === "now" ? slotNow() : body.slot === "am" || body.slot === "pm" ? body.slot : null;
-      const todays = (await recordsFrom(date)).filter((r) => r.date === date && (!which || r.slot === which));
+      // 지금 명단 학생 것만(명단에서 뺀 학생·번호를 새 학생에게 주기 전 앞 학생 기록은 빼고 — 「5 / 3명」이 되지 않게)
+      const roster = await getRoster();
+      const onRoster = new Set(roster.map((s) => s.no));
+      const todays = ownOnly((await recordsFrom(date)).filter((r) => r.date === date && (!which || r.slot === which) && onRoster.has(r.no)), roster, (r) => r.no, (r) => r.createdAt);
       // 「하루 전체」면 학생마다 가장 나중 기록 하나만 센다
       const latest = which ? todays : [...new Map(todays.sort((a, b) => a.slot.localeCompare(b.slot)).map((r) => [r.no, r])).values()];
       // 단어 사전 보기: 최근 30일 우리 반 감정 단어(이름 없이 횟수만)
       const month: Record<string, number> = {};
       for (const r of await recordsFrom(addDays(date, -29))) if (r.word) month[r.word] = (month[r.word] ?? 0) + 1;
       return NextResponse.json({
-        date, slot: which ?? "day", now: slotNow(), className: settings.className, students: (await getRoster()).length, ...classWeather(latest),
+        date, slot: which ?? "day", now: slotNow(), className: settings.className, students: roster.length, ...classWeather(latest),
         monthWords: Object.entries(month).sort((a, b) => b[1] - a[1]).slice(0, 30),
         trial: isDemo(), // 체험 반 TV에서 「선생님 화면」은 체험 선생님 화면(/teacher?try)으로 돌아가야 체험이 끝나지 않는다
       });
@@ -281,6 +284,7 @@ async function handle(req: NextRequest) {
     if (body.action === "translate") {
       const lang = body.lang;
       if (!isLang(lang) || lang === "ko" || typeof body.text !== "string" || !body.text.trim()) return bad("번역할 언어와 내용을 확인해 주세요.");
+      if (body.text.length > 4000) return bad(`소식지가 너무 길어요(${body.text.length}자). 4,000자 안으로 줄여서 번역해 주세요.`);
       const ai = await aiConfig();
       if (!ai) return bad(await aiMissing("번역할 수 있어요"));
       return NextResponse.json({ text: await translateNotice(ai, body.text, lang) });
@@ -539,16 +543,19 @@ async function handle(req: NextRequest) {
       const activities = (Array.isArray(body.activities) ? body.activities : []).slice(0, 6).map(obj).map((a: Record<string, unknown>) => ({
         title: String(a.title ?? "").slice(0, 30), how: String(a.how ?? "").slice(0, 120), minutes: Math.min(45, Math.max(1, Number(a.minutes) || 10)),
       })).filter((a: { title: string }) => a.title);
-      const lessons = await getLessons();
-      lessons.unshift({ id: String(Date.now()), unit: String(body.unit ?? "").slice(0, 40), words, activities, createdAt: new Date().toISOString() });
-      await db().set("meta", "lessons", { items: lessons.slice(0, 30) });
+      // 읽고 고쳐 쓰기를 한 번에(두 기기가 같은 때 차시를 넣어도 하나가 사라지지 않게)
+      const item = { id: String(Date.now()), unit: String(body.unit ?? "").slice(0, 40), words, activities, createdAt: new Date().toISOString() };
+      await db().update<{ items: Awaited<ReturnType<typeof getLessons>> }>("meta", "lessons", (cur) => ({ items: [item, ...(cur?.items ?? [])].slice(0, 30) }));
+      // 감정 단어만 고친다(먼저 읽어 둔 설정 전체로 덮으면 그사이 바꾼 위험 표현·키가 되돌아간다).
       // 60개가 차면 오래된 단어부터 뺀다(새 차시 단어가 말없이 빠지지 않게 — 차시 카드에는 새 단어가 보이므로)
-      const fresh = words.filter((w: string) => !settings.vocab.includes(w));
-      await saveSettings({ ...settings, vocab: [...settings.vocab, ...fresh].slice(-60) });
+      const addWords = (v: string[]) => [...v, ...words.filter((w: string) => !v.includes(w))].slice(-60);
+      const stored = await db().update<Partial<typeof settings>>("meta", "settings", (cur) => (cur ? { ...cur, vocab: addWords(cur.vocab ?? settings.vocab) } : undefined));
+      if (!stored) await saveSettings({ ...settings, vocab: addWords(settings.vocab) });
+      else await touch("other");
       return NextResponse.json({ ok: true });
     }
     if (body.action === "deleteLesson") {
-      await db().set("meta", "lessons", { items: (await getLessons()).filter((l) => l.id !== String(body.id)) });
+      await db().update<{ items: Awaited<ReturnType<typeof getLessons>> }>("meta", "lessons", (cur) => (cur ? { items: cur.items.filter((l) => l.id !== String(body.id)) } : undefined));
       await touch("other");
       return NextResponse.json({ ok: true });
     }
@@ -714,9 +721,13 @@ async function handle(req: NextRequest) {
         const answers = cleanSelfAnswers(it?.answers);
         if (!st || !answers) return bad("번호와 32문장 답을 모두 확인해 주세요.");
         const id = selfDocId(round, st.no);
-        const cur = await db().get<SelfAnswer>("meta", id);
-        if (cur && ownBy(st, cur.at) && cur.src !== "paper" && body.overwrite !== true) { kept.push(st.no); continue; }
-        await db().set("meta", id, { kind: "selfAnswer", round, no: st.no, answers, at, src: "paper", ...(isDemo() || st.demo ? { demo: true } : {}) });
+        // 읽고 고쳐 쓰기를 한 번에: 저장하는 사이 학생이 화면으로 낸 답을 종이 답으로 덮지 않게
+        let keep = false;
+        await db().update<SelfAnswer>("meta", id, (cur) => {
+          keep = !!cur && ownBy(st, cur.at) && cur.src !== "paper" && body.overwrite !== true;
+          return keep ? undefined : { kind: "selfAnswer", round, no: st.no, answers, at, src: "paper", ...(isDemo() || st.demo ? { demo: true } : {}) };
+        });
+        if (keep) { kept.push(st.no); continue; }
         saved.push(st.no);
       }
       if (saved.length) await touch("other");
@@ -767,11 +778,16 @@ async function handle(req: NextRequest) {
 
     // 이번 주 우리 반 마음 요약 + 다음 주 활동 추천(이름·번호 없이 모은 숫자만 AI로)
     if (body.action === "weekly") {
-      const ai = await aiConfig();
-      if (!ai) return bad(await aiMissing("요약을 만들 수 있어요"));
       const date = today();
       const weekStart = addDays(date, -6);
-      const recs = await recordsFrom(addDays(date, -13));
+      // 마음 지도와 같게 지금 명단 학생의 것만(뺀 학생·앞 학생 기록이 「기록한 학생 수」·「먼저 살펴볼 학생 수」에 세지지 않게)
+      const roster = await getRoster();
+      const onRoster = new Set(roster.map((s) => s.no));
+      const recs = ownOnly((await recordsFrom(addDays(date, -13))).filter((r) => onRoster.has(r.no)), roster, (r) => r.no, (r) => r.createdAt);
+      // 이번 주 기록이 없으면 AI를 부르지 않는다(0으로 채운 요약이 가정 소식지에 들어가지 않게)
+      if (!recs.some((r) => r.date >= weekStart)) return bad("이번 주 마음 기록이 아직 없어요. 기록이 쌓인 뒤 만들어 주세요.");
+      const ai = await aiConfig();
+      if (!ai) return bad(await aiMissing("요약을 만들 수 있어요"));
       const stats = weekStats(recs.filter((r) => r.date >= weekStart), recs.filter((r) => r.date < weekStart), settings.rules, date);
       const lessonActivities = (await getLessons()).flatMap((l) => l.activities.map((a) => ({ ...a, unit: l.unit }))).slice(0, 12);
       try {

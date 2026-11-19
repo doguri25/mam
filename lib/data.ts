@@ -102,13 +102,26 @@ export async function saveRoster(students: Student[], demo = false) {
   const others = new Set(index.filter((x) => x.space !== sp).map((x) => x.id));
   for (const s of olds.flat()) others.add(s.code);
   const taken = new Set([...others, ...students.map((s) => s.code)]);
-  const list = [...students].sort((a, b) => a.no - b.no).map((s) => {
+  const picked = [...students].sort((a, b) => a.no - b.no).map((s) => {
     if (!others.has(s.code)) return s;
     const code = newCode(taken);
     taken.add(code);
     return { ...s, code };
   });
-  await db().set("meta", "roster", { students: list, demo });
+  // 보호자 동의 날짜는 따로 한 칸씩 고친다(setConsent) → 같은 학생(번호·코드가 같음)이면 저장소에 지금 있는 값을 따른다
+  // (명단을 읽고 저장하는 사이 다른 기기에서 표시한 동의가 사라지지 않게)
+  let list = picked;
+  await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => {
+    const was = new Map((cur?.students ?? []).map((x) => [`${x.no}:${x.code}`, x]));
+    list = picked.map((x) => {
+      const c = was.get(`${x.no}:${x.code}`);
+      if (!c || c.consent === x.consent) return x;
+      const rest = { ...x };
+      delete rest.consent;
+      return c.consent ? { ...rest, consent: c.consent } : rest;
+    });
+    return { students: list, demo };
+  });
   const mine = new Set(list.map((s) => s.code));
   await outOfSpace(async () => {
     await Promise.all(index.filter((x) => x.space === sp && !mine.has(x.id)).map((x) => db().del("codes", x.id)));
@@ -353,9 +366,11 @@ export function readRoster(
     const consent = prev?.consent && (!prev.demo || keepPractice) ? prev.consent : back?.consent;
     // 같은 학생이면 이 번호의 앞 학생 기록(since·formers)을 이어받는다(뺐다가 다시 넣은 같은 학생도)
     const hist = prev ?? left;
+    // 처음 넣은 번호(연습 학생을 실제 학생으로 바꾼 번호도)는 넣은 때를 적는다. 같은 학생이면 앞서 적은 때를 그대로
+    const joined = prev && !(prev.demo && !keepPractice) ? prev.joined : back ? undefined : now;
     out.push({
       no, alias, code: prev?.code ?? backCode ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}),
-      ...(hist?.since ? { since: hist.since, formers: hist.formers ?? [] } : {}),
+      ...(hist?.since ? { since: hist.since, formers: hist.formers ?? [] } : {}), ...(joined ? { joined } : {}),
     });
     taken.add(out.at(-1)!.code);
   }
@@ -404,6 +419,18 @@ export async function startFresh(nos: number[]): Promise<boolean> {
       await renameRiskActions(`reflect:${id}`, `reflect:${id}${tag}`);
     }
   }
+  // 역량 진단: 앞 학생 답·선생님 관찰·피드백 문서를 다른 이름으로 옮긴다(새 학생이 같은 회차에 답하거나 선생님이 새 학생 관찰을 적으면
+  // 같은 이름 문서를 덮어 앞 학생 것이 사라진다). 옮긴 문서는 앞 학생 것(at이 since 앞)으로 그대로 남는다.
+  for (const r of await getSelfRounds()) {
+    for (const no of nos) {
+      for (const id of [selfDocId(r.id, no), selNoteId(r.id, no)]) {
+        const doc = await db().get<Record<string, unknown>>("meta", id);
+        if (!doc) continue;
+        await db().set("meta", id + tag, { ...doc, docId: id + tag }); // 옮긴 이름을 적어 둔다(지울 때 찾게)
+        await db().del("meta", id);
+      }
+    }
+  }
   const drafts = new Set(nos.flatMap((no) => [`${no}_${day}_am`, `${no}_${day}_pm`]));
   const had = (await getRiskDrafts()).filter((d) => drafts.has(d.id)).map((d) => d.id);
   if (had.length) {
@@ -427,13 +454,21 @@ async function renameRiskActions(from: string, to: string) {
 
 // 이 번호들 가운데 그 번호로 남은 기록·쪽지·돌아보기가 있는 것(명단에 없던 번호를 다시 넣을 때 새 학생인지 물을지)
 // 여러 번호를 한꺼번에(세기만 해서 문서는 받지 않는다). 반에 남은 것이 하나도 없으면(새 반 첫 명단) 번호마다 묻지 않는다.
+// 기록·쪽지·돌아보기뿐 아니라 면담 메모·응원·역량 진단 답과 선생님 관찰·피드백(meta의 no가 있는 문서)·마음 친구 모습도 본다
+// (종이 검사만 한 학생처럼 마음 기록이 없어도, 그 번호를 새 학생에게 주면 앞 학생 피드백·메모·이름이 새 학생 것이 되지 않게 묻는다)
 export async function withDataFor(nos: number[]): Promise<Set<number>> {
   if (!nos.length) return new Set();
-  const n = (col: "records" | "letters" | "reflects", field: string, op: "==" | ">=", v: number) => db().count(col, field, op, v);
-  const any = (await Promise.all([n("records", "no", ">=", 0), n("letters", "from", ">=", 0), n("reflects", "no", ">=", 0)])).some((x) => x > 0);
+  const n = (col: "records" | "letters" | "reflects" | "notes" | "cheers" | "meta", field: string, op: "==" | ">=", v: number) => db().count(col, field, op, v);
+  const looks = await getLooks();
+  const any = Object.keys(looks).length > 0 || (await Promise.all([
+    n("records", "no", ">=", 0), n("letters", "from", ">=", 0), n("reflects", "no", ">=", 0), n("notes", "no", ">=", 0), n("cheers", "no", ">=", 0), n("meta", "no", ">=", 0),
+  ])).some((x) => x > 0);
   if (!any) return new Set();
-  const hits = await Promise.all(nos.map(async (no) =>
-    (await Promise.all([n("records", "no", "==", no), n("letters", "from", "==", no), n("letters", "to", "==", no), n("reflects", "no", "==", no)])).some((x) => x > 0)));
+  const hits = await Promise.all(nos.map(async (no) => no in looks ||
+    (await Promise.all([
+      n("records", "no", "==", no), n("letters", "from", "==", no), n("letters", "to", "==", no), n("reflects", "no", "==", no),
+      n("notes", "no", "==", no), n("cheers", "no", "==", no), n("meta", "no", "==", no),
+    ])).some((x) => x > 0)));
   return new Set(nos.filter((_, i) => hits[i]));
 }
 
@@ -512,6 +547,12 @@ export async function demoProvider(): Promise<Provider> {
 }
 
 // 한 제공자의 키만(교과서 읽기 Document Parse·Gemini 음성 듣기)
+// 교과서 읽기(업스테이지 Document Parse)를 쓸 수 있나 — AI 몫을 쓰지 않고 미리 본다(못 쓰는데 몫만 쓰고 실패하지 않게)
+export async function canParseDocs() {
+  const tk = isDemo() ? trialKey() : null;
+  if (tk) return tk.provider === "upstage";
+  return !!(await keySettings()).keys.upstage || (!isDemo() && hasSharedAi());
+}
 export async function rawKey(p: Provider) {
   const tk = isDemo() ? trialKey() : null;
   if (tk) return tk.provider === p && (await spendDemoAi()) ? tk.key : null;
@@ -1056,8 +1097,8 @@ export const getSelNotes = () => db().find<SelNote>("meta", "kind", "==", "selNo
 export async function deleteSelfData(keep: (x: SelfAnswer | SelNote) => boolean) {
   const [answers, notes] = await Promise.all([getSelfAnswers(), getSelNotes()]);
   await Promise.all([
-    ...answers.filter((a) => !keep(a)).map((a) => db().del("meta", selfDocId(a.round, a.no))),
-    ...notes.filter((n) => !keep(n)).map((n) => db().del("meta", selNoteId(n.round, n.no))),
+    ...answers.filter((a) => !keep(a)).map((a) => db().del("meta", a.docId ?? selfDocId(a.round, a.no))),
+    ...notes.filter((n) => !keep(n)).map((n) => db().del("meta", n.docId ?? selNoteId(n.round, n.no))),
   ]);
 }
 // 선생님 쪽 기록 고치기(읽고 고쳐 쓰기를 한 번에). 지금 학생이 받기 전(번호를 새 학생에게 주기 전)에 쓴 것이면 앞 학생 것이라 새로 시작한다.
