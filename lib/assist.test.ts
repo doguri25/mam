@@ -207,3 +207,17 @@ test("위기 안내: 몸을 만져서 불쾌·다른 아이들 앞에서 때린 
     assert.ok(crisisOf(q).includes(id), q);
   for (const q of ["보호자가 외국에 살아서 뭐 해 줄 수 없다는 아이 상담", "옛날 사람들은 움집에 살아서 뭐 해 먹었는지 수업 자료", "부모님이 아이 휴대폰 사용을 방치하는 것 같아요", "몸을 만지며 긴장 풀기 활동 추천"]) assert.deepEqual(crisisOf(q), [], q);
 });
+
+test("이름 가리기: 두 학생이 같은 이름(성을 뗀 이름)이면 한 학생 번호로 고르지 않는다", () => {
+  const names = { 1: "김하늘", 5: "이하늘", 7: "박서연" };
+  assert.equal(hideNames("하늘이가 오늘 울었어", names).text, "1번·5번 가운데 한 명이가 오늘 울었어");
+  assert.equal(hideNames("김하늘 보호자 연락, 서연이도", names).text, "1번 보호자 연락, 7번이도");
+  assert.deepEqual(mentionedNos(hideNames("하늘이 상담 준비", names).text, [{ no: 1, alias: "가" }, { no: 5, alias: "나" }, { no: 7, alias: "다" }]), [1, 5]);
+});
+
+test("위기 안내: 목 조르기·머리채·가두기는 학대 안내, 마사지 활동 물음에는 안내를 띄우지 않는다", async () => {
+  const { crisisOf } = await import("./crisis.ts");
+  for (const t of ["아빠가 아이 목을 졸랐대요", "엄마가 머리채를 잡았대요", "엄마가 아이를 방에 가뒀대요"]) assert.ok(crisisOf(t).includes("abuse"), t);
+  assert.ok(crisisOf("자기만 없으면 된대요").includes("suicide"));
+  assert.deepEqual(crisisOf("짝과 서로 어깨를 주물러 주며 몸을 만져 주는 마사지 활동 괜찮을까요?"), []);
+});

@@ -247,3 +247,22 @@ test("지우다가 저장소가 끊겨도 다른 기기 선생님 화면이 지�
     assert.ok(((await D.getStamp()).wipe ?? 0) > before);
   });
 });
+
+test("명단 동시 저장: 그사이 다른 기기가 준 새 코드·지우기 표시는 살리고, 번호·가명이 바뀌었으면 막는다", async () => {
+  await inSpace("cwipe13", async () => {
+    await D.saveRoster([{ no: 3, alias: "가온", code: "WPM333" }, { no: 4, alias: "나래", code: "WPM444" }, { no: 6, alias: "다솜", code: "WPM666" }]);
+    const base = await D.getRoster(); // 이 기기가 읽은 명단
+    // 그사이 다른 기기: 3번 새 코드, 6번 자료 지우기 시작
+    await db().update<{ students: { no: number; code: string; wipedAt?: string }[] }>("meta", "roster", (cur) => cur && {
+      ...cur, students: cur.students.map((s) => (s.no === 3 ? { ...s, code: "WPM999" } : s.no === 6 ? { ...s, wipedAt: "2026-11-19T01:00:00.000Z" } : s)),
+    });
+    // 이 기기: 4번 새 코드
+    const saved = await D.saveRoster(base.map((s) => (s.no === 4 ? { ...s, code: "WPM888" } : s)), false, { recoded: { 4: "WPM444" }, base });
+    assert.deepEqual(saved.map((s) => [s.no, s.code, s.wipedAt ?? null]), [[3, "WPM999", null], [4, "WPM888", null], [6, "WPM666", "2026-11-19T01:00:00.000Z"]]);
+    // 명단 칸 저장(strict): 그사이 다른 기기가 가명을 바꿨으면 덮지 않는다
+    const base2 = await D.getRoster();
+    await db().update<{ students: { no: number; alias: string }[] }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((s) => (s.no === 3 ? { ...s, alias: "가온이" } : s)) });
+    await assert.rejects(D.saveRoster(base2.map((s) => (s.no === 4 ? { ...s, alias: "나래나" } : s)), false, { base: base2, strict: true }), { message: D.ROSTER_CHANGED });
+    assert.deepEqual((await D.getRoster()).map((s) => s.alias), ["가온이", "나래", "다솜"]);
+  });
+});

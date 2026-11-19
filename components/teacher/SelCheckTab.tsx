@@ -190,10 +190,14 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
         <div className="card text-soft">
           {mode === "obs" ? "관찰을 적을 회차가 필요해요. 위에서 회차 이름을 쓰고 「선생님 관찰만 하기」를 누르면 학생 화면에 열지 않고 회차를 만들어요." : "아직 회차가 없어요. 위에서 「학기 초」 회차를 열어 보세요."}
         </div>
-      ) : mode === "paper" ? (
-        <SelPaper round={round} rows={rows} data={data} who={who} onData={onData} />
-      ) : mode === "obs" ? (
-        <ObsSheet round={round} rows={rows} who={who} onSaved={onSaved} />
+      ) : mode !== "result" ? (
+        // 입력판(서면 검사·관찰)은 종이에 내지 않는다(메뉴·Ctrl+P로 인쇄해도) — 결과 보기에서 인쇄하게
+        <>
+          <p className="hidden text-sm print:block">학급 역량 진단은 「결과 보기」에서 인쇄해 주세요.</p>
+          <div className="print:hidden">
+            {mode === "paper" ? <SelPaper round={round} rows={rows} data={data} who={who} onData={onData} /> : <ObsSheet round={round} rows={rows} who={who} onSaved={onSaved} />}
+          </div>
+        </>
       ) : (
         <>
           {done.length > 0 ? <ClassSummary round={round} base={baseRound} rows={rows} /> : <div className="card text-soft">「{round.title}」에 아직 답한 학생이 없어요. 「선생님 관찰 검사」에서 관찰을 먼저 하거나, 학생을 골라 종이 검사 점수를 넣을 수도 있어요.</div>}

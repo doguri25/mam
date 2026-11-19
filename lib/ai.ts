@@ -244,8 +244,9 @@ type AnalyzeInput = {
   text?: string; card?: { emotion: string; intensity: number; reason: string }; vocab: string[]; voiceTone?: string; lang?: Lang;
 };
 
-export async function analyze(ai: AI, input: AnalyzeInput): Promise<Analysis> {
-  return shape(input, await callJSON(ai, ANALYZE_SYSTEM, JSON.stringify({ ...input, nuance: NUANCE_JSON }), "mood", ANALYZE_SCHEMA));
+// riskWords: 반의 위험 표현 목록(AI에는 보내지 않고 AI가 지은 되묻기·답 단추를 거를 때만 쓴다)
+export async function analyze(ai: AI, input: AnalyzeInput, riskWords: string[] = []): Promise<Analysis> {
+  return shape(input, await callJSON(ai, ANALYZE_SYSTEM, JSON.stringify({ ...input, nuance: NUANCE_JSON }), "mood", ANALYZE_SCHEMA), riskWords);
 }
 
 // Gemini가 목소리를 직접 듣고 말투까지 판단(녹음은 보내기만 하고 저장하지 않음)
@@ -255,7 +256,7 @@ const AUDIO_SCHEMA = obj({
   toneWhy: { type: "string", description: "목소리가 어떻게 들렸는지 15자 안(예: 작고 느리게)" },
 });
 
-export async function analyzeWithAudio(key: string, model: string, input: AnalyzeInput, wavBase64: string) {
+export async function analyzeWithAudio(key: string, model: string, input: AnalyzeInput, wavBase64: string, riskWords: string[] = []) {
   const system = `${ANALYZE_SYSTEM}
 - 함께 온 녹음은 학생이 방금 한 말이야. tone은 목소리 기운(들떠 있음·차분함·가라앉음·떨림) 중 하나, toneWhy는 어떻게 들렸는지 짧게.
   목소리만으로 감정을 단정하지 말고 말 내용과 함께 판단해.`;
@@ -275,14 +276,14 @@ export async function analyzeWithAudio(key: string, model: string, input: Analyz
   if (!text) throw new Error("Gemini 답이 비어 있어요.");
   const out = parseJSON(text);
   return {
-    ...shape(input, out),
+    ...shape(input, out, riskWords),
     tone: (TONES as readonly string[]).includes(str(out.tone)) ? str(out.tone) : null,
     toneWhy: str(out.toneWhy).slice(0, 30),
   };
 }
 
 // 되묻기 질문과 대답 보기는 늘 같은 곳에서: 둘 다 AI 것이 쓸 만하면 AI 것, 하나라도 비면 둘 다 기본 되묻기
-export function shape(input: AnalyzeInput, out: Record<string, unknown>): Analysis {
+export function shape(input: AnalyzeInput, out: Record<string, unknown>, riskWords: string[] = []): Analysis {
   const card = input.card;
   const emotion = card?.emotion ?? (EMOTION_NAMES.includes(str(out.emotion)) ? str(out.emotion) : "그저 그래요");
   const reason = card?.reason ?? (REASON_NAMES.includes(str(out.reason)) ? str(out.reason) : "그냥");
@@ -292,8 +293,8 @@ export function shape(input: AnalyzeInput, out: Record<string, unknown>): Analys
   const question = ko(str(out.question).trim()).slice(0, 80);
   const fb = fallbackQuestion(reason, emotion, lang);
   // AI가 지은 되묻기·답 단추에 위험한 말이 있으면 쓰지 않는다(아이에게 그 말을 건네거나, 아이가 누른 AI의 말이 아이 답으로 남아
-  // 위험 알림이 되지 않게) — 기본 되묻기로
-  const fromAI = !!question && opts.length > 0 && !matchRisk([question, ...opts].join(" "), []).length;
+  // 위험 알림이 되지 않게) — 기본 되묻기로. 늘 켜진 핵심 목록과 반의 위험 표현 목록(「때리」 등) 모두로 거른다
+  const fromAI = !!question && opts.length > 0 && !matchRisk([question, ...opts].join(" "), riskWords).length;
   const word = str(out.word);
   return {
     emotion,

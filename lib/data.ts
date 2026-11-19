@@ -41,7 +41,9 @@ export function defaultSettings(): Settings {
 }
 
 export async function getSettings(): Promise<Settings> {
-  const s = await db().get<Partial<Settings>>("meta", "settings");
+  return normSettings(await db().get<Partial<Settings>>("meta", "settings"));
+}
+function normSettings(s: Partial<Settings> | null | undefined): Settings {
   const d = defaultSettings();
   const out: Settings = { ...d, ...s, models: { ...d.models, ...s?.models }, rules: { ...d.rules, ...s?.rules } };
   out.riskWords = out.riskWords.map((w) => String(w).replace(/[\p{Cc}\p{Cf}]/gu, "")).filter(Boolean); // 보이지 않는 글자 빼기
@@ -60,6 +62,17 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(s: Settings, withChecks = false) {
   await db().update<Partial<Settings>>("meta", "settings", (cur) => ({ ...s, checks: withChecks || !cur ? s.checks ?? {} : cur.checks ?? {} }));
   await touch("other");
+}
+// 설정 고치기: 쓰기 직전 저장소의 설정에 fn(이 요청이 바꾸는 칸만)을 얹는다 — 요청 처음에 읽어 둔 설정 전체로 덮으면
+// 그사이 다른 기기에서 바꾼 보관 기간·AI 키·감정 단어·위험 표현이 되돌아간다. withChecks면 fn이 준 「살펴봤어요」 표시로
+export async function editSettings(fn: (s: Settings) => Settings, withChecks = false): Promise<Settings> {
+  let out = defaultSettings();
+  await db().update<Partial<Settings>>("meta", "settings", (cur) => {
+    out = fn(normSettings(cur));
+    return { ...out, checks: withChecks || !cur ? out.checks ?? {} : cur.checks ?? {} };
+  });
+  await touch("other");
+  return out;
 }
 
 // 「살펴봤어요」 표시 가운데 drop이 참인 번호의 것만 지운다(저장소에 있는 표시에서 — 그사이 단 표시는 남게)
@@ -92,7 +105,34 @@ export async function rosterIsDemo() {
 // 학생 코드는 모든 학급을 통틀어 하나뿐이어야 한다(학생 로그인은 코드로 학급을 찾는다). 다른 학급이 쓰는 코드면 새로 뽑아
 // 저장하고, 공간 밖 「codes」 색인(코드 → 학급 공간·번호)을 이 학급 명단에 맞춘다. 실제로 저장한 명단을 돌려준다.
 interface CodeRow { id: string; space: string; no: number }
-export async function saveRoster(students: Student[], demo = false, opt: { recoded?: Record<number, string> } = {}) {
+// base: 이 요청이 읽고 고친 바탕 명단. 있으면 쓰기 직전 저장소 명단(cur)과 세 갈래로 합친다 — 이 요청이 바꾸지 않은 칸
+// (다른 기기가 그사이 준 새 코드·지우기 표시·동의·앞 학생 가명 지우기 등)은 cur 값을, 이 요청이 바꾼 칸만 이 요청 값을.
+// strict: 명단 칸 저장처럼 번호·가명을 고치는 요청 — 그사이 다른 기기가 번호·가명을 바꿨으면 합치지 않고 ROSTER_CHANGED를 던진다(말없이 덮지 않게)
+export const ROSTER_CHANGED = "그사이 다른 기기에서 명단이 바뀌었어요. 지금 명단을 확인하고 다시 해 주세요.";
+const sameVal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const nameList = (xs: Student[]) => xs.map((x) => `${x.no} ${x.alias}`).sort().join("\n");
+function mergeRoster(mine: Student[], base: Student[], cur: Student[]): Student[] {
+  const b = new Map(base.map((x) => [x.no, x])), c = new Map(cur.map((x) => [x.no, x]));
+  const out: Student[] = [];
+  for (const x of mine) {
+    const bx = b.get(x.no), cx = c.get(x.no);
+    if (!bx) { out.push(x); continue; } // 이 요청이 넣은 학생
+    if (!cx) continue; // 그사이 다른 기기가 뺀 학생(이 요청은 그대로 두려 했음)
+    const y: Record<string, unknown> = { ...x };
+    for (const k of new Set([...Object.keys(x), ...Object.keys(bx), ...Object.keys(cx)])) {
+      const xv = (x as unknown as Record<string, unknown>)[k], bv = (bx as unknown as Record<string, unknown>)[k], cv = (cx as unknown as Record<string, unknown>)[k];
+      if (sameVal(xv, bv) && !sameVal(cv, bv)) {
+        if (cv === undefined) delete y[k];
+        else y[k] = cv;
+      }
+    }
+    out.push(y as unknown as Student);
+  }
+  // 그사이 다른 기기가 넣은 학생(이 요청의 바탕에 없음)
+  for (const cx of cur) if (!b.has(cx.no) && !out.some((x) => x.no === cx.no)) out.push(cx);
+  return out.sort((x, y) => x.no - y.no);
+}
+export async function saveRoster(students: Student[], demo = false, opt: { recoded?: Record<number, string>; base?: Student[]; strict?: boolean } = {}) {
   const sp = spaceId();
   // 코드 색인과 홍북초·체험 명단(색인 전에 만든 코드)을 한꺼번에 읽는다
   const [index, ...olds] = await Promise.all([
@@ -111,7 +151,18 @@ export async function saveRoster(students: Student[], demo = false, opt: { recod
   // 보호자 동의 날짜는 따로 한 칸씩 고친다(setConsent) → 같은 학생(번호·코드가 같음)이면 저장소에 지금 있는 값을 따른다
   // (명단을 읽고 저장하는 사이 다른 기기에서 표시한 동의가 사라지지 않게)
   let list = picked;
+  let changed = false;
   await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => {
+    changed = false;
+    if (opt.base) {
+      const now = cur?.students ?? [];
+      if (opt.strict && nameList(now) !== nameList(opt.base)) {
+        changed = true;
+        return undefined;
+      }
+      list = mergeRoster(picked, opt.base, now);
+      return { students: list, demo };
+    }
     const was = new Map((cur?.students ?? []).map((x) => [`${x.no}:${x.code}`, x]));
     list = picked.map((x) => {
       // 새 코드를 받은 학생(recoded: 번호 → 예전 코드)은 예전 코드로 찾는다(코드를 바꾸는 사이 다른 기기에서 표시한 동의를 잃지 않게)
@@ -123,6 +174,7 @@ export async function saveRoster(students: Student[], demo = false, opt: { recod
     });
     return { students: list, demo };
   });
+  if (changed) throw new Error(ROSTER_CHANGED);
   const mine = new Set(list.map((s) => s.code));
   await outOfSpace(async () => {
     await Promise.all(index.filter((x) => x.space === sp && !mine.has(x.id)).map((x) => db().del("codes", x.id)));
@@ -604,7 +656,7 @@ export async function aiMissing(can = "만들 수 있어요") {
   if (isDemo()) {
     // 키가 아예 없는 배포에서는 사용량이 아니라 키가 없다고(위 띠의 「AI 키가 없어 기본 질문으로」와 같게)
     const s = await keySettings();
-    return trialKey() || s.keys[s.provider] ? "오늘 체험용 AI 사용량을 다 썼어요." : "체험 반에는 AI 키가 없어 이 기능을 쓸 수 없어요(기본 질문으로 움직여요).";
+    return trialKey() || s.keys[s.provider] ? "오늘 체험용 AI 사용량을 다 썼어요." : "체험 반에는 AI 키가 없어 이 기능을 쓸 수 없어요.";
   }
   const s = await keySettings();
   if (!s.keys[s.provider] && hasSharedAi()) return "오늘 학급 공용 AI 몫을 다 썼어요. 내일 다시 하거나 「설정」에서 AI 키를 넣어 주세요.";
@@ -1366,7 +1418,7 @@ export async function clearPractice() {
   if (fake.size || doc?.demo) {
     const was = new Map(roster.filter((s) => fake.has(s.no)).map((s) => [s.no, s.code]));
     const now = await getRoster();
-    await saveRoster(now.filter((s) => was.get(s.no) !== s.code), false);
+    await saveRoster(now.filter((s) => was.get(s.no) !== s.code), false, { base: now });
   }
   // 「살펴봤어요」 표시는 연습 학생 것만 지운다(실제 학생 표시는 그대로)
   await pruneChecks((no) => fake.has(no));

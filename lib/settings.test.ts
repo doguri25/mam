@@ -35,3 +35,13 @@ test("표시 지우기는 고른 번호 것만(그사이 단 다른 표시는 �
     assert.deepEqual((await D.getSettings()).checks, { "4_2026-11-16": "b" });
   });
 });
+
+test("설정 고치기는 이 요청이 바꾸는 칸만 저장소 설정에 얹는다(그사이 다른 기기에서 바꾼 칸이 되돌아가지 않게)", async () => {
+  await inSpace("cset9", async () => {
+    await D.saveSettings(D.defaultSettings());
+    await D.editSettings((s) => ({ ...s, retention: "24m" })); // 다른 기기
+    await D.editSettings((s) => ({ ...s, className: "새 이름" })); // 이 기기(앞서 읽은 설정과 상관없이)
+    const now = await D.getSettings();
+    assert.deepEqual([now.retention, now.className], ["24m", "새 이름"]);
+  });
+});

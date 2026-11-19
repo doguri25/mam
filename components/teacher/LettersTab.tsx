@@ -4,6 +4,7 @@
 import { useState } from "react";
 import Doodle from "../Doodle";
 import { RiskActionForm, kindsText } from "./RiskActions";
+import { focusLater, openForm } from "./focusLater";
 import type { NameOf, Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
@@ -41,6 +42,8 @@ function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter;
     await reload();
     setBusy(false); // 보통은 다른 목록으로 옮겨 가 사라지지만, 다시 불러오지 못했을 때 단추가 묶이지 않게
   }
+  // 폼을 닫으면 「살펴보고 적기」·「조치 더 적기」 단추로 초점을 돌려준다(쪽지가 다른 목록으로 옮겨 가면 그 단추)
+  const actBtn = () => document.querySelector<HTMLElement>(`[data-act="${CSS.escape(`letter:${l.id}`)}"]`);
   // 쪽지를 읽은 다음 → 한 일 적기 → 전하기·돌려보내기 순서로 놓는다
   const riskBox = l.risk && (
     <div className="space-y-2 rounded-2xl border border-alert/40 bg-card p-3 text-sm">
@@ -55,9 +58,10 @@ function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter;
       )}
       {acting ? (
         <RiskActionForm recordId={`letter:${l.id}`} kind="letter" today={today} first={!l.riskChecked} seen={l.createdAt} text={l.original ?? l.text}
-          onCancel={() => setActing(false)} onStale={reload} onDone={async () => { setActing(false); await reload(); }} />
+          onCancel={() => { const from = openForm(); setActing(false); focusLater(actBtn, from); }} onStale={reload}
+          onDone={async () => { const from = openForm(); setActing(false); await reload(); focusLater(actBtn, from); }} />
       ) : (
-        <button onClick={() => setActing(true)} className="btn-sub min-h-9 px-3 text-sm"><Doodle name="memo" /> {l.riskChecked ? "조치 더 적기" : "살펴보고 적기"}</button>
+        <button data-act={`letter:${l.id}`} onClick={() => setActing(true)} className="btn-sub min-h-9 px-3 text-sm"><Doodle name="memo" /> {l.riskChecked ? "조치 더 적기" : "살펴보고 적기"}</button>
       )}
     </div>
   );

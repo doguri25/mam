@@ -2,9 +2,10 @@
 // 위험 표현 조치 기록: 「살펴봤어요」 때 한 일(여럿 고름)·한 날·짧은 메모를 남기고, 그 뒤에 더 한 일도 같은 기록에 이어 적는다.
 // 선생님만 보고 AI에는 보내지 않는다. 학생별 누적 기록·상담 의견서·주간 리포트에 함께 보인다.
 // 살펴보는 것: 마음 기록 · 마치지 않은 기록(draft:) · 한 주 돌아보기(reflect:) · 공감 쪽지(letter:)
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import PrevList from "./PrevList";
+import { focusLater, openForm } from "./focusLater";
 import { KIND_KO, PART_SEP, draftText, everRisk, kindOfId, partLabel, partsText, recordSeen, reflectEverRisk, reflectSource, riskyParts, riskySource, splitParts, type RiskKind, type RiskPart } from "./alerts";
 import type { NameOf } from "./types";
 import { kday, ktime } from "./when";
@@ -59,8 +60,9 @@ function SawText({ text }: { text: string }) {
   );
 }
 
-// 폼에 고른 것(그사이 바뀌어 다시 불러올 때 잃지 않게 밖으로 넘긴다). msg: 새 폼에 처음 띄울 말
-export interface FormState { kinds: RiskActionKind[]; date: string; note: string; msg?: string }
+// 폼에 고른 것(그사이 바뀌어 다시 불러올 때·폼이 다른 알림으로 옮겨 갈 때 잃지 않게 밖으로 넘긴다). msg: 새 폼에 처음 띄울 말
+// focus: 초점이 있던 칸(data-f) — 옮겨 붙은 폼이 같은 칸으로 초점을 돌려준다
+export interface FormState { kinds: RiskActionKind[]; date: string; note: string; msg?: string; focus?: string }
 // 폼마다 하나: 같은 폼에서 다시 눌러도 서버가 같은 조치 기록을 고쳐 쓴다(두 번 남지 않음)
 const newOp = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
@@ -79,10 +81,12 @@ export function movedTo(open: string | null, ids: string[]): string | null {
 // 그사이 학생이 고쳐 썼으면 서버가 닫지 않고(409) → 고른 일·메모는 그대로 두고 알린 뒤 onStale로 새 글을 불러온다.
 // 그다음 선생님이 다시 누를 때에만 그때 화면의 새 판으로 닫는다.
 // init: 앞 폼에서 옮겨 온 고른 일·한 날·메모(마치지 않은 글 → 마음 기록). onStale은 고른 것을 함께 받는다.
+// onState: 고르거나 쓸 때마다 고른 것을 밖에 알린다 — 20초마다 새로 읽다가 폼이 옮겨 가도(학생이 그 글로 기록을 마침) 잃지 않게.
 // 조치 기록에 남는 글은 서버가 그 위험 표현의 글에서 골라 남긴다(화면이 보내는 글을 믿지 않음).
-export function RiskActionForm({ recordId, today, first, seen, text, kind, init, onDone, onCancel, onStale }: {
+export function RiskActionForm({ recordId, today, first, seen, text, kind, init, onDone, onCancel, onStale, onState }: {
   recordId: string; today: string; first: boolean; seen?: string; text?: string; kind?: RiskKind; init?: FormState | null;
   onDone: (items: RiskAction[]) => void | Promise<void>; onCancel: () => void; onStale?: (st: FormState) => void | Promise<void>;
+  onState?: (st: FormState) => void;
 }) {
   const [kinds, setKinds] = useState<RiskActionKind[]>(init?.kinds ?? []);
   const [date, setDate] = useState(init?.date ?? today);
@@ -92,11 +96,28 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, init,
   const [base, setBase] = useState({ seen, text }); // 폼을 연 때 본 판
   const [stale, setStale] = useState(!!init?.msg); // 서버가 「그사이 바뀜」이라고 돌려보낸 뒤(옮겨 온 폼도 새 글을 읽고 누르는 것)
   const [op] = useState(newOp);
+  const root = useRef<HTMLDivElement>(null);
+  const focusAt = useRef(init?.focus);
+  const report = (p: Partial<FormState>) => onState?.({ kinds, date, note, focus: focusAt.current, ...p });
+  // 옮겨 붙은 폼: 앞 폼 안에 있던 초점이 폼과 함께 사라졌으면 같은 칸으로 돌려준다(화면은 움직이지 않게)
+  const [restore] = useState(init?.focus);
+  useEffect(() => {
+    const a = document.activeElement;
+    if (!restore || (a && a !== document.body)) return;
+    const el = root.current?.querySelector<HTMLElement>(`[data-f="${CSS.escape(restore)}"]`);
+    el?.focus({ preventScroll: true });
+    // 메모 칸이면 쓰던 자리(끝)에서 이어 쓰게
+    if (el instanceof HTMLTextAreaElement) el.setSelectionRange(el.value.length, el.value.length);
+  }, [restore]);
   // 「걱정할 내용이 아니었음」은 다른 일과 함께 고르지 않는다
-  const toggle = (k: RiskActionKind) =>
-    setKinds((ks) => (ks.includes(k) ? ks.filter((x) => x !== k) : k === "none" ? ["none"] : [...ks.filter((x) => x !== "none"), k]));
+  const toggle = (k: RiskActionKind) => {
+    const next = kinds.includes(k) ? kinds.filter((x) => x !== k) : k === "none" ? (["none"] as RiskActionKind[]) : [...kinds.filter((x) => x !== "none"), k];
+    setKinds(next);
+    report({ kinds: next });
+  };
 
   async function save() {
+    if (busy || !kinds.length) return; // 남기는 중에는 단추를 막지 않고(막으면 초점이 사라진다) 여기서 거른다
     // 바뀐 글을 불러온 뒤 다시 누른 것이면 지금 화면의 판을 받아들인다
     const v = stale ? { seen, text } : base;
     if (stale) {
@@ -118,19 +139,21 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, init,
       if (st === 409 || st === 404) {
         setStale(true);
         setErr((e as Error).message || STALE_MSG); // 서버가 알려 준 까닭 그대로
-        await onStale?.({ kinds, date, note }); // 새 글을 화면에 불러온다(고른 일·메모는 그대로 · 폼이 옮겨 가면 함께)
+        await onStale?.({ kinds, date, note, focus: focusAt.current }); // 새 글을 화면에 불러온다(고른 일·메모는 그대로 · 폼이 옮겨 가면 함께)
       } else setErr((e as Error).message);
     }
   }
 
   return (
     // data-riskform: 이 폼이 열려 있으면 지도 기록 창이 Esc로 닫히지 않는다(고른 일·메모를 잃지 않게)
-    <div data-riskform className="w-full space-y-3 rounded-2xl border border-line bg-card p-3">
+    <div data-riskform ref={root} className="w-full space-y-3 rounded-2xl border border-line bg-card p-3"
+      onFocus={(e) => { const f = (e.target as HTMLElement).dataset.f; if (f && f !== focusAt.current) { focusAt.current = f; report({ focus: f }); } }}
+      onBlur={(e) => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node) && focusAt.current) { focusAt.current = undefined; report({ focus: undefined }); } }}>
       <p className="text-sm font-bold">{first ? "어떻게 살펴봤나요? (여럿 고를 수 있어요)" : "그 뒤에 더 한 일"}</p>
       <div className="flex flex-wrap gap-2" role="group" aria-label="한 일">
         {RISK_ACTIONS.map((k, i) => (
-          // 폼을 열면 첫 고르기 단추로 초점(누른 단추가 사라져 초점을 잃지 않게)
-          <button key={k} type="button" onClick={() => toggle(k)} aria-pressed={kinds.includes(k)} autoFocus={i === 0}
+          // 폼을 열면 첫 고르기 단추로 초점(누른 단추가 사라져 초점을 잃지 않게). 옮겨 붙은 폼(init)은 초점을 가져가지 않는다
+          <button key={k} type="button" data-f={`k-${k}`} onClick={() => toggle(k)} aria-pressed={kinds.includes(k)} autoFocus={i === 0 && !init}
             className={`chip min-h-10 px-3 text-sm ${kinds.includes(k) ? "border-leaf bg-leaf-soft font-bold text-leaf" : ""}`}>
             {kinds.includes(k) && "✓ "}{RISK_ACTION_KO[k]}
           </button>
@@ -139,17 +162,17 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, init,
       <div className="grid gap-2 sm:grid-cols-[10rem_1fr]">
         <label className="text-sm">
           <span className="text-soft">한 날</span>
-          <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} className="field mt-1 min-h-10 py-1.5" />
+          <input type="date" data-f="date" value={date} max={today} onChange={(e) => { setDate(e.target.value); report({ date: e.target.value }); }} className="field mt-1 min-h-10 py-1.5" />
         </label>
         <label className="text-sm">
           <span className="text-soft">메모 (선생님만 봐요 · AI에는 보내지 않아요)</span>
-          <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} rows={2} className="field mt-1" placeholder="예: 쉬는 시간에 따로 이야기 나눔. 집에서도 지켜보기로 보호자와 약속" />
+          <textarea data-f="note" value={note} onChange={(e) => { const v = e.target.value.slice(0, 300); setNote(v); report({ note: v }); }} rows={2} className="field mt-1" placeholder="예: 쉬는 시간에 따로 이야기 나눔. 집에서도 지켜보기로 보호자와 약속" />
         </label>
       </div>
       {err && <p role="alert" className={`text-sm ${stale ? "rounded-xl bg-alert-soft px-3 py-2 font-bold" : ""} text-alert`}>{err}</p>}
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={onCancel} className="btn-sub min-h-10 text-sm">취소</button>
-        <button type="button" onClick={save} disabled={!kinds.length || busy} className="btn-main min-h-10 text-sm">
+        <button type="button" data-f="cancel" onClick={onCancel} className="btn-sub min-h-10 text-sm">취소</button>
+        <button type="button" data-f="save" onClick={save} disabled={!kinds.length} aria-disabled={busy} className="btn-main min-h-10 text-sm">
           {busy ? "남기는 중…" : !first ? "더 적기" : stale ? "바뀐 글을 읽었어요 · 기록하고 알림 닫기" : "기록하고 알림 닫기"}
         </button>
       </div>
@@ -247,12 +270,13 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
   const items = riskItems(src);
   if (!items.length) return <p className="text-sm text-soft">위험 표현이 들어온 적이 없어요.</p>;
   const open = movedTo(adding, items.map((x) => x.id));
-  // 폼을 닫으면(취소·저장) 다시 생긴 「살펴보고 적기」 단추로 초점을 돌려준다
+  // 폼을 닫으면(취소·저장) 다시 생긴 「살펴보고 적기」·「조치 더 적기」 단추로 초점을 돌려준다(다시 그린 뒤에)
   const close = () => {
-    const back = adding ?? open;
+    const back = open ?? adding;
+    const from = openForm();
     setAdding(null);
     setCarry(null);
-    if (back) setTimeout(() => document.querySelector<HTMLElement>(`[data-act="${CSS.escape(back)}"]`)?.focus(), 0);
+    if (back) focusLater(() => document.querySelector<HTMLElement>(`[data-act="${CSS.escape(back)}"]`), from);
   };
   const who = (no: number, at?: string) => `${no}번${nameOf ? ` ${nameOf(no, at)}` : ""}`;
 
@@ -322,7 +346,7 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
               <div className="no-print mt-2">
                 {/* 마치지 않은 글에서 옮겨 온 폼이면 고른 것을 그대로 가져온다 */}
                 <RiskActionForm recordId={id} kind={it.kind} today={today} first={it.first} seen={it.seen} text={it.saw}
-                  init={id !== adding && carry ? { ...carry, msg: MOVED_MSG } : null}
+                  init={id !== adding ? { kinds: [], date: today, note: "", ...carry, msg: MOVED_MSG } : null} onState={setCarry}
                   onCancel={close} onStale={async (st) => { setCarry(st); await onStale?.(); }} onDone={async (x) => { close(); await onChange(x); }} />
               </div>
             ) : (

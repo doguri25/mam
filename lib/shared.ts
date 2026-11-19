@@ -257,6 +257,9 @@ export const RISK_CORE = [
   "그만 살고 싶", "나는 죽어야", "난 죽어야", "내가 죽어야", "목숨을 끊", "죽으면 편할", "삶이 싫",
   // 「살아있는 게 싫어」「살아 있고 싶지 않아」「뒈지고 싶다」(「뒤지고 싶」의 다른 꼴)
   "살아 있는 게 싫", "뒈지고 싶",
+  // 죽으려 한 적(「죽으려고 한 적 있어」「죽으려고 해 봤어」), 내가 없어야 남이 낫다는 말(「내가 없으면 다들 행복할 거야」「나만 없으면 돼」),
+  // 「나 같은 건 없어져야 돼」「죽는 방법 알려줘」「태어난 게 후회돼」「태어나서 미안해」「인생을 끝내고 싶어」, 초성 「ㅈㅅㅎㄱㅅㅇ」(자살하고 싶어)
+  "죽으려고 한 적", "내가 없으면 다 행복", "나 같은 건 없어져야", "죽는 방법", "태어난 게 후회", "인생을 끝내고 싶", "ㅈㅅㅎㄱㅅㅇ",
   "제가 사라지면 좋겠", "제가 없어지면 좋겠", "제가 사라졌으면 좋겠", "제가 없어졌으면 좋겠", "제가 죽었으면 좋겠", "저는 죽었으면 좋겠", "전 죽었으면 좋겠",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   // 앞 낱말은 꼴이 같아야 해서(「killing」은 「kill」에 걸리지 않음) 흔한 다른 꼴도 따로
@@ -267,6 +270,7 @@ export const RISK_CORE = [
   "wana die", "wont to die", "wanttodie", "sucid", "suisid", "wish i was never born", "wish i were never born", "wish i had never been born",
   "wish i wasn't born", "kill yourself", "kill your self", "kill urself", "kys", "end it all", "wish i could die", "hope you die",
   "hitted me", "hurted me", "beated me",
+  "better off without me", "happier without me", "don't want to exist", "wish i didn't exist",
   "hate my self", "want too die", "i hope i die", "i deserve to die", "dont deserve to live", "hate being alive", "punch myself", "better off dead",
   "bully", "bullied", "bullies", "bulling", "bulied", "bulies", "beat me", "beats me", "beating me", "hit me", "hits me", "hitting me",
   "hurt me", "hurts me", "hurting me",
@@ -280,12 +284,12 @@ export const RISK_CORE = [
   "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "活著沒意思", "想杀", "恨自己", "恨我自己",
   "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我", "揍了我", "踢我", "踢了我", "被踢",
   "把我打", "把我揍", "把我踢", "掐脖子", "扇我", "耳光", "抽我", "割自己", "自残", "踹我", "踹了我", "踹倒我", "踹倒了我", "被踹",
-  "讨厌自己", "討厭自己", "讨厌我自己", "討厭我自己", "被孤立", "伤害我自己", "傷害我自己", "不如死", "死了就好", "结束自己的生命", "結束自己的生命",
+  "离开这个世界", "離開這個世界", "讨厌自己", "討厭自己", "讨厌我自己", "討厭我自己", "被孤立", "伤害我自己", "傷害我自己", "不如死", "死了就好", "结束自己的生命", "結束自己的生命",
   "muốn chết", "mún chết", "không muốn sống", "chán sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh đòn",
   "đánh con", "đánh em", "đánh tôi", "đánh mình", "muốn biến mất", "ghét bản thân", "đánh đập",
   "tát con", "tát em", "tát tôi", "tát mình", "đá con", "đá em", "đá tôi", "đá mình",
   "bị đá", "bị tát", "bị đấm", "đấm con", "đấm em", "đấm tôi", "đấm mình", "chết đi", "bóp cổ", "tự cắt tay",
-  "ghét chính mình", "rạch tay", "làm hại bản thân", "không được sinh ra",
+  "ghét chính mình", "rạch tay", "làm hại bản thân", "không được sinh ra", "chưa từng được sinh ra", "chưa bao giờ được sinh ra", "không muốn tồn tại",
   "死にたい", "しにたい", "しんじゃいたい", "消えたい", "きえたい", "いなくなりたい", "自殺", "じさつ", "自傷", "いじめ",
   "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "なかまはずれ", "仲間外れ",
   "死にたく", "しにたくな", "死んじゃいたい", "しんでしまいたい", "死んでしまいたい", "きえてしまいたい", "消えてしまいたい", "生きていたくない", "いきていたくない",

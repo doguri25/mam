@@ -177,3 +177,12 @@ test("AI 오류: 상태 번호가 400·429여도 틀린 키·크레딧 소진은
   // 제미나이 무료 분당 한도 글(「quota」「billing」이 들어 있어도 잠깐 넘친 것)
   assert.match(aiError(Object.assign(new Error("You exceeded your current quota, please check your plan and billing details. Please retry in 30s."), { status: 429 })).message, /사용량이 잠시/);
 });
+
+test("되묻기: 답 단추에 반의 위험 표현(핵심 목록 밖)이 있어도 기본 되묻기로", async () => {
+  const { DEFAULT_RISK_WORDS } = await import("./shared.ts");
+  const ai = { question: "속상했구나, 그래서 어떻게 했어?", options: ["친구를 때리고 싶었어", "그냥 참았어"] };
+  assert.equal(shape(base, ai).question, ai.question); // 핵심 목록만 보면 걸리지 않는 말
+  const r = shape(base, ai, DEFAULT_RISK_WORDS);
+  assert.equal(r.question, shape(base, {}).question);
+  assert.ok(!r.options.includes("친구를 때리고 싶었어"));
+});

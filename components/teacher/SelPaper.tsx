@@ -256,19 +256,23 @@ function Zoom({ src, onClose }: { src: string; onClose: () => void }) {
   const box = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
   useTrap(box, true);
+  // 닫기 함수는 다시 그릴 때마다 새로 오므로 ref로 받는다 — 리스너·초점 되돌리기는 열 때 한 번만
+  // (onClose에 묶으면 다른 기기 변경으로 다시 그릴 때마다 정리가 돌아 창이 열린 채 초점이 뒤 화면 단추로 간다)
+  const close = useRef(onClose);
+  useEffect(() => { close.current = onClose; }, [onClose]);
   useEffect(() => {
     const back = opener.current;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       e.preventDefault();
-      onClose();
+      close.current();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       if (back?.isConnected) back.focus();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div ref={box} role="dialog" aria-modal="true" aria-label="스캔한 쪽 크게 보기" className="fixed inset-0 z-50 flex flex-col items-center gap-2 overflow-auto bg-black/60 p-4" onClick={onClose}>
       <button onClick={onClose} autoFocus className="btn-sub min-h-10 shrink-0 self-end px-3" aria-label="크게 보기 닫기">✕ 닫기</button>

@@ -62,6 +62,7 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
     return () => window.removeEventListener("keydown", onKey);
   }, [ask]);
   function translate() {
+    if (busy) return; // 번역하는 동안 단추를 막지 않는다(막으면 묻는 창을 닫을 때 초점을 돌려받지 못한다)
     const full = hideNames(whole, names, { full: true }).text;
     const given = hideNames(whole, names).text;
     if (given === full) return send(full);
@@ -99,7 +100,7 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
         </select>
         {/* 설명은 단추에 커서를 올리거나(태블릿은 눌러 초점) 할 때만 말풍선으로. 단추 줄 왼쪽에 붙여 화면 밖으로 나가지 않게 */}
         <span className="group">
-          <button ref={transBtn} onClick={translate} disabled={busy} aria-describedby="translate-tip" className="btn-sub">
+          <button ref={transBtn} onClick={translate} aria-disabled={busy} aria-describedby="translate-tip" className="btn-sub">
             {busy ? "번역하는 중…" : <><Doodle name="globe" /> 이주배경학생 가정용 번역본</>}
           </button>
           <span
@@ -115,7 +116,7 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
           </span>
         </span>
         {translated && <button onClick={() => setTranslated("")} className="btn-sub">번역본 지우기</button>}
-        {err && <span className="text-sm text-alert">{err}</span>}
+        {err && <span role="alert" className="text-sm text-alert">{err}</span>}
       </div>
       {ask && (
         <div ref={askBox} role="dialog" aria-label="이름처럼 보이는 말" className="no-print space-y-2 rounded-2xl border border-sun bg-[#fff8e1] p-4 text-sm">

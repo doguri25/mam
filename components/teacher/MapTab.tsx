@@ -2,6 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useEffect, useRef, useState } from "react";
 import { useTrap } from "./useTrap";
+import { focusLater, openForm } from "./focusLater";
 import Doodle from "../Doodle";
 import { MOVED_MSG, RiskActionForm, RiskHistory, RiskTexts, movedTo, riskItems, type FormState } from "./RiskActions";
 import { EmotionArt } from "../Art";
@@ -66,6 +67,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
   // 마치지 않은 글을 살펴보는 사이 학생이 그 글로 기록을 마쳤으면 폼(고른 일·메모)을 같은 칸의 마음 기록 알림으로 옮긴다
   const actingOn = movedTo(acting, alerts.map((a) => a.id));
   const stopActing = () => { setActing(null); setCarry(null); };
+  const alertBtn = (id: string) => document.querySelector<HTMLElement>(`[data-alert-act="${CSS.escape(id)}"]`);
   // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
   const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
   const openFlags = flags.filter((f) => !checkedAt(f.no));
@@ -83,7 +85,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
   const alertBox = alerts.length > 0 && (
     // 「오늘의 마음 칸 · 인쇄」는 칸만 인쇄한다: 위험 표현 글·먼저 살펴볼 학생 목록은 종이에 남기지 않는다
     <section className="no-print rounded-3xl border-2 border-alert bg-alert-soft p-5" role="alert">
-      <h2 className="font-display text-xl text-alert"><Doodle name="warning" /> 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
+      <h2 id="alert-head" tabIndex={-1} className="font-display text-xl text-alert outline-none"><Doodle name="warning" /> 바로 살펴봐 주세요 · 위험 표현 {alerts.length}건</h2>
       <p className="mt-1 text-sm">
         학생 화면에는 아무 표시도 나가지 않았어요. 진단이 아닌 신호예요. 학교 위기관리 절차에 따라 Wee클래스·상담교사와 함께 살펴봐 주세요.
         (청소년상담 1388, 자살예방상담 109)
@@ -147,16 +149,28 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
             );
           }
           return (
-            <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
+            <li key={a.id} data-alert={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-3">
               {body}
               {actingOn === a.id ? (
                 <RiskActionForm recordId={a.id} kind={a.kind} today={today} first seen={a.seen} text={saw}
-                  init={a.id !== acting && carry ? { ...carry, msg: MOVED_MSG } : null}
-                  onCancel={stopActing} onStale={async (st) => { setCarry(st); await reload(); }} onDone={async () => { stopActing(); await reload(); }} />
+                  init={a.id !== acting ? { kinds: [], date: today, note: "", ...carry, msg: MOVED_MSG } : null} onState={setCarry}
+                  onCancel={() => { const from = openForm(); stopActing(); focusLater(() => alertBtn(a.id), from); }}
+                  onStale={async (st) => { setCarry(st); await reload(); }}
+                  onDone={async () => {
+                    // 알림이 닫혀 그 줄이 없어지면 그 자리의 다음 알림 단추로(없으면 알림 제목·오늘의 마음 칸 제목으로)
+                    const from = openForm(), at = alerts.findIndex((x) => x.id === a.id);
+                    stopActing();
+                    await reload();
+                    focusLater((last) => {
+                      if (document.querySelector(`[data-alert="${CSS.escape(a.id)}"]`)) return last ? alertBtn(a.id) : null;
+                      const rest = [...document.querySelectorAll<HTMLElement>("[data-alert-act]")];
+                      return rest[Math.min(at, rest.length - 1)] ?? document.getElementById("alert-head") ?? document.getElementById("map-head");
+                    }, from);
+                  }} />
               ) : (
                 <span className="flex flex-wrap gap-2">
                   {a.kind === "letter" && onLetters && <button onClick={onLetters} className="btn-sub min-h-10 text-sm">공감 쪽지로</button>}
-                  <button onClick={() => { setActing(a.id); setCarry(null); }} className="btn-sub min-h-10 text-sm">{a.kind === "letter" ? "살펴보고 적기" : "살펴봤어요"}</button>
+                  <button data-alert-act={a.id} onClick={() => { setActing(a.id); setCarry(null); }} className="btn-sub min-h-10 text-sm">{a.kind === "letter" ? "살펴보고 적기" : "살펴봤어요"}</button>
                 </span>
               )}
             </li>
@@ -192,7 +206,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <section className="card">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-xl">오늘의 마음 칸 · {label(today)}</h2>
+            <h2 id="map-head" tabIndex={-1} className="font-display text-xl outline-none">오늘의 마음 칸 · {label(today)}</h2>
             <button onClick={() => window.print()} className="no-print btn-sub min-h-9 px-3 text-sm"><Doodle name="printer" /> 인쇄</button>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">

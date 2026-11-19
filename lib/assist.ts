@@ -170,18 +170,31 @@ export const threadTitle = (text: string) => cleanTitle(text, 40) || "새 대화
 // full: 성까지 다 쓴 이름만 바꾼다(가정 소식지처럼 「가을 하늘」 같은 낱말이 이름 일부로 바뀌면 안 되는 글)
 export function hideNames(text: string, names: Record<number, string>, opts: { full?: boolean } = {}): { text: string; hit: boolean } {
   let out = text, hit = false;
-  const list = Object.entries(names).filter(([, n]) => n && n.trim().length >= 2).sort((a, b) => b[1].length - a[1].length);
-  for (const [no, name] of list) {
-    const n = name.trim();
-    const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // 바꿀 말(성까지 쓴 이름, 성을 뗀 이름) → 그 말을 쓰는 번호들. 두 학생이 같은 말이면(김하늘·이하늘의 「하늘」)
+  // 한 학생 번호로 골라 바꾸지 않고 「1번·5번 가운데 한 명」으로(다른 학생 일로 읽히거나 그 학생 기록이 AI로 가지 않게)
+  const toks = new Map<string, { nos: number[]; plain: boolean }>();
+  const add = (t: string, no: number, plain: boolean) => {
+    const e = toks.get(t) ?? { nos: [], plain: false };
+    if (!e.nos.includes(no)) e.nos.push(no);
+    e.plain ||= plain;
+    toks.set(t, e);
+  };
+  for (const [k, name] of Object.entries(names)) {
+    const n = name?.trim() ?? "";
+    if (n.length < 2) continue;
+    add(n, Number(k), true);
     // 성을 뗀 이름(민준이, 민준한테, 민준,)도: 세 글자 이름은 뒤 두 글자, 네 글자 이름(남궁민수)도 뒤 두 글자.
     // 낱말 첫머리에서 시작하고(「서민준」의 「민준」은 앞 글자가 있어 건드리지 않음) 뒤에 조사·빈칸·문장부호·끝이 올 때만
     // (「슬기로운 생활」「보람찬」「다운로드」가 「3번로운」처럼 바뀌지 않게)
-    const given = !opts.full && /^[가-힣]{3,4}$/.test(n) ? n.slice(-2) : null;
-    const re = new RegExp(given ? `${esc}|(?<![가-힣])${given}${AFTER_NAME}` : esc, "g");
+    if (!opts.full && /^[가-힣]{3,4}$/.test(n)) add(n.slice(-2), Number(k), false);
+  }
+  for (const [t, { nos, plain }] of [...toks].sort((a, b) => b[0].length - a[0].length)) {
+    const esc = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(plain ? esc : `(?<![가-힣])${esc}${AFTER_NAME}`, "g");
     if (re.test(out)) {
       hit = true;
-      out = out.replace(re, `${no}번`);
+      const sorted = [...nos].sort((x, y) => x - y);
+      out = out.replace(re, sorted.length > 1 ? `${sorted.map((n) => `${n}번`).join("·")} 가운데 한 명` : `${sorted[0]}번`);
     }
   }
   return { text: out, hit };

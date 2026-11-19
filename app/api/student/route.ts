@@ -483,7 +483,7 @@ async function handle(req: NextRequest, body: Body) {
       const gemKey = settings.voiceMode === "gemini" && audio ? await rawKey("gemini") : null;
       if (audio && gemKey) {
         try {
-          const r = await analyzeWithAudio(gemKey, settings.models.gemini, input, audio);
+          const r = await analyzeWithAudio(gemKey, settings.models.gemini, input, audio, settings.riskWords);
           if (r.tone) tone = { tone: r.tone, why: r.toneWhy || "Gemini가 들은 목소리", by: "gemini" };
           return finish(r, true);
         } catch (e) {
@@ -494,7 +494,7 @@ async function handle(req: NextRequest, body: Body) {
       const ai = await aiConfig();
       if (ai) {
         try {
-          return finish(await analyze(ai, input), true);
+          return finish(await analyze(ai, input, settings.riskWords), true);
         } catch (e) {
           console.error("AI 정리 실패", e);
         }

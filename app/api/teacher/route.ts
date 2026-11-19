@@ -7,8 +7,8 @@ import { clientIp, passwordAttempt, resetWait, testPushWait, trialEditWait, wait
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, backfillRecordAt, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
-  HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, ROSTER_CHANGED, backfillRecordAt, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, editSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { isNetworkError } from "@/lib/turso";
@@ -279,15 +279,20 @@ async function handle(req: NextRequest) {
       const ai = await aiConfig();
       if (!ai) return bad(await aiMissing("초안을 만들 수 있어요"));
       const signals = watchFlags(recs, date, settings.rules).find((f) => f.no === no)?.reasons ?? [];
-      const draft = await referralDraft(ai, {
-        alias: s.alias, signals,
-        records: recs.map((r) => ({
-          date: r.date, slot: r.slot === "am" ? "아침" : "하교 전", emotion: r.emotion, word: r.word, intensity: r.intensity, reason: r.reason,
-          said: r.summaryKo || r.summary || undefined, answer: r.answer || undefined, risk: r.risk || undefined,
-          calm: r.calm?.map((c) => `${CALM_KO[c.tool]}→${FELT_KO[c.felt]}`),
-        })),
-      });
-      return NextResponse.json({ draft, from: addDays(date, -13), to: date, records: recs.length });
+      // AI가 실패하면 다른 초안(응원·역량 진단)처럼 502로(서버 오류 500과 가른다)
+      try {
+        const draft = await referralDraft(ai, {
+          alias: s.alias, signals,
+          records: recs.map((r) => ({
+            date: r.date, slot: r.slot === "am" ? "아침" : "하교 전", emotion: r.emotion, word: r.word, intensity: r.intensity, reason: r.reason,
+            said: r.summaryKo || r.summary || undefined, answer: r.answer || undefined, risk: r.risk || undefined,
+            calm: r.calm?.map((c) => `${CALM_KO[c.tool]}→${FELT_KO[c.felt]}`),
+          })),
+        });
+        return NextResponse.json({ draft, from: addDays(date, -13), to: date, records: recs.length });
+      } catch (e) {
+        return bad(`초안을 만들지 못했어요: ${e instanceof Error ? e.message : e}`.slice(0, 300), 502);
+      }
     }
 
     // ── 가정 소식지 번역(이주배경학생 가정용) ──
@@ -297,7 +302,11 @@ async function handle(req: NextRequest) {
       if (body.text.length > 4000) return bad(`소식지가 너무 길어요(${body.text.length}자). 4,000자 안으로 줄여서 번역해 주세요.`);
       const ai = await aiConfig();
       if (!ai) return bad(await aiMissing("번역할 수 있어요"));
-      return NextResponse.json({ text: await translateNotice(ai, body.text, lang) });
+      try {
+        return NextResponse.json({ text: await translateNotice(ai, body.text, lang) });
+      } catch (e) {
+        return bad(`번역하지 못했어요: ${e instanceof Error ? e.message : e}`.slice(0, 300), 502);
+      }
     }
 
     // 기록 내보내기(전체). 화면에서 CSV로 만든다.
@@ -342,7 +351,8 @@ async function handle(req: NextRequest) {
       if (!st) return bad("학생을 찾지 못했어요.", 404);
       // 체험 반은 여러 사람이 함께 쓴다 → 메모를 끝없이 쌓지 못하게(한도는 넉넉히)
       if (isDemo() && (await db().count("notes", "no", ">=", 0)) >= 200) return bad("체험 반 메모가 가득 찼어요. 메모를 몇 개 지우고 써 주세요.", 429);
-      const n: Note = { id: `${Date.now()}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
+      // 같은 ms에 두 기기가 같은 학생 메모를 남겨도 하나가 덮이지 않게 무작위 글자를 붙인다(응원도 같게)
+      const n: Note = { id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
       await db().set("notes", n.id, { ...n });
       await touch("other");
       return NextResponse.json({ note: n });
@@ -391,7 +401,14 @@ async function handle(req: NextRequest) {
           return { ...s, code };
         });
       }
-      const saved = await saveRoster(list, list.some((s) => s.demo));
+      // 읽은 명단(old)을 바탕으로 합친다: 그사이 다른 기기가 준 새 코드·지우기 표시는 살리고, 번호·가명이 바뀌었으면 409
+      let saved: Student[];
+      try {
+        saved = await saveRoster(list, list.some((s) => s.demo), { base: old, strict: true });
+      } catch (e) {
+        if ((e as Error).message === ROSTER_CHANGED) return NextResponse.json({ error: ROSTER_CHANGED, code: "rosterChanged" }, { status: 409 });
+        throw e;
+      }
       // 뺀 학생은 남겨 두고(다시 넣을 때 앞 학생으로 묻는다), 다시 넣은 번호는 지운다. 새 학생에게 준 번호는 앞 학생 것을 정리
       const nowNos = new Set(saved.map((s) => s.no));
       const nextLeft = Object.fromEntries(Object.entries(left).filter(([no]) => !nowNos.has(Number(no))));
@@ -415,39 +432,52 @@ async function handle(req: NextRequest) {
     }
 
     if (body.action === "newCode") {
-      const roster = await getRoster();
+      const base = await getRoster();
+      const roster = base.map((x) => ({ ...x }));
       const s = roster.find((x) => x.no === Number(body.no));
       if (!s) return bad("없는 번호예요.");
       const was = s.code;
       s.code = newCode(new Set(roster.map((x) => x.code)));
       // 명단 문서의 연습 표시는 그대로 둔다(rosterIsDemo는 남은 연습 회차까지 보므로, 그 값을 쓰면 실제 명단이 연습 명단으로 바뀐다)
       const keep = (await db().get<{ demo?: boolean }>("meta", "roster"))?.demo === true;
-      return NextResponse.json({ students: await saveRoster(roster, keep, { recoded: { [s.no]: was } }) });
+      // 이 학생 코드만 바꾸고 나머지는 저장소에 지금 있는 값으로(두 기기가 동시에 다른 학생 새 코드를 줘도 둘 다 남게)
+      return NextResponse.json({ students: await saveRoster(roster, keep, { recoded: { [s.no]: was }, base }) });
     }
 
     if (body.action === "settings") {
-      const next = { ...settings, keys: { ...settings.keys }, models: { ...settings.models } };
-      if (PROVIDER_IDS.includes(body.provider)) next.provider = body.provider;
-      if (typeof body.className === "string" && body.className.trim()) next.className = body.className.trim().slice(0, 20);
+      // 보낸 칸만 바꾼다: 고칠 것을 먼저 고르고(키는 암호화·길이 검사), 쓰기 직전 저장소 설정에 얹는다(editSettings)
+      const keys: Partial<Record<Provider, string | null>> = {}, models: Partial<Record<Provider, string>> = {};
       for (const p of PROVIDER_IDS) {
         const m = isDemo() ? undefined : body.models?.[p]; // 체험은 실제 반 키를 빌려 쓰므로 모델 이름도 바꾸지 않는다
-        if (typeof m === "string" && m.trim()) next.models[p] = m.trim().slice(0, 80);
+        if (typeof m === "string" && m.trim()) models[p] = m.trim().slice(0, 80);
         const k = isDemo() ? undefined : body.keys?.[p]; // 체험에서는 키를 바꾸지 않는다
-        if (k === "") delete next.keys[p]; // 빈 글자 = 지우기, 안 보내면 그대로
+        if (k === "") keys[p] = null; // 빈 글자 = 지우기, 안 보내면 그대로
         else if (typeof k === "string" && k.trim()) {
           if (k.trim().length > 400) return bad("AI 키가 너무 길어요. 키만 다시 붙여 넣어 주세요.");
-          next.keys[p] = encrypt(k.trim());
+          keys[p] = encrypt(k.trim());
         }
       }
-      next.vocab = strList(body.vocab, 60, 12) ?? next.vocab;
-      next.riskWords = strList(body.riskWords, RISK_WORDS_MAX, RISK_WORD_LEN) ?? next.riskWords; // 기본 목록이 늘어도 잘리지 않게 넉넉히(넘으면 화면이 저장 전에 알림)
-      if (["off", "device", "gemini"].includes(body.voiceMode)) next.voiceMode = body.voiceMode;
-      if (isRetention(body.retention)) next.retention = body.retention;
-      if (body.rules && typeof body.rules === "object") {
-        const n = (k: keyof Rules, max: number) => Math.min(max, Math.max(1, Math.round(Number(body.rules[k]) || next.rules[k])));
-        next.rules = { streakDays: n("streakDays", 7), dropDays: n("dropDays", 7), reasonTimes: n("reasonTimes", 14), absentDays: n("absentDays", 10) };
-      }
-      await saveSettings(next);
+      const vocab = strList(body.vocab, 60, 12);
+      const riskWords = strList(body.riskWords, RISK_WORDS_MAX, RISK_WORD_LEN); // 기본 목록이 늘어도 잘리지 않게 넉넉히(넘으면 화면이 저장 전에 알림)
+      const rules = body.rules && typeof body.rules === "object" ? (body.rules as Record<string, unknown>) : null;
+      const next = await editSettings((cur) => {
+        const n = { ...cur, keys: { ...cur.keys }, models: { ...cur.models, ...models } };
+        if (PROVIDER_IDS.includes(body.provider)) n.provider = body.provider;
+        if (typeof body.className === "string" && body.className.trim()) n.className = body.className.trim().slice(0, 20);
+        for (const [p, k] of Object.entries(keys) as [Provider, string | null][]) {
+          if (k === null) delete n.keys[p];
+          else n.keys[p] = k;
+        }
+        if (vocab) n.vocab = vocab;
+        if (riskWords) n.riskWords = riskWords;
+        if (["off", "device", "gemini"].includes(body.voiceMode)) n.voiceMode = body.voiceMode;
+        if (isRetention(body.retention)) n.retention = body.retention;
+        if (rules) {
+          const v = (k: keyof Rules, max: number) => Math.min(max, Math.max(1, Math.round(Number(rules[k]) || n.rules[k])));
+          n.rules = { streakDays: v("streakDays", 7), dropDays: v("dropDays", 7), reasonTimes: v("reasonTimes", 14), absentDays: v("absentDays", 10) };
+        }
+        return n;
+      });
       return NextResponse.json({ settings: publicSettings(next) });
     }
 
@@ -483,7 +513,7 @@ async function handle(req: NextRequest) {
       if (!text) return bad("내용이 비어 있어요.");
       const st = (await getRoster()).find((x) => x.no === Number(body.no));
       if (!st) return bad("학생을 찾지 못했어요.", 404);
-      const c: Cheer = { id: `${Date.now()}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
+      const c: Cheer = { id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
       await db().set("cheers", c.id, { ...c });
       await touch("other");
       return NextResponse.json({ cheer: c });
@@ -590,7 +620,7 @@ async function handle(req: NextRequest) {
       // 60개가 차면 오래된 단어부터 뺀다(새 차시 단어가 말없이 빠지지 않게 — 차시 카드에는 새 단어가 보이므로)
       const addWords = (v: string[]) => [...v, ...words.filter((w: string) => !v.includes(w))].slice(-60);
       const stored = await db().update<Partial<typeof settings>>("meta", "settings", (cur) => (cur ? { ...cur, vocab: addWords(cur.vocab ?? settings.vocab) } : undefined));
-      if (!stored) await saveSettings({ ...settings, vocab: addWords(settings.vocab) });
+      if (!stored) await editSettings((cur) => ({ ...cur, vocab: addWords(cur.vocab) }));
       else await touch("other");
       return NextResponse.json({ ok: true });
     }
@@ -926,7 +956,7 @@ async function handle(req: NextRequest) {
         await db().del("meta", "weekly");
         await db().del("meta", "left"); // 명단에서 뺀 학생 기록도(남은 기록이 없으니 다시 넣어도 묻지 않는다)
         await saveRoster([]);
-        await saveSettings({ ...settings, checks: {} }, true);
+        await editSettings((cur) => ({ ...cur, checks: {} }), true);
         await touch("wipe");
         await touch("records");
       } else return bad("알 수 없는 요청이에요."); // 이름이 틀린 요청으로 반 전체가 지워지지 않게
