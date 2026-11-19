@@ -1494,17 +1494,25 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   if (held) throw new Error(HELD_STUDENT(held));
   // 명단의 지금 학생을 지우면 지우기 시작한 때를 먼저 적는다: 그 앞에 기기에 담아 둔 기록이 지우는 도중에 와도 받지 않게
   // (다 지운 뒤에 적으면 그사이 온 기록이 저장되어 지우기 뒤에도 남는다)
+  const start = new Date().toISOString();
   if (who === "now") {
-    const at = new Date().toISOString();
-    await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, wipedAt: at } : x)) });
+    await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, wipedAt: start } : x)) });
   }
   // 지우는 사이 학생이 같은 칸에 위험한 글을 새로 남겼으면(살펴보지 않은 위험 표현) 그 글은 지우지 않는다 — 읽고 지우기를 한 번에
   let skipped = 0;
   const unseen = (x: { risk?: boolean; riskChecked?: unknown } | null) => !!x?.risk && !x.riskChecked;
   // 마음 기록 하나하나에 갈래 문서가 붙어 있지 않으니 함께 지워도 된다(20개씩)
   const keepNew = new Set<string>();
-  await eachIn(myRecs, (r) => db().update<MoodRecord>("records", r.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`r${r.id}`), undefined) : null)));
-  await eachIn(myRefs, (x) => db().update<Reflect>("reflects", x.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`f${x.id}`), undefined) : null)));
+  // 남기는 글도 지우기 시작한 뒤에 쓴 판만 남긴다(같은 칸에 쌓인 지우기 전 글·마음 다스리기·알림 판은 지운다)
+  const postWipe = (t?: string) => !!t && t >= start;
+  const trimRec = (cur: MoodRecord): MoodRecord => ({
+    ...cur,
+    ...(cur.prev ? { prev: cur.prev.filter((p) => postWipe(p.createdAt)) } : {}),
+    ...(cur.calm ? { calm: cur.calm.filter((c) => postWipe(c.at)) } : {}),
+    ...(cur.riskSrc ? { riskSrc: cur.riskSrc.filter(postWipe) } : {}),
+  });
+  await eachIn(myRecs, (r) => db().update<MoodRecord>("records", r.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`r${r.id}`), trimRec(cur)) : null)));
+  await eachIn(myRefs, (x) => db().update<Reflect>("reflects", x.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`f${x.id}`), cur.prev ? { ...cur, prev: cur.prev.filter((p) => postWipe(p.createdAt)) } : cur) : null)));
   await eachIn([...mySent, ...myGot], (l) => db().update<Letter>("letters", l.id, (cur) => (!cur ? undefined : cur.status === "wait" && unseen(cur) ? (keepNew.add(`l${l.id}`), undefined) : null)));
   skipped = keepNew.size; // 거래가 다시 돌아도 한 번만 센다
   await eachIn(myCheers, (x) => db().del("cheers", x.id));
@@ -1513,14 +1521,14 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   // 조치 기록은 남기고 학생 글(살펴볼 때의 글)만 지운다
   // 조치 기록은 남기고 학생 글만 지운다. 가리키던 글이 지워졌으면 그 이름도 다시 쓰이지 않는 이름(…_w때)으로 바꾼다:
   // 같은 날 같은 칸에 다시 쓰면(같은 학생이든 번호를 받은 새 학생이든) 같은 이름이 되어, 옛 조치가 새 글에 붙어 보이지 않게
-  const keptIds = new Set([...keepNew].map((k) => (k[0] === "r" ? k.slice(1) : k[0] === "f" ? `reflect:${k.slice(1)}` : `letter:${k.slice(1)}`)));
+  // (지우는 사이 새 글이 와서 남긴 칸이어도 옛 조치는 지우기 전 글에 한 것이라 이름을 바꾼다 — 새 글에 붙지 않게)
   const wtag = `_w${Date.now().toString(36)}`;
   const actIds = new Set(myActs.map((a) => a.id));
   if (actIds.size) await editRiskActions((xs) => xs.map((a) => {
     if (!actIds.has(a.id)) return a;
     const b = a.text ? withoutText(a) : a;
     // 이미 다시 쓰이지 않는 이름(번호를 넘길 때 옮긴 …_p때, 앞서 지운 …_w때)은 그대로
-    return keptIds.has(a.recordId) || isMovedId(a.recordId) || /_w[a-z0-9]{6,}$/i.test(a.recordId) ? b : { ...b, recordId: a.recordId + wtag };
+    return isMovedId(a.recordId) || /_w[a-z0-9]{6,}$/i.test(a.recordId) ? b : { ...b, recordId: a.recordId + wtag };
   }));
   const draftIds = new Set(myDrafts.map((d) => d.id));
   if (draftIds.size) await editRiskDrafts((xs) => xs.filter((d) => !(draftIds.has(d.id) && d.no === no && d.checked && mine(d.at))));

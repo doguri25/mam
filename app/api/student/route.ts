@@ -119,7 +119,10 @@ async function handle(req: NextRequest, body: Body) {
       const devMade = Date.parse(String(body.madeAt ?? ""));
       const sentAt = Date.parse(String(body.sentAt ?? ""));
       const skew = Number.isFinite(sentAt) ? Date.now() - sentAt : 0;
-      const madeFix = Number.isFinite(devMade) ? Math.min(Math.max(devMade + skew, q.at ?? -Infinity), Date.now()) : q.at;
+      // 고친 때가 지금보다 뒤거나 표를 준 때보다 앞이면(만든 뒤 기기 시계가 바뀌었거나 sentAt이 엉터리) 고치지 않고 예전처럼
+      const fixed = devMade + skew;
+      const fixOk = Number.isFinite(fixed) && fixed <= Date.now() + 60_000 && (q.at === undefined || fixed >= q.at - 60_000);
+      const madeFix = Number.isFinite(devMade) ? Math.min(Math.max(fixOk ? fixed : devMade, q.at ?? -Infinity), Date.now()) : q.at;
       const madeAtFix = madeFix !== undefined ? new Date(madeFix).toISOString() : body.madeAt;
       // 보호자 요청으로 이 학생 자료를 지운 뒤에 온, 그 앞에 담아 둔 기록은 받지 않는다(지운 기록이 되살아나지 않게)
       const wipedBefore = !!s?.wipedAt && (madeFix ?? 0) < Date.parse(s.wipedAt);
@@ -133,7 +136,7 @@ async function handle(req: NextRequest, body: Body) {
         // 연습 학생을 실제 학생으로 바꾸기 전에 받은 표면 연습 학생이 쓴 글이다 → 실제 학생 알림으로 남기지 않는다
         // (그냥 새로 넣은 번호·뺐다가 다시 넣은 번호는 그 앞 실제 학생 글이라 그대로 남긴다)
         const joined = st && !s && !st.since && st.fromPractice ? Date.parse(st.fromPractice) : NaN;
-        const practice = Number.isFinite(joined) && (q.at !== undefined ? q.at < joined : q.date < today(new Date(joined)));
+        const practice = Number.isFinite(joined) && (q.at !== undefined ? q.at < joined : q.date <= today(new Date(joined)));
         const hits = st && text && !practice ? matchRisk(text, (await getSettings()).riskWords) : [];
         const when = queuedWhen(madeAtFix, q.date);
         if (st && hits.length && when) {
@@ -142,7 +145,7 @@ async function handle(req: NextRequest, body: Body) {
           let ms = when.madeAt ?? Date.now();
           const since = !s && st.since ? Date.parse(st.since) : NaN;
           // 표를 준 때가 있으면 그것으로(받은 뒤 새 코드를 받은 새 학생 표는 그대로), 없는 예전 표는 날짜로
-          const formerToken = q.at !== undefined ? q.at < since : q.date <= today(new Date(since));
+          const formerToken = Number.isFinite(since) && (q.at !== undefined ? q.at < since : q.date <= today(new Date(since)));
           if (Number.isFinite(since) && formerToken && ms >= since) ms = since - 1;
           const at = new Date(ms).toISOString();
           const d: RiskDraft = { id: `${st.no}_${when.date}_${slot}`, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
