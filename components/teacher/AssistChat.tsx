@@ -26,6 +26,9 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
   const [threads, setThreads] = useState<ThreadRow[]>([]);
   const [saved, setSaved] = useState(!data.trial);
   const [text, setText] = useState("");
+  // 성을 뗀 이름(하늘·보람·가을처럼 흔한 낱말과 같을 수 있음)만 걸렸으면 보내기 전에 묻는다(가정 소식지 번역처럼):
+  // 낱말을 학생 번호로 바꾸면 상관없는 학생 기록이 AI로 가고 답도 엉뚱해진다
+  const [ask, setAsk] = useState<{ q: string; words: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -55,7 +58,7 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
       setErr((e as Error).message);
     }
   };
-  const fresh = () => { conv.current++; setThread(null); setMsgs([]); setErr(""); box.current?.focus(); };
+  const fresh = () => { conv.current++; setThread(null); setMsgs([]); setErr(""); setAsk(null); box.current?.focus(); };
   const drop = async () => {
     if (!thread || !confirm("이 대화를 지울까요? 지우면 되살릴 수 없어요.")) return;
     await api("teacher/assist", "threadDelete", { id: thread }).catch(() => {});
@@ -63,11 +66,18 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
     loadThreads();
   };
 
-  const send = async (raw: string) => {
+  const send = async (raw: string, pick?: "given" | "full") => {
     const q = raw.trim();
     if (!q || busy) return;
+    const full = hideNames(q, names, { full: true }), given = hideNames(q, names);
+    if (!pick && given.text !== full.text) {
+      const words = [...new Set(Object.values(names).filter((n) => /^[가-힣]{3,4}$/.test(n.trim())).map((n) => n.trim().slice(-2)).filter((g) => full.text.includes(g)))];
+      setAsk({ q, words });
+      return;
+    }
+    setAsk(null);
     const mine = conv.current;
-    const { text: safe, hit } = hideNames(q, names);
+    const { text: safe, hit } = pick === "full" ? full : given;
     const me: Shown = { role: "me", text: safe, at: new Date().toISOString(), hid: hit };
     const history = msgs.filter((m) => !m.fail).slice(-8).map((m) => ({ role: m.role, text: m.text }));
     setMsgs((xs) => [...xs, me]);
@@ -188,13 +198,23 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
       </div>
 
       {err && <p role="alert" className="mb-2 text-sm text-alert">{err}</p>}
+      {ask && (
+        <div role="group" aria-label="이름처럼 보이는 말" className="mb-2 space-y-2 rounded-2xl border border-sun bg-[#fff8e1] p-3 text-sm">
+          <p>학생 이름처럼 보이는 말이 있어요: <b>{ask.words.join(", ")}</b>. 학생 이름이면 번호로 바꿔 보내요(실명은 이 기기에만).</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" autoFocus onClick={() => send(ask.q, "given")} className="btn-main min-h-10 text-sm">학생 이름이에요 · 번호로 바꿔 보내기</button>
+            <button type="button" onClick={() => send(ask.q, "full")} className="btn-sub min-h-10 text-sm">이름이 아니에요 · 그대로 보내기</button>
+            <button type="button" onClick={() => { setAsk(null); box.current?.focus(); }} className="btn-sub min-h-10 text-sm">그만두기</button>
+          </div>
+        </div>
+      )}
       <form onSubmit={(e) => { e.preventDefault(); send(text); }} className="flex items-end gap-2 border-t border-line pt-3">
         <label className="sr-only" htmlFor={compact ? "assist-q-mini" : "assist-q"}>AI 도우미에게 물어보기</label>
         <textarea
           id={compact ? "assist-q-mini" : "assist-q"}
           ref={box}
           value={text}
-          onChange={(e) => setText(e.target.value.slice(0, 1500))}
+          onChange={(e) => { setText(e.target.value.slice(0, 1500)); setAsk(null); }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(text); }
           }}

@@ -137,6 +137,11 @@ function mergeRoster(mine: Student[], base: Student[], cur: Student[]): Student[
   }
   // 그사이 다른 기기가 넣은 학생(이 요청의 바탕에 없음)
   for (const cx of cur) if (!b.has(cx.no) && !out.some((x) => x.no === cx.no)) out.push(cx);
+  // 이 요청이 뺀 연습 학생을 그사이 다른 기기가 실제 학생으로 바꿨으면 그 실제 학생은 남긴다(연습 데이터 지우기가 방금 넣은 학생을 지우지 않게)
+  for (const bx of base) {
+    const cx = c.get(bx.no);
+    if (bx.demo && cx && !cx.demo && !out.some((x) => x.no === bx.no)) out.push(cx);
+  }
   return out.sort((x, y) => x.no - y.no);
 }
 export async function saveRoster(students: Student[], demo = false, opt: { recoded?: Record<number, string>; base?: Student[]; strict?: boolean } = {}) {
@@ -159,6 +164,11 @@ export async function saveRoster(students: Student[], demo = false, opt: { recod
   // (명단을 읽고 저장하는 사이 다른 기기에서 표시한 동의가 사라지지 않게)
   let list = picked;
   let changed = false;
+  // 새 코드의 색인을 명단보다 먼저 쓴다: 명단을 쓴 뒤 색인 쓰기가 끊기면 명단에는 코드가 보이는데 그 카드로 들어오지 못한다
+  // (다시 저장하면 명단이 이미 바뀌어 409). 쓰지 못한 명단의 색인이 남는 것은 해가 없다(그 공간 명단에 없는 코드는 들어오지 못함)
+  const known = new Set(index.filter((x) => x.space === sp).map((x) => x.id));
+  const fresh = picked.filter((x) => !known.has(x.code));
+  if (fresh.length) await outOfSpace(() => db().setMany("codes", fresh.map((x): [string, Record<string, unknown>] => [x.code, { id: x.code, space: sp, no: x.no }])));
   await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => {
     changed = false;
     if (opt.base) {
@@ -475,12 +485,22 @@ export async function getLeft(): Promise<Record<number, LeftStudent>> {
 export async function saveLeft(items: Record<number, LeftStudent>) {
   await db().set("meta", "left", { items });
 }
+// 뺀 학생 문서 고치기: 쓰기 직전 저장소 것에 fn(이 요청이 바꾸는 번호만)을 얹는다 — 읽어 둔 사본으로 통째로 덮으면
+// 그사이 명단 저장·정리·자료 지우기가 바꾼 번호가 되살아나거나 사라진다. fn이 그대로 돌려주면 쓰지 않는다
+export async function editLeft(fn: (items: Record<number, LeftStudent>) => Record<number, LeftStudent>) {
+  await db().update<{ items?: Record<number, LeftStudent> }>("meta", "left", (cur) => {
+    const was = cur?.items ?? {};
+    const next = fn({ ...was });
+    return JSON.stringify(next) === JSON.stringify(was) ? undefined : { ...cur, items: next };
+  });
+}
 // 번호를 새 학생에게 줬을 때 그 번호에 매인 앞 학생 것을 정리한다. 새 학생이 같은 id에 쓰면 앞 학생 글·살펴보지 않은 위험 표시를
 // 이어받으므로(id가 「번호_날짜_칸」·「번호_주」), 새 학생이 쓸 수 있는 자리(오늘 아침·하교 전 기록과 마치지 않은 기록, 이번 주 돌아보기)에
 // 앞 학생 것이 있으면 다른 id(…_p시각, p: 앞 학생)로 옮기고 조치 기록도 따라 옮긴다. 마음 친구 모습은 처음으로,
 // 「먼저 살펴볼 학생 · 살펴봤어요」 표시는 뗀다(앞 학생 때 누른 표시로 새 학생 신호가 흐려지지 않게).
 // 기록을 옮겼으면 true — 선생님 기기에 저장해 둔 예전 id 기록을 버리게(wipe) 하라고.
-export async function startFresh(nos: number[]): Promise<boolean> {
+// at: 새 학생이 받은 때(since) — 옮긴 이름(…_p때)을 그것으로 지어, 앞 학생 기기에 담아 둔 같은 글이 늦게 와도 같은 이름이 되게(한 글이 알림 둘로 보이지 않게)
+export async function startFresh(nos: number[], at?: string): Promise<boolean> {
   if (!nos.length) return false;
   await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
     if (!cur?.items || !nos.some((n) => n in cur.items)) return undefined;
@@ -490,7 +510,8 @@ export async function startFresh(nos: number[]): Promise<boolean> {
   });
   const day = today();
   const ws = monday(day);
-  const tag = `_p${Date.now().toString(36)}`;
+  const atMs = at ? Date.parse(at) : NaN;
+  const tag = `_p${(Number.isFinite(atMs) ? atMs : Date.now()).toString(36)}`;
   let moved = false;
   for (const no of nos) {
     for (const slot of ["am", "pm"] as const) {
@@ -512,6 +533,7 @@ export async function startFresh(nos: number[]): Promise<boolean> {
   }
   // 역량 진단: 앞 학생 답·선생님 관찰·피드백 문서를 다른 이름으로 옮긴다(새 학생이 같은 회차에 답하거나 선생님이 새 학생 관찰을 적으면
   // 같은 이름 문서를 덮어 앞 학생 것이 사라진다). 옮긴 문서는 앞 학생 것(at이 since 앞)으로 그대로 남는다.
+  const movedSelf: { round: string; id: string }[] = [];
   for (const r of await getSelfRounds()) {
     for (const no of nos) {
       for (const id of [selfDocId(r.id, no), selNoteId(r.id, no)]) {
@@ -519,8 +541,14 @@ export async function startFresh(nos: number[]): Promise<boolean> {
         if (!doc) continue;
         await db().set("meta", id + tag, { ...doc, docId: id + tag }); // 옮긴 이름을 적어 둔다(지울 때 찾게)
         await db().del("meta", id);
+        movedSelf.push({ round: r.id, id: id + tag });
       }
     }
+  }
+  // 옮기는 사이 그 회차를 지웠으면(다른 기기) 옮긴 문서도 지운다(어느 회차에도 속하지 않은 답이 남지 않게)
+  if (movedSelf.length) {
+    const live = new Set((await getSelfRounds()).map((r) => r.id));
+    await eachIn(movedSelf.filter((m) => !live.has(m.round)), (m) => db().del("meta", m.id));
   }
   const drafts = new Set(nos.flatMap((no) => [`${no}_${day}_am`, `${no}_${day}_pm`]));
   const had = (await getRiskDrafts()).filter((d) => drafts.has(d.id)).map((d) => d.id);
@@ -1215,12 +1243,14 @@ export async function editSelfRounds(fn: (items: SelfRound[]) => SelfRound[] | u
 }
 
 // 보호자 동의서 받음 표시: 명단 문서에서 그 번호들의 consent만 바꾼다(명단 문서를 읽고 고쳐 쓰기를 한 번에)
-export async function setConsent(nos: number[], on: boolean, date = today()): Promise<Student[]> {
+// seen: 화면에서 본 그 번호 학생의 받은 때(since, 없으면 "") — 그사이 번호를 새 학생에게 줬으면 그 번호는 건너뛴다(앞 학생 동의가 새 학생에게 붙지 않게)
+export async function setConsent(nos: number[], on: boolean, date = today(), seen?: Record<number, string>): Promise<Student[]> {
   const pick = new Set(nos);
   const doc = await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur ? {
     ...cur,
     students: (cur.students ?? []).map((s) => {
       if (!pick.has(s.no)) return s;
+      if (seen && typeof seen[s.no] === "string" && seen[s.no] !== (s.since ?? "")) return s;
       const { consent: _old, ...rest } = s;
       void _old;
       return on ? { ...rest, consent: date } : rest;
@@ -1334,9 +1364,8 @@ export async function purgeBefore(cut: string): Promise<PurgeLog> {
   const oldLeft = Object.entries(leftNow).filter(([, v]) => v.at < iso).map(([no]) => no);
   counts.left = oldLeft.length;
   counts.formers = oldFormers(await getRoster(), leftNow, iso);
-  const keptLeft = Object.entries(leftNow).filter(([no]) => !oldLeft.includes(no));
-  const blanked = keptLeft.map(([no, v]) => [no, v.formers?.some((f) => oldFormer(f, iso)) ? { ...v, formers: blankOld(v.formers, iso) } : v] as const);
-  if (oldLeft.length || blanked.some(([no, v]) => v !== leftNow[Number(no)])) await saveLeft(Object.fromEntries(blanked));
+  await editLeft((items) => Object.fromEntries(Object.entries(items).filter(([, v]) => !(v.at < iso))
+    .map(([no, v]) => [no, v.formers?.some((f) => oldFormer(f, iso)) ? { ...v, formers: blankOld(v.formers, iso) } : v])));
   // 명단 학생의 기한 앞 앞 학생 가명도 비운다(그사이 명단이 바뀌어도 읽고 고쳐 쓰기로)
   await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) =>
     cur?.students?.some((x) => x.formers?.some((f) => oldFormer(f, iso))) ? { ...cur, students: cur.students.map((x) => (x.formers?.some((f) => oldFormer(f, iso)) ? { ...x, formers: blankOld(x.formers, iso) } : x)) } : undefined);
@@ -1403,8 +1432,20 @@ export async function seedPractice() {
     seedSelfChecks(date), // 학급 역량 진단 연습 회차(실제 회차는 그대로)
     // 체험 반은 여럿이 함께 쓰므로 설정(위험 표현·반 감정 단어·반 이름·규칙)도 처음으로(누군가 바꾼 것이 다음 사람에게 남지 않게).
     // 모델 이름도 처음 것으로: 체험은 실제 반의 키를 빌려 쓰므로, 누군가 바꿔 둔 모델(예: 말소리 듣기의 Gemini 모델)로 그 키를 쓰지 않게
-    getSettings().then((cur) => saveSettings(trial ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} }, true)),
+    // (읽어 둔 설정으로 덮지 않고 쓰기 직전 설정에서 — 실제 반에서 그사이 다른 기기가 바꾼 보관 기간·위험 표현·키가 되돌아가지 않게)
+    editSettings((cur) => (trial ? { ...defaultSettings(), keys: cur.keys, provider: cur.provider } : { ...cur, checks: {} }), true),
   ]);
+  // 체험 반: 비우고 채우는 몇 초 사이 방문자가 쓴 것(기록·쪽지·메모·할 일 등)을 한 번 더 걷어 낸다(다음 방문자에게 남지 않게)
+  if (trial) {
+    const keep = { records: new Set(demoRecords(date).map((r) => r.id)), letters: new Set(extra.letters.map((l) => l.id)), reflects: new Set(extra.reflects.map((r) => r.id)) };
+    await Promise.all([
+      ...(Object.keys(keep) as (keyof typeof keep)[]).map(async (col) =>
+        eachIn((await db().all<{ id: string }>(col)).filter((x) => !keep[col].has(x.id)), (x) => db().del(col, x.id))),
+      ...(["cheers", "notes"] as const).map((col) => db().clear(col)),
+      ...["lessons", "weekly", "assistTodos", "assistContacts", "riskDrafts"].map((id) => db().del("meta", id)),
+      editSettings((cur) => ({ ...defaultSettings(), keys: cur.keys, provider: cur.provider }), true),
+    ]);
+  }
   // 3) 다 만든 뒤에 「오늘 만듦」 표시와 변경 표시
   await Promise.all([db().set("meta", "practiceDay", { date, v: PRACTICE_VERSION }), touch("wipe")]);
   await touch("records");
@@ -1662,13 +1703,17 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
     const blankFormer = (fs: Former[] | undefined) => (fs ?? []).map((f) => (f.until === who.slice(2) ? { alias: "", until: f.until, wiped: true } : f));
     if (former && st) await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, formers: blankFormer(x.formers) } : x)) });
     if (lt) {
-      const next = { ...left };
-      const e = left[no];
-      const kept = former ? { ...e, formers: blankFormer(e.formers) } : { alias: "", at: e.at, ...(e.since ? { since: e.since } : {}), ...(e.formers ? { formers: e.formers } : {}), wiped: true, wipedAt: new Date().toISOString() };
-      // 뺀 학생도 지웠고 지우지 않은 앞 학생도 없으면 기록째 지운다
-      if (kept.wiped && !(kept.formers ?? []).some((f) => !f.wiped)) delete next[no];
-      else next[no] = kept;
-      await saveLeft(next);
+      const wipedAt = new Date().toISOString();
+      // 그 번호 한 칸만 고친다(지우는 몇 초 사이 명단 저장·정리가 바꾼 다른 번호를 덮지 않게)
+      await editLeft((items) => {
+        const e = items[no];
+        if (!e) return items;
+        const kept = former ? { ...e, formers: blankFormer(e.formers) } : { alias: "", at: e.at, ...(e.since ? { since: e.since } : {}), ...(e.formers ? { formers: e.formers } : {}), wiped: true, wipedAt };
+        // 뺀 학생도 지웠고 지우지 않은 앞 학생도 없으면 기록째 지운다
+        if (kept.wiped && !(kept.formers ?? []).some((f) => !f.wiped)) delete items[no];
+        else items[no] = kept;
+        return items;
+      });
     }
     // 무엇을 언제 지웠는지만 남긴다(내용 없이 번호와 수)
     await db().update<{ items: { at: string; no: number; who: string; counts: WipeCounts }[] }>("meta", "studentWipes", (cur) => ({ items: [...(cur?.items ?? []), { at: new Date().toISOString(), no, who: who.startsWith("f:") ? "former" : who, counts }].slice(-50) }));

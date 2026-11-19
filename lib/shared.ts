@@ -260,6 +260,10 @@ export const RISK_CORE = [
   // 죽으려 한 적(「죽으려고 한 적 있어」「죽으려고 해 봤어」), 내가 없어야 남이 낫다는 말(「내가 없으면 다들 행복할 거야」「나만 없으면 돼」),
   // 「나 같은 건 없어져야 돼」「죽는 방법 알려줘」「태어난 게 후회돼」「태어나서 미안해」「인생을 끝내고 싶어」, 초성 「ㅈㅅㅎㄱㅅㅇ」(자살하고 싶어)
   "죽으려고 한 적", "내가 없으면 다 행복", "나 같은 건 없어져야", "죽는 방법", "태어난 게 후회", "인생을 끝내고 싶", "ㅈㅅㅎㄱㅅㅇ",
+  // 「살아갈 이유가 없어」「나는 살 가치가 없어」, 「영원히 잠들고 싶어」「자다가 안 깨어났으면 좋겠어」, 「차에 치이고 싶어」「약을 한꺼번에 먹었어」
+  // (「죽는 법」「어떻게 하면 죽을 수 있어」는 「죽는 방법」으로, 「내가 죽으면 슬퍼할 사람 없어」는 「내가 없으면 다 행복」으로,
+  // 「아파트에서 떨어지고 싶어」는 「옥상에서 떨어지고 싶」으로 찾는다)
+  "살아갈 이유가 없", "영원히 잠들고 싶", "자다가 안 깨어났으면 좋겠", "차에 치이고 싶", "약을 한꺼번에 먹었",
   "제가 사라지면 좋겠", "제가 없어지면 좋겠", "제가 사라졌으면 좋겠", "제가 없어졌으면 좋겠", "제가 죽었으면 좋겠", "저는 죽었으면 좋겠", "전 죽었으면 좋겠",
   "kill myself", "kill my self", "want to die", "wanna die", "want 2 die", "suicid", "unalive", "hurt myself", "cut myself", "self harm",
   // 앞 낱말은 꼴이 같아야 해서(「killing」은 「kill」에 걸리지 않음) 흔한 다른 꼴도 따로
@@ -271,6 +275,8 @@ export const RISK_CORE = [
   "wish i wasn't born", "kill yourself", "kill your self", "kill urself", "kys", "end it all", "wish i could die", "hope you die",
   "hitted me", "hurted me", "beated me",
   "better off without me", "happier without me", "don't want to exist", "wish i didn't exist",
+  "nobody would care if i died", "no one would care if i died", "nobody cares if i die", "no one cares if i die",
+  "nobody would miss me", "no one would miss me", "would be better without me",
   "hate my self", "want too die", "i hope i die", "i deserve to die", "dont deserve to live", "hate being alive", "punch myself", "better off dead",
   "bully", "bullied", "bullies", "bulling", "bulied", "bulies", "beat me", "beats me", "beating me", "hit me", "hits me", "hitting me",
   "hurt me", "hurts me", "hurting me",
@@ -284,12 +290,12 @@ export const RISK_CORE = [
   "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "活著沒意思", "想杀", "恨自己", "恨我自己",
   "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我", "揍了我", "踢我", "踢了我", "被踢",
   "把我打", "把我揍", "把我踢", "掐脖子", "扇我", "耳光", "抽我", "割自己", "自残", "踹我", "踹了我", "踹倒我", "踹倒了我", "被踹",
-  "离开这个世界", "離開這個世界", "讨厌自己", "討厭自己", "讨厌我自己", "討厭我自己", "被孤立", "伤害我自己", "傷害我自己", "不如死", "死了就好", "结束自己的生命", "結束自己的生命",
+  "离开这个世界", "離開這個世界", "没有我会更好", "活着好累", "活着太累", "活著好累", "活著太累", "讨厌自己", "討厭自己", "讨厌我自己", "討厭我自己", "被孤立", "伤害我自己", "傷害我自己", "不如死", "死了就好", "结束自己的生命", "結束自己的生命",
   "muốn chết", "mún chết", "không muốn sống", "chán sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh đòn",
   "đánh con", "đánh em", "đánh tôi", "đánh mình", "muốn biến mất", "ghét bản thân", "đánh đập",
   "tát con", "tát em", "tát tôi", "tát mình", "đá con", "đá em", "đá tôi", "đá mình",
   "bị đá", "bị tát", "bị đấm", "đấm con", "đấm em", "đấm tôi", "đấm mình", "chết đi", "bóp cổ", "tự cắt tay",
-  "ghét chính mình", "rạch tay", "làm hại bản thân", "không được sinh ra", "chưa từng được sinh ra", "chưa bao giờ được sinh ra", "không muốn tồn tại",
+  "ghét chính mình", "rạch tay", "làm hại bản thân", "không được sinh ra", "chưa từng được sinh ra", "chưa bao giờ được sinh ra", "không muốn tồn tại", "nhảy lầu",
   "死にたい", "しにたい", "しんじゃいたい", "消えたい", "きえたい", "いなくなりたい", "自殺", "じさつ", "自傷", "いじめ",
   "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "なかまはずれ", "仲間外れ",
   "死にたく", "しにたくな", "死んじゃいたい", "しんでしまいたい", "死んでしまいたい", "きえてしまいたい", "消えてしまいたい", "生きていたくない", "いきていたくない",
@@ -299,7 +305,7 @@ export const RISK_CORE = [
   "自分を傷つけ", "リストカット", "手首を切", "首をつり", "首をしめられ",
   "しんだほうがまし", "死んだほうがまし", "死んだ方がまし", "死んだほうがいい", "死んだ方がいい", "しんだほうがいい",
   "生きてる意味がない", "生きる意味がない", "いきてるいみがない", "いきるいみがない", "しんじゃえ", "死んじゃえ",
-  "死のう", "しのうかな", "死んでやる", "しんでやる", "生まれてこなければ", "うまれてこなければ", "生まれてこなきゃ", "うまれてこなきゃ", "いなくなればいい",
+  "死のう", "しのうかな", "死んでやる", "しんでやる", "生まれてこなければ", "うまれてこなければ", "生まれてこなきゃ", "うまれてこなきゃ", "いなくなればいい", "わたしなんかいないほうがいい",
   "自分が嫌い", "じぶんがきらい", "自分が大嫌い", "じぶんがだいきらい",
 ];
 

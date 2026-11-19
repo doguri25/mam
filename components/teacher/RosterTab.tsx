@@ -99,7 +99,9 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
   async function consent(nos: number[], on: boolean) {
     setBusy(true);
     try {
-      await api("teacher", "consent", { nos, on });
+      // 본 학생에게만(그사이 다른 기기에서 그 번호를 새 학생에게 줬으면 서버가 건너뛴다)
+      const since = Object.fromEntries(nos.map((no) => [no, data.students.find((s) => s.no === no)?.since ?? ""]));
+      await api("teacher", "consent", { nos, on, since });
       await reload();
     } catch (e) {
       setMsg((e as Error).message);

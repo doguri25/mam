@@ -7,7 +7,7 @@ import { clientIp, passwordAttempt, resetWait, testPushWait, trialEditWait, wait
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, ROSTER_CHANGED, backfillRecordAt, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, editLeft, getLeft, withDataFor, startFresh, wipeStudent, wipeTargets, HELD_STUDENT, ROSTER_CHANGED, backfillRecordAt, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, editSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -413,14 +413,17 @@ async function handle(req: NextRequest) {
       if (replaced.size) await purgePractice((no) => replaced.has(no), { onlyThese: true });
       // 뺀 학생은 남겨 두고(다시 넣을 때 앞 학생으로 묻는다), 다시 넣은 번호는 지운다. 새 학생에게 준 번호는 앞 학생 것을 정리
       const nowNos = new Set(saved.map((s) => s.no));
-      const nextLeft = Object.fromEntries(Object.entries(left).filter(([no]) => !nowNos.has(Number(no))));
-      // 코드·동의 날짜도 남긴다: 「같은 학생 · 다시 넣음」을 고르면 되살린다(고르지 않고 다시 넣은 번호는 예전처럼 새 코드)
-      for (const o of old)
-        if (!o.demo && !nowNos.has(o.no))
-          nextLeft[o.no] = { alias: o.alias, at: now, code: o.code, ...(o.consent ? { consent: o.consent } : {}), ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}), ...(o.wipedAt ? { wipedAt: o.wipedAt } : {}) };
-      if (JSON.stringify(nextLeft) !== JSON.stringify(left)) await saveLeft(nextLeft);
+      // 코드·동의 날짜도 남긴다: 「같은 학생 · 다시 넣음」을 고르면 되살린다(고르지 않고 다시 넣은 번호는 예전처럼 새 코드).
+      // 쓰기 직전 저장소 문서에 이 요청 몫(다시 넣은 번호 빼기, 뺀 번호 더하기)만 얹는다 — 그사이 정리·자료 지우기가 바꾼 다른 번호를 덮지 않게
+      await editLeft((items) => {
+        for (const no of Object.keys(items)) if (nowNos.has(Number(no))) delete items[Number(no)];
+        for (const o of old)
+          if (!o.demo && !nowNos.has(o.no))
+            items[o.no] = { alias: o.alias, at: now, code: o.code, ...(o.consent ? { consent: o.consent } : {}), ...(o.since ? { since: o.since, formers: o.formers ?? [] } : {}), ...(o.wipedAt ? { wipedAt: o.wipedAt } : {}) };
+        return items;
+      });
       // 오늘 칸의 앞 학생 기록을 옮겼으면 다른 기기 선생님 화면도 예전 id 기록을 버리고 다시 읽게
-      if (await startFresh([...fresh])) await touch("wipe");
+      if (await startFresh([...fresh], now)) await touch("wipe");
       // 마지막 연습 학생까지 바뀌었으면 학생에 매이지 않은 연습 자료(역량 진단 연습 회차, 활동지 예시)도 정리
       if (replaced.size && !saved.some((s) => s.demo)) await clearPractice();
       if (replaced.size) await touch("wipe"); // 다른 기기 선생님 화면도 지운 기록을 버리고 다시 읽게
@@ -430,7 +433,10 @@ async function handle(req: NextRequest) {
     // 보호자 동의서 받음 표시(기록을 막지는 않음): nos 여럿을 한꺼번에 켜거나 끈다
     if (body.action === "consent") {
       const nos = (Array.isArray(body.nos) ? body.nos : []).map(Number).filter(Number.isInteger);
-      return NextResponse.json({ students: await setConsent(nos, body.on === true) });
+      const seen = body.since && typeof body.since === "object" && !Array.isArray(body.since)
+        ? Object.fromEntries(Object.entries(body.since as Record<string, unknown>).filter(([, v]) => typeof v === "string").map(([k, v]) => [Number(k), v as string]))
+        : undefined;
+      return NextResponse.json({ students: await setConsent(nos, body.on === true, undefined, seen) });
     }
 
     if (body.action === "newCode") {
