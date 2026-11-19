@@ -21,6 +21,7 @@ import { AssistTab } from "@/components/teacher/AssistTab";
 import { AssistChat } from "@/components/teacher/AssistChat";
 import type { Overview, OverviewRaw, Stamp } from "@/components/teacher/types";
 import { riskAlertCount } from "@/components/teacher/alerts";
+import { useTrap } from "@/components/teacher/useTrap";
 import { useAct } from "@/components/teacher/useAct";
 import { PIN_CHANGING } from "@/components/teacher/PinCard";
 import { whileRosterChanges } from "@/components/teacher/rosterBusy";
@@ -102,7 +103,7 @@ export default function TeacherPage() {
   useEffect(() => {
     if (!drawer && !fab) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
       e.preventDefault();
       if (fab) setFab(false);
       else setDrawer(false);
@@ -110,11 +111,26 @@ export default function TeacherPage() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [drawer, fab]);
+  // 창 안에서만 Tab이 돈다(AI 도우미 창이 맨 위)
+  const drawerBox = useRef<HTMLDivElement>(null);
+  const fabBox = useRef<HTMLDivElement>(null);
+  useTrap(drawerBox, drawer, { top: true });
+  useTrap(fabBox, fab, { top: true });
+  // 서랍을 연 채 태블릿을 돌려 넓은 화면이 되면 서랍(좁은 화면 전용)을 닫는다(보이지 않는 서랍이 다음 Esc를 먹지 않게)
+  useEffect(() => {
+    if (!drawer) return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const shut = () => mq.matches && setDrawer(false);
+    shut();
+    mq.addEventListener("change", shut);
+    return () => mq.removeEventListener("change", shut);
+  }, [drawer]);
   // 창을 열면 초점을 창 안으로(AI 도우미는 묻는 칸, 서랍은 첫 메뉴), 닫으면 연 단추로
   const wasFab = useRef(false);
   useEffect(() => {
     if (fab) setTimeout(() => document.getElementById("assist-q-mini")?.focus(), 0);
-    else if (wasFab.current) fabBtn.current?.focus();
+    // 닫을 때 지도 기록 창이 열려 있으면(AI 단추가 그 창에 가려 있다) 그 창으로
+    else if (wasFab.current) (document.querySelector<HTMLElement>('[role="dialog"][aria-label$="번 기록"] button') ?? fabBtn.current)?.focus();
     wasFab.current = fab;
   }, [fab]);
   const wasDrawer = useRef(false);
@@ -476,7 +492,7 @@ export default function TeacherPage() {
       <aside className="no-print sticky top-0 hidden h-dvh border-r border-line bg-card lg:block">{menu}</aside>
       {/* 좁은 화면: ☰로 여는 서랍 */}
       {drawer && (
-        <div className="no-print fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="선생님 메뉴">
+        <div ref={drawerBox} className="no-print fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="선생님 메뉴">
           <button className="absolute inset-0 bg-black/30" aria-label="메뉴 닫기" onClick={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] bg-card shadow-xl">{menu}</aside>
         </div>
@@ -541,7 +557,7 @@ export default function TeacherPage() {
               <Doodle name="sparkle" size={28} /><span className="hidden sm:inline">AI 도우미</span>
             </button>
             {fabUsed && (
-              <div hidden={!fab} className="no-print fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="AI 도우미">
+              <div ref={fabBox} hidden={!fab} className="no-print fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="AI 도우미">
                 <button className="absolute inset-0 hidden bg-black/30 sm:block" aria-label="AI 도우미 닫기" onClick={() => setFab(false)} />
                 <aside className="absolute inset-0 flex flex-col bg-card p-4 sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[460px] sm:border-l sm:border-line sm:shadow-xl">
                   <AssistChat key={data.space} compact data={data} ctx={{ tab, no: cheerNo }} names={nameMap} onGo={go} onClose={() => setFab(false)} />

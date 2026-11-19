@@ -195,3 +195,9 @@ test("위기 안내: 업무 물음(예방주사·학부모 상담·유서 깊은
     assert.deepEqual(crisisOf(q), [], q);
   for (const [q, id] of [["아이가 죽고만 싶대요", "suicide"], ["아이가 하늘나라에 가고 싶대요", "suicide"], ["아이가 엄마한테 효자손으로 맞았대요", "abuse"]] as const) assert.deepEqual(crisisOf(q), [id], q);
 });
+
+test("위기 안내: 부모가 아이를 때린 일·핑계 뒤 멍·방치·그만 살겠다는 말·딱지 뺏기는 알아보고, 진로 활동지·강아지 죽음 위로에는 띄우지 않는다", () => {
+  for (const [q, id] of [["아빠가 아이가 잘못하면 때린대요", "abuse"], ["아이가 넘어졌다고 하는데 팔에 멍이 너무 많아요", "abuse"], ["보호자가 방치하고 있는 것 같아요", "abuse"], ["아이가 그만 살겠대요", "suicide"], ["형들이 딱지 뺏어 갔대요", "violence"], ["형이 삥을 당했대요", "violence"], ["엄마가 그러는데 아이가 집에서 동생을 때린대요", "violence"]] as const)
+    assert.ok(crisisOf(q).includes(id), q);
+  for (const q of ["살아서 뭐 하고 싶은지 진로 활동지 만들어 줘", "강아지가 죽어 버렸다고 우는 아이 위로", "혼자 방치된 화분 정리"]) assert.deepEqual(crisisOf(q), [], q);
+});

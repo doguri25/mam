@@ -70,7 +70,7 @@ export default function RetentionCard({ data, reload, onExport, exporting = fals
       <h2 className="font-display text-xl">기록 내보내기 · 보관 · 정리</h2>
       <p className="text-sm text-soft">모든 기록을 엑셀에서 열 수 있는 CSV로 받아요(가명 기준, 녹음·목소리 숫자는 빠짐).</p>
       <div className="flex flex-wrap items-center gap-3">
-        <button onClick={onExport} disabled={exporting} className="btn-sub disabled:opacity-60"><Doodle name="download" /> {exporting ? "내보내는 중…" : "기록 CSV 내보내기"}</button>
+        <button onClick={onExport} aria-disabled={exporting} className={`btn-sub ${exporting ? "opacity-60" : ""}`}><Doodle name="download" /> {exporting ? "내보내는 중…" : "기록 CSV 내보내기"}</button>
         <span role="status" className="text-sm">{exportMsg}</span>
       </div>
 

@@ -138,7 +138,8 @@ function GuideBody({ title, desc, tips }: { title: string; desc: string; tips: s
 // 학생이 고른 답(문장마다 1~5). 「그렇지 않아요」 이하는 빨갛게, 「매우 그래요」는 초록으로
 function Answers({ answers }: { answers: number[] }) {
   return (
-    <details className="rounded-2xl border border-line p-3">
+    // 접힌 채면 인쇄에서 빈 칸만 나오므로 뺀다(펼쳐 두면 인쇄)
+    <details className="rounded-2xl border border-line p-3 print:[&:not([open])]:hidden">
       <summary className="min-h-10 cursor-pointer font-display text-lg"><Doodle name="clipboard" /> 학생이 고른 답 32문장</summary>
       <div className="mt-2 space-y-3">
         {DOMAINS.map((dom, d) => (
@@ -223,7 +224,8 @@ export function ObsBox({ round, no, obs, onSaved, sheet }: {
       {sheet && (
         <label className="block">
           <span className="flex items-center gap-1 font-bold"><Doodle name="lock" /> 선생님만 보는 메모 · 지원 계획</span>
-          <textarea value={memo} onChange={(e) => setMemo(e.target.value.slice(0, 1000))} rows={3} className="field mt-1" placeholder="관찰한 모습이나 지원 계획을 적어 두세요. 학생 화면과 AI로 보내지 않아요." />
+          <textarea value={memo} onChange={(e) => setMemo(e.target.value.slice(0, 1000))} rows={3} className="field mt-1 print:hidden" placeholder="관찰한 모습이나 지원 계획을 적어 두세요. 학생 화면과 AI로 보내지 않아요." />
+          {memo.trim() && <span className="mt-1 hidden whitespace-pre-wrap print:block">{memo}</span>}
         </label>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -239,8 +241,9 @@ export function ObsBox({ round, no, obs, onSaved, sheet }: {
     </div>
   );
   if (sheet) return body;
+  // 관찰 입력판(문항마다 다섯 단추)은 인쇄하지 않는다 — 관찰 수준은 위 결과에 함께 나온다
   return (
-    <details className="rounded-2xl border border-line p-3" open={!obs}>
+    <details className="rounded-2xl border border-line p-3 print:hidden" open={!obs}>
       <summary className="min-h-10 cursor-pointer font-display text-lg"><Doodle name="eyes" /> 선생님 관찰 {obs && <span className="text-sm text-soft">({obs.mode === 32 ? "심층 32" : "간이 16"} 저장됨)</span>}</summary>
       {body}
     </details>
@@ -254,7 +257,7 @@ function PaperBox({ round, no, paper, onSaved }: { round: SelfRound; no: number;
   const nums = vals.map((v) => Number(v));
   const ok = nums.every((v) => Number.isInteger(v) && v >= 8 && v <= 40);
   return (
-    <details className="rounded-2xl border border-line p-3" open={!!paper}>
+    <details className="rounded-2xl border border-line p-3 print:hidden" open={!!paper}>
       <summary className="min-h-10 cursor-pointer font-display text-lg"><Doodle name="page" /> 종이로 한 점수 넣기</summary>
       <div className="mt-2 flex flex-wrap items-end gap-3">
         {DOMAINS.map((dom, i) => (
@@ -281,7 +284,9 @@ function MemoBox({ round, no, memo, onSaved }: { round: SelfRound; no: number; m
       <label className="block">
         <span className="flex items-center gap-1 font-display text-lg"><Doodle name="lock" /> 선생님만 보는 메모</span>
         <span className="block text-xs text-soft">학생 화면과 AI로 보내지 않아요. 상담 계획, 함께 본 모습 등을 적어 두세요.</span>
-        <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} rows={3} className="field mt-1" />
+        <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1000))} rows={3} className="field mt-1 print:hidden" />
+        {/* 인쇄에는 입력 칸 대신 쓴 메모 전체(칸이 작아 앞줄이 잘리지 않게) */}
+        <span className="mt-1 hidden whitespace-pre-wrap print:block">{text.trim() || "(메모 없음)"}</span>
       </label>
       <div className="flex items-center justify-end gap-2">
         {s.msg && <span role="status" className="text-sm text-[#1d7144]">{s.msg}</span>}

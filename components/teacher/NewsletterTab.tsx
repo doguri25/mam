@@ -1,7 +1,7 @@
 "use client";
 // 가정 소식지: 이번 주 우리 반 마음(이름 없이 반 전체)·배운 감정 단어·교실 활동·집에서 해 볼 마음 놀이·선생님 한마디를
 // 한 장으로. 선생님이 고르고 고친 내용만 담고 자동으로 보내지 않는다. 이주배경학생 가정용 번역본도 만들 수 있다.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Doodle from "../Doodle";
 import type { Overview } from "./types";
 import { api } from "@/lib/api";
@@ -43,6 +43,23 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
   // 성을 뗀 이름처럼 보이는 말이 있으면 번역하기 전에 묻는다: 학생 이름(민준이가)이면 번호로 바꾸고,
   // 「가을 하늘」처럼 이름과 같은 낱말이면 그대로(바꾼 번역본이 집으로 가지 않게). 성까지 쓴 이름은 늘 번호로
   const [ask, setAsk] = useState<{ given: string; full: string; words: string[] } | null>(null);
+  // 묻는 창이 뜨면 첫 단추로 초점, 닫히면 번역 단추로. Esc로도 닫는다
+  const askBox = useRef<HTMLDivElement>(null);
+  const transBtn = useRef<HTMLButtonElement>(null);
+  const asked = useRef(false);
+  useEffect(() => {
+    if (ask) askBox.current?.querySelector("button")?.focus();
+    else if (asked.current) transBtn.current?.focus();
+    asked.current = !!ask;
+    if (!ask) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      e.preventDefault();
+      setAsk(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ask]);
   function translate() {
     const full = hideNames(whole, names, { full: true }).text;
     const given = hideNames(whole, names).text;
@@ -81,7 +98,7 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
         </select>
         {/* 설명은 단추에 커서를 올리거나(태블릿은 눌러 초점) 할 때만 말풍선으로. 단추 줄 왼쪽에 붙여 화면 밖으로 나가지 않게 */}
         <span className="group">
-          <button onClick={translate} disabled={busy} aria-describedby="translate-tip" className="btn-sub">
+          <button ref={transBtn} onClick={translate} disabled={busy} aria-describedby="translate-tip" className="btn-sub">
             {busy ? "번역하는 중…" : <><Doodle name="globe" /> 이주배경학생 가정용 번역본</>}
           </button>
           <span
@@ -100,7 +117,7 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
         {err && <span className="text-sm text-alert">{err}</span>}
       </div>
       {ask && (
-        <div role="dialog" aria-label="이름처럼 보이는 말" className="no-print space-y-2 rounded-2xl border border-sun bg-[#fff8e1] p-4 text-sm">
+        <div ref={askBox} role="dialog" aria-label="이름처럼 보이는 말" className="no-print space-y-2 rounded-2xl border border-sun bg-[#fff8e1] p-4 text-sm">
           <p>소식지에 학생 이름처럼 보이는 말이 있어요: <b>{ask.words.join(", ")}</b>. 학생 이름이면 번호로 바꿔 AI에 보내요(실명은 이 기기에만).</p>
           <div className="flex flex-wrap gap-2">
             <button onClick={() => send(ask.given)} className="btn-main min-h-10">학생 이름이에요 · 번호로 바꿔 번역</button>

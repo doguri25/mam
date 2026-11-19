@@ -1,7 +1,7 @@
 "use client";
 // 학생 한 명 자료 지우기(보호자가 지워 달라고 할 때): 학생 고르기 → 지울 자료 보기 → 확인하고 지우기. 지운 자료는 되살릴 수 없다.
 // 한 번호를 여러 학생이 차례로 썼으면 학생마다 따로 고른다(지금 학생 · 그 번호의 앞 학생 · 명단에서 뺀 학생). 그 학생이 그 번호를 쓴 때의 것만 지운다.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Doodle from "../Doodle";
 import { api } from "@/lib/api";
 import type { WipeCounts } from "@/lib/data";
@@ -24,6 +24,7 @@ export default function WipeStudent({ data, reload, name }: { data: Overview; re
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const chosen = targets?.find((t) => `${t.no}|${t.who}` === key) ?? null;
+  const pickBox = useRef<HTMLSelectElement>(null);
   const loadTargets = () =>
     api<{ targets: Target[] }>("teacher", "wipeTargets").then((r) => setTargets(r.targets)).catch((e) => { setTargets([]); setMsg({ ok: false, text: (e as Error).message }); });
   const toggle = () => {
@@ -32,6 +33,7 @@ export default function WipeStudent({ data, reload, name }: { data: Overview; re
   };
   // 고를 때마다 지울 자료를 다시 본다(다른 학생 것을 보고 지우지 않게)
   const pick = async (k: string) => {
+    if (busy) return; // 세는 중에는 바꾸지 않는다(칸을 막지 않아 초점이 그대로 남게)
     setKey(k);
     setPeek(null);
     setSure(false);
@@ -59,6 +61,7 @@ export default function WipeStudent({ data, reload, name }: { data: Overview; re
       setKey("");
       loadTargets();
       await reload();
+      pickBox.current?.focus(); // 지우기 단추가 사라지니 학생 고르기 칸으로
     } catch (e) {
       // 그사이 자료가 바뀌었으면 서버가 새로 센 것을 보여 주고 다시 확인하게
       const body = (e as { body?: Partial<Peek> }).body;
@@ -83,7 +86,7 @@ export default function WipeStudent({ data, reload, name }: { data: Overview; re
         <div className="space-y-3">
           <label className="block">
             <span className="text-sm font-bold">학생</span>
-            <select value={key} onChange={(e) => pick(e.target.value)} disabled={busy || !targets} className="field mt-1 min-h-11 py-2">
+            <select ref={pickBox} value={key} onChange={(e) => pick(e.target.value)} disabled={!targets} aria-busy={busy} className="field mt-1 min-h-11 py-2">
               <option value="">{targets ? "고르세요" : "불러오는 중…"}</option>
               {targets && (
                 <>

@@ -1,6 +1,7 @@
 "use client";
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTrap } from "./useTrap";
 import Doodle from "../Doodle";
 import { MOVED_MSG, RiskActionForm, RiskHistory, RiskTexts, movedTo, riskItems, type FormState } from "./RiskActions";
 import { EmotionArt } from "../Art";
@@ -21,21 +22,35 @@ import { myNotes, myRecords, myReflects, riskSourcesOf } from "./own";
 
 export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPick }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void; onPick?: (no: number) => void }) {
   const [open, setOpenRaw] = useState<number | null>(null);
+  // 창을 연 단추: 닫으면 초점을 돌려준다(키보드로 쓰는 선생님이 페이지 맨 위부터 다시 찾지 않게)
+  const opener = useRef<HTMLElement | null>(null);
+  const dlg = useRef<HTMLDivElement>(null);
+  useTrap(dlg, open !== null);
   // 학생 창을 열면 페이지에도 알린다(AI 도우미의 「이 학생」이 지금 연 학생을 보게)
   const setOpen = (no: number | null) => {
+    if (no !== null && open === null) opener.current = document.activeElement as HTMLElement | null;
     setOpenRaw(no);
     if (no != null) onPick?.(no);
   };
   // 기록 창은 Esc로 닫는다(창 안 글을 눌러 초점이 창 밖으로 빠져도). 위에 뜬 AI 도우미 창·메뉴가 먼저 Esc를 받아 닫으면(defaultPrevented) 그대로 둔다
+  // 한글을 조합하는 중이거나 메모 칸에 보내지 않은 글이 있으면 Esc로 닫지 않는다(쓰던 글을 잃지 않게)
   useEffect(() => {
     if (open === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      const el = document.activeElement;
+      if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.value.trim() && dlg.current?.contains(el)) return;
       e.preventDefault();
       setOpenRaw(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  useEffect(() => {
+    if (open === null && opener.current) {
+      if (opener.current.isConnected) opener.current.focus();
+      opener.current = null;
+    }
   }, [open]);
   const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
   const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 폼에 고른 것
@@ -256,7 +271,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
 
       {open !== null && (
         <div className="no-print fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" onClick={() => setOpen(null)}>
-          <div className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${open}번 기록`}>
+          <div ref={dlg} className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${open}번 기록`}>
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-display text-2xl">
                 <BuddyFace look={data.looks[open]} emotion={myRecords(data, open).sort((a, b) => a.id.localeCompare(b.id)).at(-1)?.emotion} size={44} />

@@ -1325,3 +1325,12 @@ test("11판: 평범한 말(사는 곳·산 기간·놀이·칭찬)에 걸리지 
   // 「사라질래」「나 죽어야」는 뺄 수 있는 기본 목록 말
   for (const t of ["그냥 사라질래", "나 죽어야 돼"]) assert.deepEqual(matchRisk(t, []), [], t);
 });
+
+test("12차 점검: 빼는 말이 진짜 위험한 글을 가리지 않는다(부모님께 맞음·혼나고 맞음·칼로 손목·이런 집에 살아서 뭐해·먼지처럼 사라질래)", () => {
+  const D = DEFAULT_RISK_WORDS;
+  for (const t of ["아빠께 맞아요", "엄마께 매일 맞아", "숙제 안 하면 혼나고 맞아요", "손목을 칼로 베고 있었어", "이런 집에 살아서 뭐해", "살아봤자 하루하루가 지옥이야", "그냥 먼지처럼 사라질래", "아빠한테 어깨를 맞았어", "Ước gì em không được sinh ra trong gia đình này", "살아서 머해"])
+    assert.ok(matchRisk(t, D).length > 0, t);
+  for (const t of ["너무 웃겨서 죽을라고 했어 ㅋㅋ", "배고파서 죽을라고 했어", "선생님께서 다 맞았다고 칭찬해 주셨어", "닌자처럼 사라질래", "손목을 베고 잤어", "매미는 땅 위에서 살아봤자 2주밖에 못 산대", "Em không được sinh ra ở Việt Nam mà ở Hàn Quốc"])
+    assert.deepEqual(matchRisk(t, D), [], t);
+  assert.ok(matchRisk("힘들어서 진짜 죽을라고 했어", []).length > 0);
+});
