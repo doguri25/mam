@@ -49,7 +49,8 @@ export default function NewsletterTab({ data, names = {} }: { data: Overview; na
   const asked = useRef(false);
   useEffect(() => {
     if (ask) askBox.current?.querySelector("button")?.focus();
-    else if (asked.current) transBtn.current?.focus();
+    // 닫을 때 초점이 창 안(사라짐)이나 어디에도 없을 때만 번역 단추로(소식지 칸에서 쓰던 중이면 그대로)
+    else if (asked.current && (document.activeElement === document.body || !document.activeElement)) transBtn.current?.focus();
     asked.current = !!ask;
     if (!ask) return;
     const onKey = (e: KeyboardEvent) => {

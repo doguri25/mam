@@ -1334,3 +1334,13 @@ test("12차 점검: 빼는 말이 진짜 위험한 글을 가리지 않는다(�
     assert.deepEqual(matchRisk(t, D), [], t);
   assert.ok(matchRisk("힘들어서 진짜 죽을라고 했어", []).length > 0);
 });
+
+test("13차 점검: 바라는 말 베트남어·살아 있는 게 싫어·옥상에서 뛰어내릴래·내 몸 만졌어는 찾고, 동물 수명·신발이 맞아·웃겨서 죽을라고는 뺀다", () => {
+  const D = DEFAULT_RISK_WORDS;
+  for (const t of ["Giá mà em không được sinh ra ở đây", "gia ma em khong duoc sinh ra o day", "Em không được sinh ra ở đây thì tốt hơn", "살아 있는 게 싫어", "뒈지고 싶다", "옥상에서 뛰어내릴래", "살아봤자 몇 년 더 힘들 뿐이야"])
+    assert.ok(matchRisk(t, []).length > 0, t);
+  for (const t of ["친구가 내 몸 만졌어", "아빠한테 야구방망이로 맞았어"]) assert.ok(matchRisk(t, D).length > 0, t);
+  for (const t of ["햄스터는 살아봤자 몇 년 안 산대", "거북이는 살아봤자 몇백 년이래", "매미가 아직 살아서 뭐 하나 봤어", "달팽이가 살아서 모하나 봤어", "이 신발 할머니께 맞아요", "새로 산 신발이 할머니께 맞아서 다행이야",
+    "웃겨서ㅋㅋㅋ 죽을라고 했어", "웃겨서 진짜 죽을라고 했어", "모기가 살아 있는 게 싫어", "뛰어내리면 위험해", "내 몸만 지키면 돼"])
+    assert.deepEqual(matchRisk(t, D), [], t);
+});

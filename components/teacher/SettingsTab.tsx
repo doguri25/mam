@@ -124,6 +124,11 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
           records.push(...(part.records ?? []));
           if (part.wipe !== undefined && head.wipe !== undefined && part.wipe !== head.wipe) changed = true;
         }
+        // 기록이 하나도 없어 번호마다 받지 않았어도 지우기 표시는 한 번 더 본다(받는 사이 지운 돌아보기·쪽지가 남지 않게)
+        if (!head.nos.length && head.wipe !== undefined) {
+          const end = await api<{ wipe?: number }>("teacher", "export", { paged: true, no: 0 });
+          if (end.wipe !== undefined && end.wipe !== head.wipe) changed = true;
+        }
         got = { ...head, records };
         if (!changed) break;
         if (++tries >= 2) return say("export", "내보내는 사이 다른 기기에서 자료를 지우고 있어요. 잠시 뒤 다시 눌러 주세요.");

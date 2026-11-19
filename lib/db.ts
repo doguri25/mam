@@ -256,6 +256,7 @@ function local(): Store {
     fn((d[key(col)] ??= {}));
     write(d);
   };
+  const put = (r: Record<string, unknown>, id: string, data: unknown) => Object.defineProperty(r, id, { value: data, enumerable: true, writable: true, configurable: true });
   return {
     kind: "local",
     get prefix() { return spaceId() ? `${spaceId()}_` : ""; },
@@ -263,9 +264,10 @@ function local(): Store {
     find: async <T,>(col: Col, field: string, op: Op, value: string | number | boolean) =>
       Object.values(rows(col)).filter((d) => match(d[field], op, value)) as T[],
     count: async (col, field, op, value) => Object.values(rows(col)).filter((d) => match(d[field], op, value)).length,
-    get: async <T,>(col: Col, id: string) => (rows(col)[id] as T) ?? null,
-    set: async (col, id, data) => edit(col, (r) => { r[id] = data; }),
-    setMany: async (col, items) => edit(col, (r) => { for (const [id, data] of items) r[id] = data; }),
+    // 「__proto__」 같은 이름도 보통 문서 이름으로(제 칸에만 — 객체 바탕을 건드리지 않게)
+    get: async <T,>(col: Col, id: string) => (Object.hasOwn(rows(col), id) ? (rows(col)[id] as T) : null) ?? null,
+    set: async (col, id, data) => edit(col, (r) => { put(r, id, data); }),
+    setMany: async (col, items) => edit(col, (r) => { for (const [id, data] of items) put(r, id, data); }),
     del: async (col, id) => edit(col, (r) => { delete r[id]; }),
     clear: async (col) => edit(col, (r) => { for (const id of Object.keys(r)) delete r[id]; }),
     delWhere: async (col, field, op, value) => {
@@ -282,11 +284,11 @@ function local(): Store {
     update: async <T,>(col: Col, id: string, fn: (cur: T | null) => T | null | undefined) => {
       let out: T | null = null;
       edit(col, (r) => {
-        const cur = (r[id] as T) ?? null;
+        const cur = Object.hasOwn(r, id) ? ((r[id] as T) ?? null) : null;
         const next = fn(cur);
         if (next === undefined) return void (out = cur);
         if (next === null) delete r[id];
-        else r[id] = next as Doc;
+        else put(r, id, next);
         out = next;
       });
       return out;

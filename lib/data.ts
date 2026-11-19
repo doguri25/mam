@@ -3,7 +3,7 @@ import { decrypt, isTeacher, makePin, newCode, validPin, type Pin } from "./auth
 import { addDays, monday, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
-import { claimOnce, signupSlot, tidy as tidyLimits, trialAiTake } from "./limit.ts";
+import { claimOnce, signupRefund, signupSlot, tidy as tidyLimits, trialAiTake } from "./limit.ts";
 import { CHAT_DAYS } from "./assist.ts";
 import { selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
@@ -169,6 +169,11 @@ export async function createAccount(name: string, className: string, password: s
   if (!validName(clean)) return { error: "이름은 2~20자 글자·숫자로 써 주세요." };
   if (!validPin(password)) return { error: "비밀번호는 숫자 4~12자리로 해 주세요." };
   if (await findAccount(clean)) return { error: DUP_NAME };
+  // 너무 자주 만드는 요청은 학급 목록을 읽기 전에 막는다(막힌 요청마다 전체 계정을 읽지 않게)
+  if (opts.ip !== undefined) {
+    const limited = await signupSlot(opts.ip);
+    if (limited) return { error: limited, status: 429 };
+  }
   // 학급 수 한도(maxClasses). 한도 가까이 오면 먼저 빈 학급을 정리해 자리를 낸다(10분에 한 번까지).
   const max = maxClasses();
   const classes = async () => (await outOfSpace(() => db().all("accounts"))).length;
@@ -177,10 +182,9 @@ export async function createAccount(name: string, className: string, password: s
     const gone = await cleanupEmptyClasses().catch((e) => (console.error("빈 학급 정리 실패", e), [])); // 정리가 안 돼도 가입은 이어서
     if (gone.length) n = await classes();
   }
-  if (n >= max) return { error: `더 만들 수 있는 학급 수를 넘었어요. 운영 선생님(${CONTACT_EMAIL})께 알려 주세요.` };
-  if (opts.ip !== undefined) {
-    const limited = await signupSlot(opts.ip);
-    if (limited) return { error: limited, status: 429 };
+  if (n >= max) {
+    if (opts.ip !== undefined) await signupRefund(opts.ip);
+    return { error: `더 만들 수 있는 학급 수를 넘었어요. 운영 선생님(${CONTACT_EMAIL})께 알려 주세요.` };
   }
   // 학급 공간 이름(c + 16진 8자리)이 드물게 겹치면 남의 반 비밀번호를 덮어쓰게 된다: 이미 쓰는 이름이면 다시 뽑는다
   let space = "";
@@ -188,7 +192,10 @@ export async function createAccount(name: string, className: string, password: s
     const s = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
     if (!(await inSpace(s, () => db().get("meta", "account")))) space = s;
   }
-  if (!space) return { error: "학급을 만들지 못했어요. 잠시 뒤 다시 해 주세요.", status: 503 };
+  if (!space) {
+    if (opts.ip !== undefined) await signupRefund(opts.ip);
+    return { error: "학급을 만들지 못했어요. 잠시 뒤 다시 해 주세요.", status: 503 };
+  }
   const pin = makePin(password, 1);
   // 비밀번호를 먼저 저장하고 계정을 연다(계정만 있고 비밀번호가 없는 학급이 생기지 않게)
   await inSpace(space, async () => {
@@ -369,9 +376,11 @@ export function readRoster(
     const hist = prev ?? left;
     // 처음 넣은 번호(연습 학생을 실제 학생으로 바꾼 번호도)는 넣은 때를 적는다. 같은 학생이면 앞서 적은 때를 그대로
     const joined = prev && !(prev.demo && !keepPractice) ? prev.joined : back ? undefined : now;
+    // 연습 학생을 실제 학생으로 바꾼 때(그 앞에 연습 학생 기기에 담아 둔 글을 실제 학생 것으로 받지 않게 — 그냥 새로 넣은 번호와 가린다)
+    const fromPractice = prev?.demo && !keepPractice ? now : prev && !prev.demo ? prev.fromPractice : undefined;
     out.push({
       no, alias, code: prev?.code ?? backCode ?? newCode(taken), ...(consent ? { consent } : {}), ...(keepPractice ? { demo: true } : {}),
-      ...(hist?.since ? { since: hist.since, formers: hist.formers ?? [] } : {}), ...(joined ? { joined } : {}),
+      ...(hist?.since ? { since: hist.since, formers: hist.formers ?? [] } : {}), ...(joined ? { joined } : {}), ...(fromPractice ? { fromPractice } : {}),
       // 자료를 지운 때(그 앞에 기기에 담아 둔 기록을 받지 않게): 뺐다가 같은 학생으로 다시 넣어도 이어받는다
       ...(prev?.wipedAt && !prev.demo ? { wipedAt: prev.wipedAt } : back?.wipedAt ? { wipedAt: back.wipedAt } : {}),
     });
@@ -592,7 +601,11 @@ export async function aiConfig(provider?: Provider) {
 // AI를 부르지 못한 까닭을 선생님 말로: 체험 몫이나 학급 공용 키 몫을 다 쓴 것과 키가 아예 없는 것을 가른다
 // (공용 키 몫을 다 쓴 날에도 「키를 넣어 주세요」만 보여 헷갈리지 않게)
 export async function aiMissing(can = "만들 수 있어요") {
-  if (isDemo()) return "오늘 체험용 AI 사용량을 다 썼어요.";
+  if (isDemo()) {
+    // 키가 아예 없는 배포에서는 사용량이 아니라 키가 없다고(위 띠의 「AI 키가 없어 기본 질문으로」와 같게)
+    const s = await keySettings();
+    return trialKey() || s.keys[s.provider] ? "오늘 체험용 AI 사용량을 다 썼어요." : "체험 반에는 AI 키가 없어 이 기능을 쓸 수 없어요(기본 질문으로 움직여요).";
+  }
   const s = await keySettings();
   if (!s.keys[s.provider] && hasSharedAi()) return "오늘 학급 공용 AI 몫을 다 썼어요. 내일 다시 하거나 「설정」에서 AI 키를 넣어 주세요.";
   return `AI 키가 있어야 ${can}. 「설정」에서 키를 넣어 주세요.`;
@@ -1479,6 +1492,12 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   };
   if (dry) return { counts, held, onRoster: !!st };
   if (held) throw new Error(HELD_STUDENT(held));
+  // 명단의 지금 학생을 지우면 지우기 시작한 때를 먼저 적는다: 그 앞에 기기에 담아 둔 기록이 지우는 도중에 와도 받지 않게
+  // (다 지운 뒤에 적으면 그사이 온 기록이 저장되어 지우기 뒤에도 남는다)
+  if (who === "now") {
+    const at = new Date().toISOString();
+    await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, wipedAt: at } : x)) });
+  }
   // 지우는 사이 학생이 같은 칸에 위험한 글을 새로 남겼으면(살펴보지 않은 위험 표현) 그 글은 지우지 않는다 — 읽고 지우기를 한 번에
   let skipped = 0;
   const unseen = (x: { risk?: boolean; riskChecked?: unknown } | null) => !!x?.risk && !x.riskChecked;
@@ -1524,11 +1543,6 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
     if (kept.wiped && !(kept.formers ?? []).some((f) => !f.wiped)) delete next[no];
     else next[no] = kept;
     await saveLeft(next);
-  }
-  // 명단의 지금 학생을 지웠으면 지운 때를 적는다(그 앞에 기기에 담아 둔 기록이 뒤늦게 와서 되살아나지 않게)
-  if (who === "now") {
-    const at = new Date().toISOString();
-    await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((x) => (x.no === no ? { ...x, wipedAt: at } : x)) });
   }
   // 무엇을 언제 지웠는지만 남긴다(내용 없이 번호와 수)
   await db().update<{ items: { at: string; no: number; who: string; counts: WipeCounts }[] }>("meta", "studentWipes", (cur) => ({ items: [...(cur?.items ?? []), { at: new Date().toISOString(), no, who: who.startsWith("f:") ? "former" : who, counts }].slice(-50) }));

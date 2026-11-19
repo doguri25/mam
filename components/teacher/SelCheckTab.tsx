@@ -180,7 +180,8 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
               ? <button onClick={() => act("selfDelete", { id: round.id })} disabled={busy} className="btn-sub min-h-11 border-alert text-sm text-alert">정말 지우기(답·관찰·메모·보낸 말 모두)</button>
               : <button onClick={() => setSure(round.id)} className="btn-sub min-h-11 text-sm">회차 지우기</button>)}
             {round && done.length > 0 && <button onClick={() => downloadCsv(round, rows)} className="btn-sub min-h-11 text-sm"><Doodle name="download" /> CSV</button>}
-            <button onClick={() => window.print()} className="btn-sub min-h-11 text-sm"><Doodle name="printer" /> 인쇄</button>
+            {/* 인쇄는 결과 보기에서만(관찰·서면 검사 화면은 입력판이라 종이에 나오면 안 된다) */}
+            {mode === "result" && <button onClick={() => window.print()} className="btn-sub min-h-11 text-sm"><Doodle name="printer" /> 인쇄</button>}
           </div>
         </section>
       )}

@@ -33,13 +33,15 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
     if (no != null) onPick?.(no);
   };
   // 기록 창은 Esc로 닫는다(창 안 글을 눌러 초점이 창 밖으로 빠져도). 위에 뜬 AI 도우미 창·메뉴가 먼저 Esc를 받아 닫으면(defaultPrevented) 그대로 둔다
-  // 한글을 조합하는 중이거나 메모 칸에 보내지 않은 글이 있으면 Esc로 닫지 않는다(쓰던 글을 잃지 않게)
+  // 한글을 조합하는 중이거나, 창 안에 쓰다 만 글(면담 메모·조치 메모)·열어 둔 조치 폼이 있으면 Esc로 닫지 않는다(쓰던 것을 잃지 않게)
   useEffect(() => {
     if (open === null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
-      const el = document.activeElement;
-      if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.value.trim() && dlg.current?.contains(el)) return;
+      const box = dlg.current;
+      if (box?.querySelector("[data-riskform]")) return;
+      const typed = [...(box?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input:not([type=date]):not([type=hidden]):not([type=checkbox]):not([type=radio])') ?? [])].some((x) => x.value.trim());
+      if (typed) return;
       e.preventDefault();
       setOpenRaw(null);
     };

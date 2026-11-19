@@ -132,7 +132,9 @@ async function handle(req: NextRequest) {
     return bad("알 수 없는 요청이에요.");
   } catch (e) {
     console.error("선생님 도우미 실패", e);
-    return bad(e instanceof Error ? e.message.slice(0, 200) : "잠시 뒤 다시 해 주세요.", 500);
+    // 모양이 틀린 값(글자 자리에 객체 등)은 400, 우리가 쓴 안내(한글)만 보여 주고 실행 오류 글은 내보내지 않는다
+    if (e instanceof TypeError) return bad("요청이 올바르지 않아요.", 400);
+    return bad(e instanceof Error && /[가-힣]/.test(e.message) ? e.message.slice(0, 200) : "잠시 뒤 다시 해 주세요.", 500);
   }
 }
 

@@ -15,7 +15,8 @@ export function useTrap(ref: RefObject<HTMLElement | null>, active: boolean, opt
       // 초점이 다른(더 위) 창 안에 있으면 그 창이 맡는다
       const other = now?.closest('[aria-modal="true"]');
       if (other && other !== box && !box.contains(other) && !other.contains(box)) return;
-      const els = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.getClientRects().length > 0);
+      // 보이고 Tab으로 갈 수 있는 것만(tabindex=-1 덮개 단추·숨긴 것은 빼고)
+      const els = [...box.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.tabIndex >= 0 && x.getClientRects().length > 0 && getComputedStyle(x).visibility !== "hidden");
       if (!els.length) return;
       const first = els[0];
       const last = els[els.length - 1];

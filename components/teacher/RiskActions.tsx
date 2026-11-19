@@ -124,11 +124,13 @@ export function RiskActionForm({ recordId, today, first, seen, text, kind, init,
   }
 
   return (
-    <div className="w-full space-y-3 rounded-2xl border border-line bg-card p-3">
+    // data-riskform: 이 폼이 열려 있으면 지도 기록 창이 Esc로 닫히지 않는다(고른 일·메모를 잃지 않게)
+    <div data-riskform className="w-full space-y-3 rounded-2xl border border-line bg-card p-3">
       <p className="text-sm font-bold">{first ? "어떻게 살펴봤나요? (여럿 고를 수 있어요)" : "그 뒤에 더 한 일"}</p>
       <div className="flex flex-wrap gap-2" role="group" aria-label="한 일">
-        {RISK_ACTIONS.map((k) => (
-          <button key={k} type="button" onClick={() => toggle(k)} aria-pressed={kinds.includes(k)}
+        {RISK_ACTIONS.map((k, i) => (
+          // 폼을 열면 첫 고르기 단추로 초점(누른 단추가 사라져 초점을 잃지 않게)
+          <button key={k} type="button" onClick={() => toggle(k)} aria-pressed={kinds.includes(k)} autoFocus={i === 0}
             className={`chip min-h-10 px-3 text-sm ${kinds.includes(k) ? "border-leaf bg-leaf-soft font-bold text-leaf" : ""}`}>
             {kinds.includes(k) && "✓ "}{RISK_ACTION_KO[k]}
           </button>
@@ -245,7 +247,13 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
   const items = riskItems(src);
   if (!items.length) return <p className="text-sm text-soft">위험 표현이 들어온 적이 없어요.</p>;
   const open = movedTo(adding, items.map((x) => x.id));
-  const close = () => { setAdding(null); setCarry(null); };
+  // 폼을 닫으면(취소·저장) 다시 생긴 「살펴보고 적기」 단추로 초점을 돌려준다
+  const close = () => {
+    const back = adding ?? open;
+    setAdding(null);
+    setCarry(null);
+    if (back) setTimeout(() => document.querySelector<HTMLElement>(`[data-act="${CSS.escape(back)}"]`)?.focus(), 0);
+  };
   const who = (no: number, at?: string) => `${no}번${nameOf ? ` ${nameOf(no, at)}` : ""}`;
 
   async function remove(a: RiskAction) {
@@ -318,7 +326,7 @@ export function RiskHistory({ today, onChange, onStale, print, nameOf, ...src }:
                   onCancel={close} onStale={async (st) => { setCarry(st); await onStale?.(); }} onDone={async (x) => { close(); await onChange(x); }} />
               </div>
             ) : (
-              <button onClick={() => { setAdding(id); setCarry(null); }} className="no-print btn-sub mt-2 min-h-9 px-3 text-sm"><Doodle name="memo" /> {it.first ? "살펴보고 적기" : "조치 더 적기"}</button>
+              <button data-act={id} onClick={() => { setAdding(id); setCarry(null); }} className="no-print btn-sub mt-2 min-h-9 px-3 text-sm"><Doodle name="memo" /> {it.first ? "살펴보고 적기" : "조치 더 적기"}</button>
             ))}
           </li>
         );

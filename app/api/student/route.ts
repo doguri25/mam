@@ -130,8 +130,9 @@ async function handle(req: NextRequest, body: Body) {
         const rec = (body.record ?? {}) as Record<string, unknown>;
         const text = [rec.summary, rec.answer].filter((x): x is string => typeof x === "string").join(" ").trim().slice(0, 300);
         const slot = rec.slot === "pm" ? "pm" : "am";
-        // 연습 학생을 실제 학생으로 바꾸기 전에 받은 표(번호를 넣은 때 joined보다 앞)면 연습 학생이 쓴 글이다 → 실제 학생 알림으로 남기지 않는다
-        const joined = st && !s && !st.since && st.joined ? Date.parse(st.joined) : NaN;
+        // 연습 학생을 실제 학생으로 바꾸기 전에 받은 표면 연습 학생이 쓴 글이다 → 실제 학생 알림으로 남기지 않는다
+        // (그냥 새로 넣은 번호·뺐다가 다시 넣은 번호는 그 앞 실제 학생 글이라 그대로 남긴다)
+        const joined = st && !s && !st.since && st.fromPractice ? Date.parse(st.fromPractice) : NaN;
         const practice = Number.isFinite(joined) && (q.at !== undefined ? q.at < joined : q.date < today(new Date(joined)));
         const hits = st && text && !practice ? matchRisk(text, (await getSettings()).riskWords) : [];
         const when = queuedWhen(madeAtFix, q.date);
@@ -505,7 +506,8 @@ async function handle(req: NextRequest, body: Body) {
     return bad("알 수 없는 요청이에요.");
   } catch (e) {
     console.error(e);
-    // 저장소 오류 글을 그대로 아이 화면에 보이지 않는다(다른 언어 화면은 늘 이 문장의 번역을 보인다)
+    // 저장소 오류 글을 그대로 아이 화면에 보이지 않는다(다른 언어 화면은 늘 이 문장의 번역을 보인다).
+    // 500은 담아 둔 기록을 다시 보내게 둔다(코드 오류로 버려지지 않게) — 모양이 틀린 값은 위 검사(otherStudent 등)에서 거른다
     return bad("문제가 생겼어요.", 500);
   }
 }

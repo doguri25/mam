@@ -38,6 +38,9 @@ export function otherStudent(cookie: string | undefined, screen: { screenNo?: un
   const no = unsign(cookie)?.split(":")[0];
   if (no === undefined) return false;
   const { screenNo: n, screenSpace: s } = screen;
+  // 숫자·글자만 견준다(객체가 오면 「{toString:1}」처럼 바꾸다 오류가 나므로 다른 친구로 본다)
+  const bad = (v: unknown) => v !== undefined && v !== null && typeof v !== "number" && typeof v !== "string";
+  if (bad(n) || bad(s)) return true;
   return (n !== undefined && n !== null && Number(n) !== Number(no)) || (s !== undefined && s !== null && String(s) !== sp);
 }
 

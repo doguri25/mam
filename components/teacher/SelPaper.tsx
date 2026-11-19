@@ -8,6 +8,7 @@ import type { Overview } from "./types";
 import type { SelData } from "./SelCheckTab";
 import type { SelRow } from "./SelStudent";
 import { useAct } from "./useAct";
+import { useTrap } from "./useTrap";
 import { api } from "@/lib/api";
 import { buildEntries, type Entry } from "@/lib/omr";
 import { PROVIDERS } from "@/lib/shared";
@@ -245,13 +246,35 @@ function ScanCard({ round, rows, data, who, onData }: Props) {
           </div>
         </>
       )}
-      {zoom && (
-        <div role="dialog" aria-modal aria-label="스캔한 쪽 크게 보기" className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setZoom(null)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom} alt="스캔한 쪽" className="max-h-full max-w-full rounded-xl bg-white" />
-        </div>
-      )}
+      {zoom && <Zoom src={zoom} onClose={() => setZoom(null)} />}
     </section>
+  );
+}
+
+// 스캔한 쪽 크게 보기: 화면 높이에 맞춰 다 보이게, 닫기 단추·Esc로 닫고 창 안에서만 Tab, 닫으면 연 단추로 초점
+function Zoom({ src, onClose }: { src: string; onClose: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null);
+  useTrap(box, true);
+  useEffect(() => {
+    const back = opener.current;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (back?.isConnected) back.focus();
+    };
+  }, [onClose]);
+  return (
+    <div ref={box} role="dialog" aria-modal="true" aria-label="스캔한 쪽 크게 보기" className="fixed inset-0 z-50 flex flex-col items-center gap-2 overflow-auto bg-black/60 p-4" onClick={onClose}>
+      <button onClick={onClose} autoFocus className="btn-sub min-h-10 shrink-0 self-end px-3" aria-label="크게 보기 닫기">✕ 닫기</button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="스캔한 쪽" className="max-h-[calc(100dvh-5rem)] max-w-full rounded-xl bg-white object-contain" onClick={(e) => e.stopPropagation()} />
+    </div>
   );
 }
 

@@ -129,7 +129,7 @@ export function passwordAttempt(ip: string, sp = spaceId(), now = Date.now()): P
 // ── 새 학급 만들기(누구나): IP마다 하루 SIGNUP_PER_IP개, 모두 합쳐 하루 SIGNUP_PER_DAY개 ──
 // 만들기 직전에 한 칸 잡는다. 오류 글을 돌려주고, 괜찮으면 null.
 // 연수처럼 한 학교(인터넷 하나)에서 여러 선생님이 한꺼번에 만들 수 있게 넉넉히. 빈 학급은 14일 뒤 저절로 정리된다.
-export const SIGNUP_PER_IP = 200;
+export const SIGNUP_PER_IP = 40; // 연수 한 번(한 학교 30~40명)은 넉넉히, 한 곳에서 학급 한도를 다 채우지는 못하게
 export const SIGNUP_PER_DAY = 500;
 export function signupSlot(ip: string, now = Date.now()): Promise<string | null> {
   return outOfSpace(async () => {
@@ -143,6 +143,14 @@ export function signupSlot(ip: string, now = Date.now()): Promise<string | null>
     }
     await tidy(now);
     return null;
+  });
+}
+// 잡은 칸을 돌려준다(학급 수 한도에 걸리는 등 끝내 만들지 못했을 때 — 못 만든 것을 세지 않게)
+export function signupRefund(ip: string, now = Date.now()): Promise<void> {
+  return outOfSpace(async () => {
+    const day = today(new Date(now));
+    await db().bump("sys", `signup:${hashId(ip)}`, day, { by: -1 });
+    await db().bump("sys", "signup:all", day, { by: -1 });
   });
 }
 

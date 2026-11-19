@@ -136,7 +136,8 @@ export default function TeacherPage() {
   const wasDrawer = useRef(false);
   useEffect(() => {
     if (drawer) setTimeout(() => document.querySelector<HTMLElement>("[aria-label='선생님 메뉴'] nav button")?.focus(), 0);
-    else if (wasDrawer.current) menuBtn.current?.focus();
+    // ☰가 보이지 않으면(넓어져 서랍이 닫힘) 왼쪽 메뉴의 지금 탭으로
+    else if (wasDrawer.current) (menuBtn.current?.offsetParent ? menuBtn.current : document.querySelector<HTMLElement>("aside nav button[aria-current='page']") ?? document.querySelector<HTMLElement>("aside nav button"))?.focus();
     wasDrawer.current = drawer;
   }, [drawer]);
   // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(역량 진단·누적 기록)도 다시 불러온다
@@ -493,7 +494,7 @@ export default function TeacherPage() {
       {/* 좁은 화면: ☰로 여는 서랍 */}
       {drawer && (
         <div ref={drawerBox} className="no-print fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="선생님 메뉴">
-          <button className="absolute inset-0 bg-black/30" aria-label="메뉴 닫기" onClick={() => setDrawer(false)} />
+          <button className="absolute inset-0 bg-black/30" aria-hidden tabIndex={-1} onClick={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] bg-card shadow-xl">{menu}</aside>
         </div>
       )}
@@ -558,7 +559,7 @@ export default function TeacherPage() {
             </button>
             {fabUsed && (
               <div ref={fabBox} hidden={!fab} className="no-print fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="AI 도우미">
-                <button className="absolute inset-0 hidden bg-black/30 sm:block" aria-label="AI 도우미 닫기" onClick={() => setFab(false)} />
+                <button className="absolute inset-0 hidden bg-black/30 sm:block" aria-hidden tabIndex={-1} onClick={() => setFab(false)} />
                 <aside className="absolute inset-0 flex flex-col bg-card p-4 sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[460px] sm:border-l sm:border-line sm:shadow-xl">
                   <AssistChat key={data.space} compact data={data} ctx={{ tab, no: cheerNo }} names={nameMap} onGo={go} onClose={() => setFab(false)} />
                 </aside>

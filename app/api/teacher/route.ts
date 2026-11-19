@@ -314,9 +314,11 @@ async function handle(req: NextRequest) {
           const rs = (await db().find<MoodRecord>("records", "date", ">=", `${m}-01`)).filter((r) => r.date < `${next}-01`);
           return NextResponse.json({ records: rs.map(lean) });
         }
+        // 지우기·정리 표시는 읽기 전에 본다(읽는 사이 끝난 지우기도 화면이 뒤 요청에서 알아채게)
+        const wipe = (await getStamp()).wipe ?? 0;
         const [all, reflects, riskyLetters] = await Promise.all([allRecords(), db().all<Reflect>("reflects"), db().find<Letter>("letters", "risk", "==", true)]);
         return NextResponse.json({
-          nos: [...new Set(all.map((r) => r.no))].filter(Number.isInteger).sort((a, b) => a - b), count: all.length, wipe: (await getStamp()).wipe ?? 0,
+          nos: [...new Set(all.map((r) => r.no))].filter(Number.isInteger).sort((a, b) => a - b), count: all.length, wipe,
           months: [...new Set(all.map((r) => r.date.slice(0, 7)))].sort(), // 예전 화면(달마다 받기)용
           students: await getRoster(), riskActions: await getRiskActions(), riskDrafts: await getRiskDrafts(),
           reflects: reflects.filter(reflectEverRisk), letters: riskyLetters,
@@ -933,7 +935,9 @@ async function handle(req: NextRequest) {
     return bad("알 수 없는 요청이에요.");
   } catch (e) {
     console.error(e);
-    return bad(e instanceof Error ? e.message : "서버 오류", 500);
+    // 모양이 틀린 값(글자 자리에 객체 등)은 400. 우리가 쓴 안내(한글)만 보여 주고, 저장소·실행 오류 글은 그대로 내보내지 않는다
+    if (e instanceof TypeError) return bad("요청이 올바르지 않아요.", 400);
+    return bad(e instanceof Error && /[가-힣]/.test(e.message) ? e.message : "문제가 생겼어요. 잠시 뒤 다시 해 주세요.", 500);
   }
 }
 
