@@ -8,7 +8,7 @@ import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
 import { aiConfig, aiMissing, getPin, getRiskDrafts, getRoster, getSelNotes, getSelfAnswers, getSelfRounds, getSettings, recordsFrom, recordsOf, riskyRecords, withOpenRisks } from "@/lib/data";
 import { addDays, today } from "@/lib/date";
 import { db, inSpace, isDemo } from "@/lib/db";
-import { clientIp, trialEditWait, waitText } from "@/lib/limit";
+import { clientIp, trialEditWait, waitText, withIp } from "@/lib/limit";
 import { riskAlerts } from "@/components/teacher/alerts";
 import { watchFlags } from "@/lib/rules";
 import { cutoffOf } from "@/lib/retention";
@@ -20,6 +20,7 @@ import {
   cleanAssist, cleanContacts, cleanDocText, cleanDue, cleanTitle, isClassWide, meansThis, mentionedNos, saysTodo, searchDocs, sortTodos, threadTitle, wantsTodo,
   type AppTodo, type ChatMsg, type ChatThread, type Contact, type DocKind, type DocMeta, type Todo,
 } from "@/lib/assist";
+import { flagChecked } from "@/components/teacher/when";
 import { ownBy, ownOnly, type Cheer, type Letter, type MoodRecord, type Reflect, type Student } from "@/lib/shared";
 
 export const maxDuration = 60;
@@ -37,7 +38,7 @@ const DEMO_BLOCKED = new Set(["docSave", "docDelete"]);
 
 export async function POST(req: NextRequest) {
   if (!req.headers.get("content-type")?.startsWith("application/json")) return bad("요청이 올바르지 않아요.", 415);
-  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req));
+  return withIp(req.headers, () => inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)));
 }
 
 async function handle(req: NextRequest) {
@@ -55,6 +56,11 @@ async function handle(req: NextRequest) {
     if (act === "threads") return NextResponse.json({ threads: (await liveThreads()).map(({ id, title, updatedAt, msgs }) => ({ id, title, updatedAt, count: msgs.length })), saved: !isDemo() });
     if (act === "thread") {
       const t = await db().get<ChatThread>("meta", chatId(String(body.id ?? "")));
+      // 30일 지난 대화는 열지 않고 지운다(목록을 열지 않고 바로 불러와도)
+      if (t && !(Date.parse(t.updatedAt) >= Date.now() - CHAT_DAYS * 86_400_000)) {
+        await db().del("meta", chatId(t.id));
+        return bad("대화를 찾지 못했어요.", 404);
+      }
       return t ? NextResponse.json({ thread: t }) : bad("대화를 찾지 못했어요.", 404);
     }
     if (act === "threadDelete") {
@@ -181,20 +187,24 @@ async function appTodos(): Promise<AppTodo[]> {
   const wait = letters.filter((l) => l.status === "wait").length;
   if (wait) out.push({ key: "letters", text: `허락을 기다리는 공감 쪽지가 ${wait}통 있어요.`, tab: "letters" });
   const alias = (no: number) => students.find((s) => s.no === no)?.alias ?? "";
-  for (const f of watchFlags(ownOnly(recent, students, (r) => r.no, (r) => r.createdAt), date, settings.rules).slice(0, 5))
+  // 마음 지도와 같게: 지금 명단 학생만, 이번 주 「살펴봤어요」를 누른 학생은 빼고
+  const onRoster = new Set(students.map((s) => s.no));
+  const mineNow = ownOnly(recent, students, (r) => r.no, (r) => r.createdAt).filter((r) => onRoster.has(r.no));
+  for (const f of watchFlags(mineNow, date, settings.rules).filter((f) => !flagChecked(settings.checks ?? {}, f.no, date)).slice(0, 5))
     out.push({ key: `flag${f.no}`, text: `먼저 살펴볼 학생: ${f.no}번 ${alias(f.no)} — ${f.reasons.join(", ")}`, tab: "student", no: f.no });
   // 역량 진단: 열린 회차에 아직 답하지 않은 학생, 답했는데 피드백을 보내지 않은 학생(가장 최근 회차)
   const live = students.filter((s) => !s.demo || students.every((x) => x.demo));
+  // 역량 진단 탭과 같은 기준: 지금 학생의 답이나 종이 검사 점수가 있으면 답한 것(번호를 새 학생에게 줬으면 앞 학생 것은 빼고)
+  const pickOwn = <T extends { round: string; no: number; at: string }>(xs: T[], round: string, st: Student) => xs.find((x) => x.round === round && x.no === st.no && ownBy(st, x.at)) ?? null;
+  const answered = (round: string, st: Student) => !!scoresOf(pickOwn(answers, round, st), pickOwn(notes, round, st));
   const open = rounds.find((r) => !r.closedAt && !r.teacherOnly);
   if (open) {
-    const done = new Set(answers.filter((a) => a.round === open.id && cleanSelfAnswers(a.answers)).map((a) => a.no));
-    const left = live.filter((s) => !done.has(s.no)).length;
+    const left = live.filter((s) => !answered(open.id, s)).length;
     if (left) out.push({ key: "selOpen", text: `「${open.title}」 마음 점검에 아직 답하지 않은 학생이 ${left}명이에요.`, tab: "sel" });
   }
   const last = [...rounds].reverse().find((r) => answers.some((a) => a.round === r.id));
   if (last) {
-    const fed = new Set(notes.filter((n) => n.round === last.id && n.feedback).map((n) => n.no));
-    const k = answers.filter((a) => a.round === last.id && cleanSelfAnswers(a.answers) && !fed.has(a.no)).length;
+    const k = live.filter((s) => answered(last.id, s) && !pickOwn(notes, last.id, s)?.feedback).length;
     if (k) out.push({ key: "selFeed", text: `「${last.title}」에 답한 학생 가운데 ${k}명에게 아직 피드백을 보내지 않았어요.`, tab: "sel" });
   }
   if (expired) out.push({ key: "expired", text: `보관 기한이 지난 마음 기록 ${expired}개를 정리해 주세요.`, tab: "settings" });
@@ -228,7 +238,8 @@ async function studentBlock(s: Student, date: string, rules: Parameters<typeof w
   const cs = mine(cheers).slice(0, 3);
   if (cs.length) lines.push(`보낸 응원 한마디: ${cs.map((c) => c.createdAt.slice(0, 10)).join(", ")}`); // 글은 보내지 않음(선생님이 쓴 글에 실명이 있을 수 있음)
   const recent = (l: Letter) => l.createdAt.slice(0, 10) >= from;
-  lines.push(`공감 쪽지(30일): 보냄 ${mine(sent).filter(recent).length}통, 받음 ${mine(got.filter((l) => !l.toPractice)).filter(recent).length}통`);
+  // 받음은 선생님이 허락해 친구에게 간 것만(학생 받은편지함과 같게)
+  lines.push(`공감 쪽지(30일): 보냄 ${mine(sent).filter(recent).length}통, 받음 ${mine(got.filter((l) => !l.toPractice && l.status === "ok")).filter(recent).length}통`);
   // 역량 진단: 가장 최근 회차의 영역별 수준(학생 답·종이 검사)과 선생님 관찰 수준(메모는 보내지 않음)
   const r = [...rounds].reverse().find((x) => answers.some((a) => a.round === x.id && a.no === no) || selNotes.some((n) => n.round === x.id && n.no === no));
   if (r) {
@@ -291,9 +302,10 @@ async function ask(body: Record<string, unknown>) {
   const [app, mine] = await Promise.all([appTodos(), myTodos()]);
   const open = mine.filter((t) => !t.done);
   const full = wantsTodo(text);
+  // 선생님이 적은 업무는 할 일·마감을 물을 때만 보낸다(손으로 적은 글이라 다른 물음에까지 실어 보내지 않게)
   const todoLines = [
     ...app.map((t) => `- (앱) ${t.text}`),
-    ...open.slice(0, full ? 30 : 8).map((t) => `- (선생님) ${t.title}${t.due ? ` · 마감 ${t.due}` : ""}`),
+    ...(full ? open.slice(0, 30) : []).map((t) => `- (선생님) ${t.title}${t.due ? ` · 마감 ${t.due}` : ""}`),
   ];
   parts.push(`[할 일]\n${todoLines.length ? todoLines.join("\n") : "- 지금 앱이 찾은 일과 적어 둔 일이 없어요."}`);
 
@@ -327,7 +339,10 @@ async function ask(body: Record<string, unknown>) {
   if (!ai) return bad(`${await aiMissing("대답할 수 있어요")} 위기 대응 안내와 할 일은 AI 없이도 볼 수 있어요.`, 400, { crisis });
   let out;
   try {
-    out = cleanAssist(await inTime(assistReply(ai, parts.join("\n\n"), deadline), deadline), { nos, sources });
+    // 단추에 붙일 번호: 물은 학생, 반 전체·할 일 물음이면 넘겨준 글(학급 요약·할 일)에 나온 번호까지
+    const prompt = parts.join("\n\n");
+    const shown = [...prompt.matchAll(/(\d{1,2})번/g)].map((m) => Number(m[1])).filter((n) => live.some((s) => s.no === n));
+    out = cleanAssist(await inTime(assistReply(ai, prompt, deadline), deadline), { nos: nos.length ? nos : [...new Set(shown)], sources });
   } catch (e) {
     const late = deadline.aborted;
     return bad(late ? "대답을 만드는 데 시간이 너무 걸렸어요. 물음을 조금 짧게 해서 다시 해 주세요." : `대답을 만들지 못했어요: ${e instanceof Error ? e.message : e}`.slice(0, 300), late ? 504 : 502, { crisis });

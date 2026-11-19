@@ -3,7 +3,8 @@ import { decrypt, isTeacher, makePin, newCode, validPin, type Pin } from "./auth
 import { addDays, monday, today } from "./date.ts";
 import { PRACTICE_SHEET, demoExtras, demoLooks, demoRecords, demoRiskActions, demoSelfChecks, demoSheetRun, demoStudents } from "./demo.ts";
 import { SPACE_COLS, db, inSpace, isDemo, outOfSpace, spaceId } from "./db.ts";
-import { claimOnce, signupSlot, tidy as tidyLimits } from "./limit.ts";
+import { claimOnce, signupSlot, tidy as tidyLimits, trialAiTake } from "./limit.ts";
+import { CHAT_DAYS } from "./assist.ts";
 import { selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "./selfcheck.ts";
 import { cutoffOf, type PurgeLog, type Retention } from "./retention.ts";
 import { CONTACT_EMAIL, DEFAULT_RISK_WORDS, DEFAULT_RULES, RISK_WORDS_V, riskWordsAfter, DEFAULT_VOCAB, PREV_MAX, PROVIDERS, PROVIDER_IDS, cleanLook, ownBy, type BuddyLook, type CalmUse, type Former, type Letter, type MoodRecord, type PrevVersion, type Reflect, type RiskDraft, type SheetRun, type Provider, type RiskAction, type Rules, type Student, type VoiceMode } from "./shared.ts";
@@ -250,7 +251,23 @@ export async function cleanupEmptyClasses(now = new Date()): Promise<string[]> {
 export async function noteTeacherLogin(acc: Account, now = new Date()) {
   if (acc.space) await outOfSpace(() => db().update<Account>("accounts", acc.id, (cur) => (cur ? { ...cur, lastLogin: now.toISOString() } : undefined)));
   await tidyLimits(now.getTime());
-  if (await claimOnce("cleanup", today(now))) await cleanupEmptyClasses(now);
+  if (await claimOnce("cleanup", today(now))) {
+    await dropOldChats(now);
+    await cleanupEmptyClasses(now);
+  }
+}
+
+// AI 도우미 대화는 마지막으로 쓴 날부터 CHAT_DAYS 지나면 지운다(개인정보 처리방침). 선생님이 더 들어오지 않는 반도
+// 하루 한 번(먼저 들어온 선생님 요청 하나가) 모든 학급을 살핀다. 연 대화 목록에서만 지우면 쓰지 않게 된 반의 대화가 남는다.
+export async function dropOldChats(now = new Date()) {
+  const old = now.getTime() - CHAT_DAYS * 86_400_000;
+  const spaces = new Set(["", ...(await outOfSpace(() => db().all<Account>("accounts"))).map((a) => a.space ?? "")]);
+  for (const sp of spaces) {
+    await inSpace(sp, async () => {
+      for (const t of await db().find<{ id: string; updatedAt: string }>("meta", "kind", "==", "chat"))
+        if (!(Date.parse(t.updatedAt) >= old)) await db().del("meta", `chat_${t.id}`);
+    }).catch((e) => console.error("[대화 정리] 실패", sp, (e as Error).message));
+  }
 }
 
 // 운영 선생님(처음 반 홍북초)으로 들어온 선생님 표인가(관리 화면 /admin/db를 실제 배포에서 열 때)
@@ -432,7 +449,12 @@ export async function demoAiUsed() {
 // 하루 몫 쓰기: 한도 밑일 때만 한 번에 1 올린다(동시에 여러 요청이 와도 한도를 넘지 않음). 날짜가 바뀌면 0부터.
 async function spendDemoAi() {
   if (!isDemo()) return true;
-  return (await db().bump("meta", "aiUsage", today(), { max: DEMO_AI_PER_DAY })).ok;
+  // IP마다 몫을 먼저(한 사람이 하루 체험 몫을 다 쓰지 못하게). 전체 몫이 다 찼으면 IP 몫은 돌려준다
+  const ip = await trialAiTake();
+  if (!ip.ok) return false;
+  const ok = (await db().bump("meta", "aiUsage", today(), { max: DEMO_AI_PER_DAY })).ok;
+  if (!ok) await ip.undo();
+  return ok;
 }
 
 // 공용 업스테이지 키(Vercel 환경 변수 UPSTAGE_API_KEY · 모델은 UPSTAGE_MODEL, 없으면 기본 Solar).
@@ -453,7 +475,10 @@ export async function sharedAiUsed() {
 }
 async function spendSharedAi() {
   if (!(await db().bump("meta", "sharedAiUsage", today(), { max: SHARED_AI_PER_DAY })).ok) return false;
-  return (await outOfSpace(() => db().bump("sys", "sharedAiAll", today(), { max: SHARED_AI_ALL_PER_DAY }))).ok;
+  if ((await outOfSpace(() => db().bump("sys", "sharedAiAll", today(), { max: SHARED_AI_ALL_PER_DAY }))).ok) return true;
+  // 모든 학급 몫이 다 찼으면 이 학급 몫은 돌려준다(부르지 않은 AI가 학급 사용량에 세지지 않게)
+  await db().bump("meta", "sharedAiUsage", today(), { by: -1 });
+  return false;
 }
 // 실제 학급이 빌려 쓰는 공용 키(체험 공간은 trialKey로 따로)
 async function borrowShared(p: Provider) {
@@ -1141,7 +1166,8 @@ export async function seedPractice() {
     saveRiskActions([]),
     db().del("meta", "riskDrafts"), // 학생 번호에 매인 마치지 않은 위험 표현도(새 명단의 같은 번호 학생에게 붙지 않게)
     db().del("meta", "left"), // 명단에서 뺀 학생 기록도(연습 명단으로 통째로 바뀜)
-    ...(trial ? ["lessons", "weekly", "purges"].map((id) => db().del("meta", id)) : []),
+    // AI 도우미의 할 일·학교 연락처도(앞 방문자가 적은 것이 다음 방문자에게 보이지 않게)
+    ...(trial ? ["lessons", "weekly", "purges", "assistTodos", "assistContacts"].map((id) => db().del("meta", id)) : []),
   ]);
   const taken = new Set<string>();
   const now = Date.now();

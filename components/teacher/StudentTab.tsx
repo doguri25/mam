@@ -91,6 +91,9 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
   const span = first ? Math.round((Date.parse(data.today) - Date.parse(first)) / 864e5) + 1 : 0;
   // 위험 표현: 마음 기록 · 마치지 않은 기록 · 한 주 돌아보기 · 보낸 쪽지
   const risks = { records: rs, actions: all.riskActions, drafts: all.drafts ?? [], reflects: all.reflects, letters: all.sent, words: data.settings.riskWords };
+  // 조치를 적은 뒤 받은 목록에서 이 학생 글에 대한 것만(번호를 새 학생에게 줬으면 앞 학생 조치가 잠깐이라도 섞이지 않게)
+  const mineIds = new Set([...rs.map((r) => r.id), ...(all.drafts ?? []).map((d) => `draft:${d.id}`), ...all.reflects.map((x) => `reflect:${x.id}`),
+    ...all.sent.map((l) => `letter:${l.id}`), ...all.riskActions.map((a) => a.recordId)]);
   // 이 번호를 새 학생에게 준 때(서버는 그 뒤 것만 보낸다)
   const st = data.students.find((x) => x.no === no);
   const since = st?.since;
@@ -117,7 +120,8 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
         <Tile big={rs.length} label="마음 기록" sub={`아침 ${rs.filter((r) => r.slot === "am").length} · 하교 전 ${rs.filter((r) => r.slot === "pm").length}`} />
         <Tile big={words.length} label="써 본 감정 단어" sub={words[0] ? `가장 많이: ${words[0][0]}` : undefined} />
         <Tile big={calm.length} label="마음 다스리기" sub={`나아졌어요 ${calm.filter((c) => c.felt === "better").length}번`} />
-        <Tile big={`${all.sent.length}·${all.got.length}`} label="공감 쪽지 보냄·받음" />
+        {/* 받음은 선생님이 허락해 그 학생에게 간 것만(학생 받은편지함과 같게). 보냄은 쓴 것 모두 */}
+        <Tile big={`${all.sent.length}·${all.got.filter((l) => l.status === "ok").length}`} label="공감 쪽지 보냄·받음" />
         <Tile big={all.reflects.length} label="한 주 돌아보기" />
         <Tile big={all.sheets.length} label="활동지 피드백" />
       </section>
@@ -264,7 +268,7 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
           {/* 살펴본 뒤에는 기록의 「살펴봄」도 바뀌므로 조치 기록만 바꾸지 않고 선생님 화면 전체를 새로 읽는다(메뉴의 빨간 수·마음 지도 알림·
               쪽지 탭의 조치 기록이 20초 동안 어긋나지 않게). 다시 읽으면 version이 바뀌어 이 학생 것도 다시 불러온다 */}
           <RiskHistory {...risks} today={data.today} nameOf={nameOf} onStale={reload}
-            onChange={async (x) => { onActions(x.filter((a) => a.no === no)); await reload(); }} />
+            onChange={async (x) => { onActions(x.filter((a) => a.no === no && mineIds.has(a.recordId))); await reload(); }} />
         </section>
       )}
 

@@ -214,7 +214,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
           <div className="no-print flex justify-end">
             <button onClick={() => window.print()} className="btn-main"><Doodle name="printer" /> 안내문 인쇄</button>
           </div>
-          <ConsentLetter className={data.settings.className} retention={data.settings.retention} origin={origin} />
+          <ConsentLetter className={data.settings.className} retention={data.settings.retention} origin={origin} space={data.space} />
         </section>
       )}
 

@@ -315,12 +315,16 @@ export default function TeacherPage() {
   }
   // 「기록 없음」은 최근 기록으로만 센다(오래된 위험 표현 알림 하나가 반 기록이 있던 날로 세지지 않게)
   // 먼저 살펴볼 학생·기록 없음은 지금 학생 기록으로만(번호를 새 학생에게 줬으면 앞 학생 기록으로 새 학생을 고르지 않게)
-  const owned = ownOnly(raw.records, raw.students, (r) => r.no, (r) => r.createdAt);
+  // 명단에서 빠진 학생은 「먼저 살펴볼 학생」에 넣지 않는다(위험 표현 알림은 따로 그대로 남는다)
+  const onRoster = new Set(raw.students.map((s) => s.no));
+  const owned = ownOnly(raw.records, raw.students, (r) => r.no, (r) => r.createdAt).filter((r) => onRoster.has(r.no));
   const recent = owned.filter((r) => r.date >= addDays(raw.today, -DAYS));
+  // 번호를 새로 받은 학생은 받은 날부터 수업일을 센다(첫날부터 「기록 없음」이 되지 않게)
+  const since = Object.fromEntries(raw.students.filter((s) => s.since).map((s) => [s.no, kToday(new Date(s.since!))]));
   const data: Overview = {
     ...raw,
     flags: watchFlags(owned, raw.today, raw.settings.rules),
-    absent: absentStudents(recent, raw.students.map((s) => s.no), raw.today, raw.settings.rules.absentDays),
+    absent: absentStudents(recent, raw.students.map((s) => s.no), raw.today, raw.settings.rules.absentDays, since),
   };
   // 명단에서 빠진 번호(지운 학생·연습 학생에게 간 쪽지 등)는 「14번 14번」이 되지 않게 따로 알린다.
   // at(쓴 때)이 이 번호를 새 학생에게 주기 전이면 앞 학생 가명으로(이 기기의 실명은 지금 학생 것이라 붙이지 않는다)
@@ -466,14 +470,15 @@ export default function TeacherPage() {
               <button onClick={() => setTab("settings")} className="btn-sub min-h-9 px-3 text-sm">기록 보관·정리 열기</button>
             </div>
           )}
-          {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} onLetters={() => setTab("letters")} />}
-          {tab === "cheer" && <CheerTab data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
+          {tab === "map" && <MapTab data={data} reload={load} nameOf={nameOf} onCheer={(no) => { setCheerNo(no); setTab("cheer"); }} onLetters={() => setTab("letters")} onPick={setCheerNo} />}
+          {/* 학생이 바뀌면(AI 도우미 단추로 옮겨 와도) 앞 학생 초안·입력이 남지 않게 새로 그린다 */}
+          {tab === "cheer" && <CheerTab key={cheerNo ?? "none"} data={data} reload={load} no={cheerNo} setNo={setCheerNo} nameOf={nameOf} />}
           {tab === "letters" && <LettersTab data={data} reload={load} nameOf={nameOf} />}
-          {tab === "referral" && <ReferralTab data={data} nameOf={nameOf} pick={cheerNo} onPick={setCheerNo} />}
+          {tab === "referral" && <ReferralTab key={cheerNo ?? "none"} data={data} nameOf={nameOf} pick={cheerNo} onPick={setCheerNo} />}
           {tab === "student" && <StudentTab data={data} reload={load} nameOf={nameOf} no={cheerNo} setNo={setCheerNo} version={version} />}
-          {tab === "sel" && <SelCheckTab data={data} nameOf={nameOf} version={version} />}
+          {tab === "sel" && <SelCheckTab data={data} nameOf={nameOf} version={version} onPick={setCheerNo} />}
           {tab === "report" && <ReportTab data={data} nameOf={nameOf} reload={load} />}
-          {tab === "home" && <NewsletterTab data={data} />}
+          {tab === "home" && <NewsletterTab data={data} names={nameMap} />}
           {tab === "lesson" && <LessonTab data={data} reload={load} />}
           {tab === "sheet" && <SheetTab data={data} nameOf={nameOf} />}
           {tab === "roster" && <RosterTab data={data} reload={load} />}

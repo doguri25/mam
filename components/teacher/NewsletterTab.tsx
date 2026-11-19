@@ -5,6 +5,7 @@ import { useState } from "react";
 import Doodle from "../Doodle";
 import type { Overview } from "./types";
 import { api } from "@/lib/api";
+import { hideNames } from "@/lib/assist";
 import { label } from "@/lib/date";
 import { LANGS, type Lang } from "@/lib/i18n";
 import { GROUPS, groupOf, type Group } from "@/lib/shared";
@@ -15,7 +16,7 @@ const HOME_PLAY = [
   "오늘 쓴 감정 단어 하나씩 말하기: 「나는 오늘 뿌듯했어, 왜냐하면…」처럼 이유까지 이어 말해 보세요.",
 ];
 
-export default function NewsletterTab({ data }: { data: Overview }) {
+export default function NewsletterTab({ data, names = {} }: { data: Overview; names?: Record<number, string> }) {
   const week = data.records.filter((r) => r.date >= data.weekStart && r.date <= data.today);
   const groups = (Object.keys(GROUPS) as Group[]).map((g) => [g, week.filter((r) => groupOf(r.emotion) === g).length] as const).sort((a, b) => b[1] - a[1]);
   const words = Object.entries(week.reduce<Record<string, number>>((m, r) => (r.word ? { ...m, [r.word]: (m[r.word] ?? 0) + 1 } : m), {})).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([w]) => w);
@@ -43,7 +44,8 @@ export default function NewsletterTab({ data }: { data: Overview }) {
     setBusy(true);
     setErr("");
     try {
-      setTranslated((await api<{ text: string }>("teacher", "translate", { text: whole, lang })).text);
+      // 선생님이 쓴 글에 학생 실명이 있으면 번호로 바꿔 보낸다(실명은 이 기기에만)
+      setTranslated((await api<{ text: string }>("teacher", "translate", { text: hideNames(whole, names).text, lang })).text);
     } catch (e) {
       setErr((e as Error).message);
     }

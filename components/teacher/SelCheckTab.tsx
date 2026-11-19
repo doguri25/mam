@@ -31,7 +31,7 @@ function rowsOf(d: SelData, students: Student[], round: string | null, base: str
 }
 
 // version: 선생님 화면이 다시 불러오거나 새 기록을 합칠 때마다 바뀐다 → 학생이 새로 답한 것도 보이게 다시 불러온다
-export default function SelCheckTab({ data, nameOf, version }: { data: Overview; nameOf: NameOf; version: number }) {
+export default function SelCheckTab({ data, nameOf, version, onPick }: { data: Overview; nameOf: NameOf; version: number; onPick?: (no: number) => void }) {
   const [d, setD] = useState<SelData | null>(null);
   const [err, setErr] = useState("");
   const [view, setView] = useState<string | null>(null); // 보고 있는 회차
@@ -93,6 +93,7 @@ export default function SelCheckTab({ data, nameOf, version }: { data: Overview;
   const sel = rows.find((r) => r.st.no === pick) ?? null;
   const choose = (no: number | null) => {
     setPick(no);
+    if (no != null) onPick?.(no); // AI 도우미의 「이 학생」이 지금 보는 학생이 되게
     if (no != null) requestAnimationFrame(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const onSaved = (note: SelNote) => setD((cur) => cur && { ...cur, notes: [...cur.notes.filter((n) => !(n.round === note.round && n.no === note.no)), note] });

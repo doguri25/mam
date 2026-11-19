@@ -38,3 +38,14 @@ test("hasSub: 이 학급 알림 목록에 지금 있는 기기만 true(다른 �
   });
   assert.equal(await inSpace("cpush0005", () => hasSub(sub(2).endpoint)), false);
 });
+
+test("알림 등록: 브라우저 알림 서버 주소와 짧은 키만 받는다(서버가 아무 주소로나 보내지 않게)", async () => {
+  const { pushEndpointOk, pushKeyOk } = await import("./push.ts");
+  for (const u of ["https://fcm.googleapis.com/fcm/send/abc", "https://updates.push.services.mozilla.com/wpush/v2/x", "https://web.push.apple.com/Q", "https://wns2-sg2p.notify.windows.com/w/?token=x"])
+    assert.equal(pushEndpointOk(u), true, u);
+  for (const u of ["https://evil.example/x", "http://fcm.googleapis.com/x", "https://fcm.googleapis.com.evil.example/x", "https://notfcm.googleapis.com.example/x", `https://fcm.googleapis.com/${"a".repeat(1000)}`, 3, null])
+    assert.equal(pushEndpointOk(u), false, String(u));
+  assert.equal(pushKeyOk("BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM"), true);
+  assert.equal(pushKeyOk("x".repeat(201)), false);
+  assert.equal(pushKeyOk({}), false);
+});

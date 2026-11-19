@@ -59,6 +59,13 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
     riskList.length > RISK_WORDS_MAX ? `위험 표현이 ${riskList.length}개예요. ${RISK_WORDS_MAX}개까지 저장돼요 — ${riskList.length - RISK_WORDS_MAX}개를 빼 주세요(넘는 것은 저장되지 않아요).` : "",
   ].filter(Boolean).join(" ");
 
+  // 감정 단어: 서버는 한 낱말 12자·모두 60개까지만 받는다 → 넘는 것을 저장 전에 알린다
+  const vocabList = [...new Set(split(vocab))];
+  const vocabIssue = draft.vocab === undefined ? "" : [
+    vocabList.some((w) => w.length > 12) ? `「${vocabList.filter((w) => w.length > 12).slice(0, 3).join("」, 「")}」는 12자가 넘어요. 짧게 줄여 주세요.` : "",
+    vocabList.length > 60 ? `감정 단어가 ${vocabList.length}개예요. 60개까지 저장돼요.` : "",
+  ].filter(Boolean).join(" ");
+
   const save = () => saving.run("", async () => {
     if (riskIssue) return say("save", `저장하지 않았어요. ${riskIssue}`);
     try {
@@ -279,7 +286,10 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
         {adv && <label className="block">
           <span className="font-bold">우리 반에서 배운 감정 단어</span>
           <span className="block text-xs text-soft">쉼표로 나눠요. 학생 도움판과 되묻기·응원 초안에 쓰여요.</span>
-          <input value={vocab} onChange={(e) => setVocab(e.target.value)} className="field mt-1" />
+          <input value={vocab} onChange={(e) => setVocab(e.target.value)} className="field mt-1" aria-describedby="vocab-limit" />
+          <span id="vocab-limit" className={`mt-1 block text-xs ${vocabIssue ? "font-bold text-alert" : "text-soft"}`} role={vocabIssue ? "alert" : undefined}>
+            {vocabIssue || `${vocabList.length}/60개 · 한 낱말 12자까지`}
+          </span>
         </label>}
         {adv && <label className="block md:col-span-2">
           <span className="font-bold">위험 표현 단어</span>

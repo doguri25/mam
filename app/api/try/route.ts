@@ -5,7 +5,7 @@ import { DEMO_COOKIE, STUDENT_COOKIE, TEACHER_COOKIE, TEACHER_HOURS, teacherToke
 import { PRACTICE_VERSION, getRoster, seedPractice } from "@/lib/data";
 import { today } from "@/lib/date";
 import { db, inSpace } from "@/lib/db";
-import { clientIp, resetWait, waitText } from "@/lib/limit";
+import { claimOnce, clientIp, resetWait, waitText } from "@/lib/limit";
 
 const secure = process.env.NODE_ENV === "production";
 
@@ -29,8 +29,18 @@ export async function POST(req: NextRequest) {
     return await inSpace("demo", async () => {
       // 날짜가 지나면 처음 판으로(가짜 기록이 늘 「최근 7일」이 되게). 여러 사람이 함께 쓰는 공간이다.
       // 새 버전을 올려 연습 데이터의 판이 바뀌었으면 그날 안에도 다시 만든다(예: 판 5에서 역량 진단이 32문장 학생 점검으로 바뀜).
-      const day = await db().get<{ date: string; v?: number }>("meta", "practiceDay");
-      if (day?.date !== today() || day.v !== PRACTICE_VERSION || body.action === "reset") await seedPractice();
+      const stale = (d: { date: string; v?: number } | null) => d?.date !== today() || d.v !== PRACTICE_VERSION;
+      if (body.action === "reset") await seedPractice();
+      else if (stale(await db().get<{ date: string; v?: number }>("meta", "practiceDay"))) {
+        // 하루 첫 방문자 여럿이 한꺼번에 와도 한 요청만 새로 만든다(둘이 만들면 나중 명단이 이겨 먼저 받은 학생 코드가 들어가지 않는다).
+        // 진 요청은 다 만들 때까지 잠깐 기다렸다가 새 명단을 읽는다(10초 넘게 걸리면 직접 만든다)
+        if (await claimOnce("demoSeed", `${today()}:${PRACTICE_VERSION}`)) await seedPractice();
+        else {
+          let i = 0;
+          while (stale(await db().get<{ date: string; v?: number }>("meta", "practiceDay")) && i++ < 20) await new Promise((r) => setTimeout(r, 500));
+          if (i > 20) await seedPractice();
+        }
+      }
       const students = (await getRoster()).slice(0, 8).map((s) => ({ no: s.no, alias: s.alias, code: s.code }));
       const res = NextResponse.json({ students });
       res.cookies.delete(DEMO_COOKIE); // 예전 체험 표시는 더 쓰지 않음

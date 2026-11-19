@@ -73,3 +73,12 @@ test("담아 둔 기록: 받은 saveId 그대로(없으면 붙임), 답을 잃�
   assert.equal(told, 2);
   off();
 });
+
+test("담아 두기: 이 기기 표가 다른 학급의 같은 번호 학생 것으로 바뀌었으면 담지 않는다", () => {
+  rememberToken(3, "q:3:h:2026-11-19:cX.sig");
+  assert.equal(queueRecord(3, { slot: "am" }, "q:3:h2:2026-11-18:cY.sig2"), false); // 이 화면은 cY 반 3번
+  assert.equal(pendingCount(), 0);
+  assert.equal(queueRecord(3, { slot: "am" }, "q:3:h:2026-11-18:cX.sig0"), true); // 같은 반(어제 표)이면 담는다
+  assert.equal(queueRecord(3, { slot: "am" }), true); // 화면 표를 모르면 번호만
+  assert.equal(pendingCount(), 2);
+});

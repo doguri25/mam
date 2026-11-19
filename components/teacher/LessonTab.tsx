@@ -81,12 +81,14 @@ export default function LessonTab({ data, reload }: { data: Overview; reload: Re
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="btn-sub cursor-pointer">
+          {/* 읽는 동안에는 다른 파일을 고르지 않는다(앞 파일에서 읽은 단어·활동이 새 파일 이름으로 반영되지 않게) */}
+          <label className={`btn-sub ${busy ? "pointer-events-none opacity-50" : "cursor-pointer"}`} aria-disabled={busy}>
             <Doodle name="clip" /> 파일 고르기
             <input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,.hwp,.hwpx,.docx,.pptx"
               className="sr-only"
+              disabled={busy}
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null);
                 setFound(null);

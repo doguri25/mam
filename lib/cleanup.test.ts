@@ -132,3 +132,19 @@ test("가입: 같은 이름이 같은 순간 둘 와도 계정은 하나, 진 �
   assert.deepEqual((await outOfSpace(() => db().all<Acc>("accounts"))).map((a) => a.space), [ok[0].space]);
   if (db().kind === "local") assert.deepEqual(spaces().filter((sp) => !before.has(sp)), [ok[0].space]); // 진 쪽이 만든 공간은 남지 않음
 });
+
+test("AI 도우미 대화: 마지막으로 쓴 날부터 30일 지난 것은 선생님이 들어오지 않는 반에서도 지운다", async () => {
+  const now = new Date("2026-11-20T00:00:00Z");
+  const old = { id: "t_old", kind: "chat", title: "x", msgs: [], updatedAt: ago(31, now) };
+  const fresh = { id: "t_new", kind: "chat", title: "y", msgs: [], updatedAt: ago(3, now) };
+  await outOfSpace(() => db().set("accounts", "chatclass", { id: "chatclass", name: "chat", space: "c00chat01", createdAt: ago(100, now), lastLogin: ago(60, now) }));
+  for (const sp of ["", "c00chat01"]) await inSpace(sp, async () => {
+    await db().set("meta", "chat_t_old", old);
+    await db().set("meta", "chat_t_new", fresh);
+  });
+  await D.dropOldChats(now);
+  for (const sp of ["", "c00chat01"]) await inSpace(sp, async () => {
+    assert.equal(await db().get("meta", "chat_t_old"), null, sp);
+    assert.ok(await db().get("meta", "chat_t_new"), sp);
+  });
+});

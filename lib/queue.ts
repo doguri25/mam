@@ -65,9 +65,14 @@ export function onQueueSent(f: () => void) {
 
 // 정말 담아 두었으면 true(그 학생의 표가 없거나 기기에 적지 못하면 false → 화면이 「저장됐어요」라고 하지 않게)
 // 기록에 saveId가 없으면 여기서 붙인다(담아 둔 기록은 몇 번을 다시 보내도 같은 이름)
-export function queueRecord(no: number, record: Record<string, unknown>) {
+// 표(「q:번호:코드:날짜:공간.서명」)에 적힌 학급 공간
+const spaceOf = (token: string) => token.slice(0, token.lastIndexOf(".")).split(":")[4] ?? "";
+// mine: 이 화면이 받은 표. 같은 기기의 다른 탭에서 다른 학급의 같은 번호 학생이 들어와 표가 바뀌었으면 담지 않는다
+// (담으면 이 학생 기록이 그 학급의 같은 번호 학생 것으로 저장된다)
+export function queueRecord(no: number, record: Record<string, unknown>, mine?: string) {
   const t = read<{ no: number; token: string } | null>(TOKEN, null);
   if (!t || t.no !== no) return false;
+  if (mine && spaceOf(mine) !== spaceOf(t.token)) return false;
   const rec = isSaveId(record.saveId) ? record : { ...record, saveId: newSaveId() };
   return write(PENDING, [...read<Item[]>(PENDING, []), { token: t.token, record: rec, at: Date.now() }]);
 }

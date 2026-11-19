@@ -3,10 +3,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { docError, inTime, sheetFeedback } from "@/lib/ai";
 import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
-import { aiConfig, aiMissing, getPin } from "@/lib/data";
+import { aiConfig, aiMissing, getPin, touch } from "@/lib/data";
 import { db, inSpace } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
 import type { SheetItem, SheetRun } from "@/lib/shared";
+import { withIp } from "@/lib/limit";
 
 // 업스테이지 쪽 읽기(최대 55초) + AI 피드백(그림이면 최대 55초, 글이면 40초·한 번 다시)이 60초를 넘을 수 있다.
 // Vercel Hobby는 Fluid compute(2025-04-23 뒤 만든 프로젝트는 기본으로 켜짐)에서 함수 시간을 300초까지 쓸 수 있어 120초로 잡고,
@@ -19,7 +20,7 @@ const bad = (message: string, status = 400) => NextResponse.json({ error: messag
 const text = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
 
 export async function POST(req: NextRequest) {
-  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)); // 표에 적힌 학급 공간에서
+  return withIp(req.headers, () => inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req))); // 표에 적힌 학급 공간에서
 }
 
 async function handle(req: NextRequest) {
@@ -60,14 +61,14 @@ async function handle(req: NextRequest) {
     return bad(docError(e, deadline.aborted, LATE), deadline.aborted ? 504 : 502);
   }
 
-  // 화면이 학생을 한 명씩 차례로 보내므로 읽고-고쳐-쓰기가 겹치지 않는다
-  const old = await db().get<SheetRun>("sheets", id);
-  const doc: SheetRun = old
+  // 읽고 고쳐 쓰기를 한 번에: 만드는 사이 선생님이 다른 학생 피드백을 고쳐도(sheetEdit) 서로 덮지 않게
+  const createdAt = new Date().toISOString();
+  await db().update<SheetRun>("sheets", id, (old) => old
     ? { ...old, items: [...old.items.filter((x) => x.no !== no), item].sort((a, b) => a.no - b.no) }
     : {
         id, ...input, file: text(r.file, 80), pagesPer: Math.min(4, Math.max(1, Number(r.pagesPer) || 1)),
-        skip: Array.isArray(r.skip) ? r.skip.map(Number).filter(Number.isInteger).slice(0, 40) : [], createdAt: new Date().toISOString(), items: [item],
-      };
-  await db().set("sheets", id, { ...doc });
+        skip: Array.isArray(r.skip) ? r.skip.map(Number).filter(Number.isInteger).slice(0, 40) : [], createdAt, items: [item],
+      });
+  await touch("other");
   return NextResponse.json({ item });
 }

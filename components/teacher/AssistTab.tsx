@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Doodle, { type DoodleName } from "@/components/Doodle";
 import { api } from "@/lib/api";
-import { CONTACT_SLOTS, DOC_KINDS, DOC_MAX, GO_TABS, dueLabel, type AppTodo, type Contact, type DocKind, type DocMeta, type Go, type Todo } from "@/lib/assist";
+import { CONTACT_SLOTS, DOC_KINDS, DOC_MAX, GO_TABS, dueLabel, hideNames, type AppTodo, type Contact, type DocKind, type DocMeta, type Go, type Todo } from "@/lib/assist";
 import { CRISIS, type CrisisId } from "@/lib/crisis";
 import { AssistChat } from "./AssistChat";
 import { CrisisCard } from "./assistUi";
@@ -30,8 +30,9 @@ export function AssistTab({ data, ctx, names, onGo }: { data: OverviewRaw; ctx: 
           </button>
         ))}
       </div>
-      {mode === "chat" && <section className="card p-4"><AssistChat data={data} ctx={ctx} names={names} onGo={onGo} /></section>}
-      {mode === "todo" && <TodoPanel onGo={onGo} trial={!!data.trial} />}
+      {/* 할 일·위기 대응을 보고 와도 대화가 남게 숨기기만 한다(체험 반은 대화를 저장하지 않아 다시 그리면 사라짐) */}
+      <section className={`card p-4 ${mode === "chat" ? "" : "hidden"}`}><AssistChat data={data} ctx={ctx} names={names} onGo={onGo} /></section>
+      {mode === "todo" && <TodoPanel onGo={onGo} trial={!!data.trial} names={names} />}
       {mode === "crisis" && <CrisisPanel trial={!!data.trial} />}
       {mode === "docs" && <DocsPanel trial={!!data.trial} />}
     </div>
@@ -39,7 +40,7 @@ export function AssistTab({ data, ctx, names, onGo }: { data: OverviewRaw; ctx: 
 }
 
 // ── 할 일 ──
-function TodoPanel({ onGo, trial }: { onGo: (g: Go) => void; trial: boolean }) {
+function TodoPanel({ onGo, trial, names }: { onGo: (g: Go) => void; trial: boolean; names: Record<number, string> }) {
   const [app, setApp] = useState<AppTodo[] | null>(null);
   const [mine, setMine] = useState<Todo[]>([]);
   const [day, setDay] = useState("");
@@ -55,7 +56,8 @@ function TodoPanel({ onGo, trial }: { onGo: (g: Go) => void; trial: boolean }) {
   const edit = (action: string, body: Record<string, unknown>, fail: string) =>
     act.run(fail, async () => setMine((await api<{ mine: Todo[] }>("teacher/assist", action, body)).mine));
   const add = async () => {
-    if (await edit("todoAdd", { title, due }, "할 일을 넣지 못했어요")) { setTitle(""); setDue(""); }
+    // 학생 실명은 번호로 바꿔 적는다(실명은 이 기기에만 — 할 일은 서버에 남고 업무를 물을 때 AI에도 간다)
+    if (await edit("todoAdd", { title: hideNames(title, names).text, due }, "할 일을 넣지 못했어요")) { setTitle(""); setDue(""); }
   };
   const open = mine.filter((t) => !t.done), done = mine.filter((t) => t.done);
   return (
@@ -82,6 +84,7 @@ function TodoPanel({ onGo, trial }: { onGo: (g: Go) => void; trial: boolean }) {
           <input id="todo-due" type="date" value={due} onChange={(e) => setDue(e.target.value)} className="field w-auto" />
           <button disabled={act.busy || !title.trim()} className="btn-main">넣기</button>
         </form>
+        <p className="text-xs text-soft">학생 이름을 적으면 번호로 바꿔서 남겨요(실명은 이 기기에만).</p>
         {trial && <p className="text-xs text-soft">체험 반은 여러 사람이 함께 써요. 실제 업무는 적지 말아 주세요.</p>}
         {act.err && <p role="alert" className="text-sm text-alert">{act.err}</p>}
         {!open.length ? <p className="text-soft">적어 둔 할 일이 없어요. 대화에서 「할 일에 넣기」를 눌러도 여기에 모여요.</p> : (

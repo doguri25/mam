@@ -615,7 +615,7 @@ export default function MePage() {
         setOffline(false);
       } catch (e) {
         // 서버까지 못 갔으면(와이파이 끊김) 이 기기에 담아 두고, 화면은 저장된 것처럼 이어 간다
-        if ((e as { status?: number }).status || !queueRecord(me!.no, payload)) throw e;
+        if ((e as { status?: number }).status || !queueRecord(me!.no, payload, me!.qtoken)) throw e;
         record = { ...payload, id: `${me!.no}_${me!.today}_${sl}`, no: me!.no, date: me!.today, createdAt: "" } as unknown as MoodRecord;
         queued = payload.saveId;
         setOffline(true);

@@ -11,7 +11,7 @@ import { flagChecked, kday } from "./when";
 import { api } from "@/lib/api";
 import { addDays, label, weekday } from "@/lib/date";
 import { calmStats } from "@/lib/rules";
-import { GROUPS, groupOf, type Group } from "@/lib/shared";
+import { GROUPS, formerAt, groupOf, type Group } from "@/lib/shared";
 
 export default function ReportTab({ data, nameOf, reload }: { data: Overview; nameOf: NameOf; reload: Reload }) {
   const [onlyNo, setOnlyNo] = useState(true);
@@ -32,7 +32,9 @@ export default function ReportTab({ data, nameOf, reload }: { data: Overview; na
   const { today, weekStart, students, flags, settings, absent } = data;
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const week = data.records.filter((r) => r.date >= weekStart && r.date <= today);
-  const who = (no: number, at?: string) => (onlyNo ? `${no}번` : `${no}번 ${nameOf(no, at)}`);
+  // 번호만 보일 때도 이 번호를 새 학생에게 주기 전 것이면 「앞 학생」을 붙인다(지금 그 번호 학생 일로 읽히지 않게)
+  const who = (no: number, at?: string) =>
+    onlyNo ? `${no}번${at && formerAt(students.find((s) => s.no === no), at) !== null ? " (앞 학생)" : ""}` : `${no}번 ${nameOf(no, at)}`;
   // 이번 주 위험 표현: 마음 기록(고치기 전 글에 있던 것도) · 마치지 않은 기록 · 한 주 돌아보기 · 공감 쪽지. 번호 순서(숫자로)대로
   const inWeek = (d: string) => d >= weekStart && d <= today;
   // at: 쓴 때(그 뒤 이 번호를 새 학생에게 줬으면 「앞 학생」으로 적는다)

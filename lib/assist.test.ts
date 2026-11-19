@@ -97,3 +97,38 @@ test("할 일: 마치지 않은 일·이른 마감 먼저, 남은 날 글", () =
 test("명렬표 붙여 넣기: 성별·생년월일 칸이 붙어 있어도 이름만", () => {
   assert.deepEqual(parseNames("1 김하늘 여\n2\t이서연\t여\t2017.03.02\n3, 박도윤, 남\n4 응우옌 반 안\n5. 최하은 2017-05-01"), { 1: "김하늘", 2: "이서연", 3: "박도윤", 4: "응우옌 반 안", 5: "최하은" });
 });
+
+test("실명 가리기: 성 뗀 이름은 뒤에 조사·빈칸·문장부호가 올 때만(「슬기로운」「보람찬」「다운로드」는 그대로)", () => {
+  const names = { 3: "김슬기", 5: "박보람", 9: "정다운", 11: "김민준" };
+  for (const [q, want] of [
+    ["슬기로운 생활 수업", "슬기로운 생활 수업"], ["보람찬 하루", "보람찬 하루"], ["다운로드가 안 돼", "다운로드가 안 돼"],
+    ["슬기는 요즘 어때?", "3번는 요즘 어때?"], ["민준이가 울었어", "11번이가 울었어"], ["민준아 괜찮니", "11번아 괜찮니"],
+    ["김슬기로운", "3번로운"], // 전체 이름은 늘 가린다
+  ] as const) assert.equal(hideNames(q, names).text, want, q);
+});
+
+test("학생 찾기: 흔한 낱말 가명·횟수를 말한 「번」은 학생으로 보지 않는다", () => {
+  const st = [{ no: 2, alias: "구름" }, { no: 3, alias: "단풍" }, { no: 10, alias: "노을" }];
+  for (const [q, want] of [
+    ["가을 단풍 주제로 수업 아이디어", []], ["단풍잎 그리기", []], ["노을 사진으로 활동", []], ["하루 2번 해도 될까?", []],
+    ["가정통신문 3번 항목", []], ["2번째 활동", []],
+    ["단풍이 요즘 어때?", [3]], ["노을 학생 상담", [10]], ["3번 학생 요즘 어때", [3]], ["구름", [2]],
+  ] as const) assert.deepEqual(mentionedNos(q, st), want, q);
+});
+
+test("위기 안내: 「밑줄 긋기」「손목시계」「극단적으로」「다 맞았다」, 번호 속 109·117은 위기 말이 아니다", () => {
+  for (const q of ["밑줄 긋기 활동", "손목시계 그리기", "극단적으로 말하면", "연락처 010-1095-2233", "20261109까지 내요", "퀴즈 다 맞았을 때 칭찬", "010-3117-2222"])
+    assert.deepEqual(crisisOf(q), [], q);
+  assert.deepEqual(crisisOf("손목을 그었대요"), ["suicide"]);
+  assert.deepEqual(crisisOf("극단적 선택을 말했어요"), ["suicide"]);
+  assert.deepEqual(crisisOf("109에 전화해 볼까"), ["suicide"]);
+  assert.deepEqual(crisisOf("친구한테 자꾸 맞는대요"), ["violence"]);
+  assert.deepEqual(crisisOf("117에 신고했어요"), ["violence"]);
+  assert.deepEqual(crisisOf("아빠한테 맞았대요"), ["abuse"]); // 집에서 생긴 일은 아동학대 안내만
+});
+
+test("AI 답 정리: 번호는 한 학생을 여는 화면에만, 영어 글의 「no:」는 지우지 않는다", () => {
+  const out = cleanAssist({ reply: "Answer yes or no: please reply. 3번을 보세요 (go: student, no=3).", go: [{ tab: "sel", no: 3 }, { tab: "student", no: 3 }, { tab: "cheer", no: 3 }] }, { nos: [3], sources: [] });
+  assert.equal(out.reply, "Answer yes or no: please reply. 3번을 보세요.");
+  assert.deepEqual(out.go, [{ tab: "sel" }, { tab: "student", no: 3 }, { tab: "cheer", no: 3 }]);
+});

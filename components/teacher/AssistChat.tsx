@@ -29,6 +29,8 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
   const [err, setErr] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const end = useRef<HTMLDivElement>(null);
+  // 지금 보는 대화(새 대화·다른 대화 열기·지우기 때마다 바뀜): 늦게 온 답이 바뀐 대화에 붙지 않게
+  const conv = useRef(0);
   const box = useRef<HTMLTextAreaElement>(null);
 
   const loadThreads = () =>
@@ -41,16 +43,18 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
 
   const open = async (id: string) => {
     if (!id) return fresh();
+    const mine = ++conv.current;
     setErr("");
     try {
       const r = await api<{ thread: { id: string; msgs: ChatMsg[] } }>("teacher/assist", "thread", { id });
+      if (mine !== conv.current) return;
       setThread(r.thread.id);
       setMsgs(r.thread.msgs);
     } catch (e) {
       setErr((e as Error).message);
     }
   };
-  const fresh = () => { setThread(null); setMsgs([]); setErr(""); box.current?.focus(); };
+  const fresh = () => { conv.current++; setThread(null); setMsgs([]); setErr(""); box.current?.focus(); };
   const drop = async () => {
     if (!thread || !confirm("이 대화를 지울까요? 지우면 되살릴 수 없어요.")) return;
     await api("teacher/assist", "threadDelete", { id: thread }).catch(() => {});
@@ -61,6 +65,7 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
   const send = async (raw: string) => {
     const q = raw.trim();
     if (!q || busy) return;
+    const mine = conv.current;
     const { text: safe, hit } = hideNames(q, names);
     const me: Shown = { role: "me", text: safe, at: new Date().toISOString(), hid: hit };
     const history = msgs.filter((m) => !m.fail).slice(-8).map((m) => ({ role: m.role, text: m.text }));
@@ -72,12 +77,14 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
       const r = await api<ChatMsg & { thread: { id: string; title: string } | null }>("teacher/assist", "ask", {
         text: safe, thread, history, ctx: { tab: ctx.tab, no: ctx.no ?? 0 },
       }, { timeout: 70_000 });
+      if (mine !== conv.current) return loadThreads(); // 그사이 다른 대화로 옮겼으면 답은 그 대화(서버)에만 남는다
       setMsgs((xs) => [...xs, { role: "bot", text: r.text, at: r.at, sources: r.sources, todos: r.todos, go: r.go, crisis: r.crisis, nos: r.nos }]);
       if (r.thread) {
         setThread(r.thread.id);
         loadThreads();
       }
     } catch (e) {
+      if (mine !== conv.current) return;
       const body = (e as { body?: { crisis?: CrisisId[] } }).body;
       // AI가 답하지 못해도 위기 대응 안내는 그대로 보인다
       setMsgs((xs) => [...xs, { role: "bot", text: (e as Error).message, at: new Date().toISOString(), crisis: body?.crisis ?? [], fail: true }]);
@@ -111,13 +118,14 @@ export function AssistChat({ data, ctx, names, onGo, compact = false, onClose }:
         {compact && <p className="flex items-center gap-2 font-display text-lg"><Doodle name="sparkle" size={24} />AI 도우미</p>}
         <div className="ml-auto flex items-center gap-2">
           {saved && threads.length > 0 && (
-            <select aria-label="지난 대화" value={thread ?? ""} onChange={(e) => open(e.target.value)} className="h-10 max-w-[12rem] rounded-xl border border-line bg-card px-2 text-sm">
+            <select aria-label="지난 대화" value={thread ?? ""} disabled={busy} onChange={(e) => open(e.target.value)} className="h-10 max-w-[12rem] rounded-xl border border-line bg-card px-2 text-sm">
               <option value="">지난 대화 {threads.length}개</option>
               {threads.map((t) => <option key={t.id} value={t.id}>{t.updatedAt.slice(5, 10).replace("-", "/")} {t.title}</option>)}
             </select>
           )}
-          <button onClick={fresh} className="btn-sub min-h-10 px-3 text-sm">새 대화</button>
-          {thread && <button onClick={drop} className="btn-sub min-h-10 px-3 text-sm" aria-label="이 대화 지우기">지우기</button>}
+          {/* 답을 기다리는 동안에는 대화를 바꾸거나 지우지 않는다(늦게 온 답이 지운 대화를 되살리지 않게) */}
+          <button onClick={fresh} disabled={busy} className="btn-sub min-h-10 px-3 text-sm">새 대화</button>
+          {thread && <button onClick={drop} disabled={busy} className="btn-sub min-h-10 px-3 text-sm" aria-label="이 대화 지우기">지우기</button>}
           {onClose && <button onClick={onClose} className="btn-sub min-h-10 px-3 text-sm" aria-label="AI 도우미 닫기">닫기</button>}
         </div>
       </div>

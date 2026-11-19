@@ -7,14 +7,14 @@ import { RiskActionForm, kindsText } from "./RiskActions";
 import type { NameOf, Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
-import type { Letter, RiskAction } from "@/lib/shared";
+import { ownBy, type Letter, type RiskAction, type Student } from "@/lib/shared";
 
 type View = "wait" | "ok" | "no";
 const VIEWS: [View, string][] = [["wait", "허락을 기다려요"], ["ok", "전했어요"], ["no", "돌려보냈어요"]];
 const when = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // 위험 표현 쪽지는 마음 지도 알림처럼 「살펴보고 적기」로 한 일을 남긴다(조치 기록의 recordId는 「letter:」+쪽지 id)
-function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter; nameOf: NameOf; reload: Reload; acts: RiskAction[]; today: string; students: Set<number>; onNote: (msg: string) => void }) {
+function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter; nameOf: NameOf; reload: Reload; acts: RiskAction[]; today: string; students: Map<number, Student>; onNote: (msg: string) => void }) {
   const [text, setText] = useState(l.text);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -61,8 +61,8 @@ function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter;
       )}
     </div>
   );
-  // 받을 친구가 명단에 없으면(연습용 학생이었거나 명단에서 빠짐) 전하지 못하고 돌려보내기만 한다
-  const noOne = !!l.toPractice || !students.has(l.to);
+  // 받을 친구가 명단에 없으면(연습용 학생이었거나, 명단에서 빠졌거나, 그 번호를 새 학생이 받음) 전하지 못하고 돌려보내기만 한다
+  const noOne = !!l.toPractice || !students.has(l.to) || !ownBy(students.get(l.to), l.createdAt);
   return (
     <article className={`card space-y-3 ${l.risk ? "border-alert bg-alert-soft" : ""}`}>
       <p className="flex flex-wrap items-center gap-2 text-sm">
@@ -76,7 +76,7 @@ function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter;
         <>
           <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 120))} rows={2} className="field text-lg" aria-label="쪽지 내용(고쳐서 전할 수 있어요)" />
           {riskBox}
-          {noOne && <p className="text-sm text-soft">받을 친구가 지금 명단에 없어 전할 수 없어요(연습용 학생이었거나 명단에서 빠짐). 읽고 살펴본 뒤 돌려보내 주세요.</p>}
+          {noOne && <p className="text-sm text-soft">받을 친구가 지금 명단에 없어 전할 수 없어요(연습용 학생이었거나, 명단에서 빠졌거나, 그 번호를 새 학생이 받음). 읽고 살펴본 뒤 돌려보내 주세요.</p>}
           {err && <p role="alert" className="text-sm text-alert">{err}</p>}
           <div className="flex flex-wrap justify-end gap-2">
             <button onClick={() => check("no")} disabled={busy} className="btn-sub min-h-11">돌려보내기</button>
@@ -99,7 +99,7 @@ export default function LettersTab({ data, nameOf, reload }: { data: Overview; n
   const [view, setView] = useState<View>("wait");
   // 위험 표현이 있는 기다리는 쪽지를 맨 위에(그 안에서는 서버가 보낸 새것 순서 그대로)
   const list = data.letters.filter((l) => l.status === view).sort((a, b) => Number(b.status === "wait" && !!b.risk) - Number(a.status === "wait" && !!a.risk));
-  const students = new Set(data.students.map((s) => s.no));
+  const students = new Map(data.students.map((s) => [s.no, s]));
   const [note, setNote] = useState("");
   return (
     <div className="space-y-4">
@@ -129,6 +129,10 @@ export default function LettersTab({ data, nameOf, reload }: { data: Overview; n
         </div>
       ) : (
         <p className="card text-soft">{view === "wait" ? "기다리는 쪽지가 없어요." : "아직 없어요."}</p>
+      )}
+      {/* 서버는 전했거나 돌려보낸 쪽지를 새것 150통까지만 보낸다(수가 모두 센 것처럼 보이지 않게) */}
+      {view !== "wait" && data.letters.filter((l) => l.status !== "wait").length >= 150 && (
+        <p className="text-sm text-soft">전했거나 돌려보낸 쪽지는 새것 150통까지만 보여요.</p>
       )}
     </div>
   );

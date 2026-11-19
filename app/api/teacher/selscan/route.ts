@@ -8,6 +8,7 @@ import { aiConfig, aiMissing, getPin } from "@/lib/data";
 import { inSpace } from "@/lib/db";
 import { SELF_ITEMS } from "@/lib/selfcheck";
 import { parseDocument } from "@/lib/upstage";
+import { withIp } from "@/lib/limit";
 
 export const maxDuration = 120;
 const BUDGET_MS = (maxDuration - 15) * 1000;
@@ -16,7 +17,7 @@ const MAX = 4 * 1024 * 1024;
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 export async function POST(req: NextRequest) {
-  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req));
+  return withIp(req.headers, () => inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)));
 }
 
 async function handle(req: NextRequest) {

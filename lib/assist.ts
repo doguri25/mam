@@ -100,14 +100,20 @@ export function searchDocs(query: string, docs: { meta: DocMeta; text: string }[
 }
 
 // ── 물음에서 학생 찾기: 「3번」「3 번」, 가명(학생 코드·QR의 이름) ──
+// 이름 뒤에 붙는 말(조사). 이것이나 빈칸·문장부호·끝이 와야 이름으로 본다(「단풍」 가명이 「단풍잎」, 「슬기」가 「슬기로운」에 걸리지 않게)
+const AFTER_NAME = String.raw`(?=(?:이)?(?:가|는|를|을|은|의|에게|한테|하고|랑|와|과|도|만|야|아|께|에|처럼|보다|네|라고|이)?(?![가-힣]))`;
+const ALIAS_AFTER = String.raw`(?=(?:이)?(?:가|는|를|을|은|의|에게|한테|하고|랑|와|과|도|만|야|아|네|이)(?![가-힣])|\s?(?:학생|친구)|\s*[?？!.]*\s*$)`;
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export function mentionedNos(text: string, students: { no: number; alias: string }[]): number[] {
   const out = new Set<number>();
   const known = new Set(students.map((s) => s.no));
-  for (const m of text.matchAll(/(\d{1,2})\s?번/g)) {
+  // 「하루 2번 해도」「3번째」「가정통신문 3번 항목」처럼 횟수·차례를 말한 「번」은 빼고
+  for (const m of text.matchAll(/(\d{1,2})\s?번(?!\s?(?:째|정도|씩|더|해|하|만에|이나|항목|문항|문제|줄|칸))/g)) {
     const n = Number(m[1]);
     if (known.has(n)) out.add(n);
   }
-  for (const s of students) if (s.alias.length >= 2 && text.includes(s.alias)) out.add(s.no);
+  // 가명은 「단풍」「노을」처럼 흔한 낱말이라 조사가 붙거나(단풍이, 노을한테) 「학생」이 오거나 혼자 쓴 때만(「가을 단풍 주제로」는 빼고)
+  for (const s of students) if (s.alias.length >= 2 && new RegExp(`(?<![가-힣])${escRe(s.alias)}${ALIAS_AFTER}`).test(text)) out.add(s.no);
   return [...out].slice(0, 4);
 }
 export const meansThis = (text: string) => /(이|그|요)\s?(학생|아이|친구)|얘|이\s?녀석|지금\s?보는/.test(text);
@@ -123,14 +129,18 @@ export interface AppTodo { key: string; text: string; tab: GoTab; no?: number; u
 const strs = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === "string" && !!x.trim());
 const objs = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x));
 // 답 글에 섞여 나온 내부 칸 표시(「(go: student, no=3/11)」 같은 것)를 지운다. 화면 단추는 go로 따로 붙는다.
-const MARK = String.raw`\b(?:go|tab|todos|sources|no)\s*[:=]`;
+// 「go:」「tab=」 뒤에 실제 화면 이름이 올 때만(영어 글의 「yes or no: …」 같은 말은 남게)
+const TAB_RE = Object.keys(GO_TABS).join("|");
+const MARK = String.raw`\b(?:go|tab)\s*[:=]\s*(?:${TAB_RE})\b`;
 export function stripMarkers(text: string) {
   return text
     .replace(new RegExp(String.raw`\s*[(（\[][^()（）\[\]\n]*${MARK}[^()（）\[\]\n]*[)）\]]`, "g"), "")
-    .replace(new RegExp(String.raw`\s*${MARK}\s*[a-z_]+(?:\s*,\s*no\s*[:=]\s*[\d/,\s]*\d)?`, "g"), "")
+    .replace(new RegExp(String.raw`\s*${MARK}(?:\s*,\s*no\s*[:=]\s*[\d/,\s]*\d)?`, "g"), "")
     .replace(/[ \t]+([.,!?])/g, "$1")
     .replace(/[ \t]{2,}/g, " ");
 }
+// 한 학생을 골라 여는 화면(페이지가 cheerNo로 그 학생을 고른다)
+export const STUDENT_TABS = new Set<GoTab>(["student", "cheer", "referral"]);
 export function cleanAssist(out: Record<string, unknown>, opts: { nos: number[]; sources: string[] }) {
   const reply = stripMarkers(String(out.reply ?? "").replace(/\r\n?/g, "\n")).trim().slice(0, 4000);
   const todos = objs(out.todos).map((t) => ({ title: cleanTitle(t.title), due: cleanDue(t.due) })).filter((t) => t.title).slice(0, 5);
@@ -138,7 +148,8 @@ export function cleanAssist(out: Record<string, unknown>, opts: { nos: number[];
   const go = objs(out.go).flatMap((g) => {
     if (!isGoTab(g.tab)) return [];
     const no = Number(g.no);
-    const item: Go = { tab: g.tab, ...(Number.isInteger(no) && opts.nos.includes(no) ? { no } : {}) };
+    // 번호는 한 학생을 여는 화면에만(「3번 · 마음 지도 열기」처럼 열어도 그 학생이 골라지지 않는 단추가 생기지 않게)
+    const item: Go = { tab: g.tab, ...(STUDENT_TABS.has(g.tab) && Number.isInteger(no) && opts.nos.includes(no) ? { no } : {}) };
     const k = `${item.tab}:${item.no ?? ""}`;
     if (seen.has(k)) return [];
     seen.add(k);
@@ -159,9 +170,10 @@ export function hideNames(text: string, names: Record<number, string>): { text: 
     const n = name.trim();
     const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // 성을 뗀 이름(민준이, 민준한테, 민준,)도: 세 글자 이름은 뒤 두 글자, 네 글자 이름(남궁민수)도 뒤 두 글자.
-    // 낱말 첫머리에서 시작할 때만(「서민준」의 「민준」은 앞 글자가 있어 건드리지 않음) — 뒤에 오는 말은 가리지 않는다
+    // 낱말 첫머리에서 시작하고(「서민준」의 「민준」은 앞 글자가 있어 건드리지 않음) 뒤에 조사·빈칸·문장부호·끝이 올 때만
+    // (「슬기로운 생활」「보람찬」「다운로드」가 「3번로운」처럼 바뀌지 않게)
     const given = /^[가-힣]{3,4}$/.test(n) ? n.slice(-2) : null;
-    const re = new RegExp(given ? `${esc}|(?<![가-힣])${given}` : esc, "g");
+    const re = new RegExp(given ? `${esc}|(?<![가-힣])${given}${AFTER_NAME}` : esc, "g");
     if (re.test(out)) {
       hit = true;
       out = out.replace(re, `${no}번`);

@@ -45,7 +45,9 @@ function PrintCard({ round, data, who }: Props) {
   const ready = list.length > 0 && per > 0 && !(src === "mine" && nos === "blank");
 
   const loadMine = (f: File) => act.run("양식을 읽지 못했어요", async () => {
-    const r = await fileToCanvases(f, 2339, 6);
+    // 종이 검사를 AI가 읽을 때 한 사람 몫은 4쪽까지 보낼 수 있다 → 양식도 4쪽까지(5·6쪽 문장은 AI가 보지 못해 늘 「?」로 남음)
+    const r = await fileToCanvases(f, 2339, 4);
+    if (r.cut) throw new Error("내 양식은 4쪽까지 쓸 수 있어요. 4쪽 안으로 줄여서 올려 주세요.");
     setMine({ name: f.name, pages: r.pages, preview: r.pages[0].toDataURL("image/jpeg", 0.6) });
     if (nos === "blank") setNos("all");
   });

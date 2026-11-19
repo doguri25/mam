@@ -19,14 +19,21 @@ import { label } from "@/lib/date";
 import { isHard, ownBy, ownOnly } from "@/lib/shared";
 import { myNotes, myRecords, myReflects, riskSourcesOf } from "./own";
 
-export default function MapTab({ data, reload, nameOf, onCheer, onLetters }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void }) {
-  const [open, setOpen] = useState<number | null>(null);
+export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPick }: { data: Overview; reload: Reload; nameOf: NameOf; onCheer: (no: number) => void; onLetters?: () => void; onPick?: (no: number) => void }) {
+  const [open, setOpenRaw] = useState<number | null>(null);
+  // 학생 창을 열면 페이지에도 알린다(AI 도우미의 「이 학생」이 지금 연 학생을 보게)
+  const setOpen = (no: number | null) => {
+    setOpenRaw(no);
+    if (no != null) onPick?.(no);
+  };
   const [acting, setActing] = useState<string | null>(null); // 「살펴봤어요」로 한 일을 적는 중인 위험 표현 기록
   const [carry, setCarry] = useState<FormState | null>(null); // 그사이 바뀌어 다시 불러올 때 폼에 고른 것
   const flagAct = useAct(); // 먼저 살펴볼 학생 「살펴봤어요」(실패하면 그 목록 위에 까닭을)
   const { students, records, today, flags, settings, absent } = data;
   // 오늘 칸은 지금 그 번호 학생 것만(새 학생에게 준 번호의 앞 학생 오늘 기록은 위 알림·마음 날씨에만)
-  const todays = ownOnly(records.filter((r) => r.date === today), students, (r) => r.no, (r) => r.createdAt);
+  // 오늘 기록한 학생 수는 지금 명단 학생으로만(명단에서 빠진 학생 기록이 「3/2」처럼 세지지 않게)
+  const nos = new Set(students.map((s) => s.no));
+  const todays = ownOnly(records.filter((r) => r.date === today && nos.has(r.no)), students, (r) => r.no, (r) => r.createdAt);
   const alerts = riskAlerts(data);
   // 마치지 않은 글을 살펴보는 사이 학생이 그 글로 기록을 마쳤으면 폼(고른 일·메모)을 같은 칸의 마음 기록 알림으로 옮긴다
   const actingOn = movedTo(acting, alerts.map((a) => a.id));

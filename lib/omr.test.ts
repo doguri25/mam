@@ -122,6 +122,18 @@ test("쪽을 사람별로 묶기: 번호가 찍힌 쪽은 번호로, 빈 검사�
   assert.deepEqual([e[4].kind, e[4].pages], ["?", [8]]);
 });
 
+test("쪽을 사람별로 묶기: 1쪽 QR만 못 읽었으면 다음 번호 2쪽을 그 1쪽에 붙이고, 다음 학생 1쪽과 섞지 않는다", () => {
+  const m = (v: number) => Array.from({ length: 16 }, () => ({ value: v, sure: true, ratios: [] }));
+  const e = buildEntries([
+    { kind: null, no: null, page: null, marks: m(1) }, // 5번 1쪽(QR 못 읽음)
+    { kind: "S", no: 5, page: 2, marks: m(2) }, // 5번 2쪽
+    { kind: null, no: null, page: null, marks: m(3) }, // 6번 1쪽(QR 못 읽음), 2쪽은 빠짐
+  ]);
+  assert.equal(e.length, 2);
+  assert.deepEqual([e[0].no, e[0].pages, e[0].answers[0], e[0].answers[31]], [5, [0, 1], 1, 2]);
+  assert.deepEqual([e[1].no, e[1].pages, e[1].answers[0], e[1].answers[31]], [null, [2], 3, null]);
+});
+
 test("QR을 못 읽은 쪽이 거꾸로 들어와도 바로 세워 읽는다", () => {
   const want = [3, 4, 5, 2, 1, 4, 4, 3, 5, 5, 2, 3, 4, 1, 3, 4];
   withQr = true;

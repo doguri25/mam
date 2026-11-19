@@ -248,9 +248,17 @@ export function buildEntries(pages: PageInfo[]): Entry[] {
     if (!p.marks && p.kind !== "S") { out.push({ ...blank(), kind: "?", key: `?${idx}`, pages: [idx], sheetPages: [null] }); return; }
     if (p.kind === "S" && p.no) {
       let e = out.find((x) => x.kind === "S" && x.no === p.no && !x.sheetPages.includes(p.page));
+      // 1쪽 QR만 못 읽었으면: 바로 앞의 번호 없는 1쪽이 이 학생 1쪽이다 → 이 2쪽을 거기에 붙이고 번호를 준다
+      // (따로 두면 1쪽만 있는 칸이 다음 학생 1쪽을 2쪽으로 받아 두 학생 답이 한 사람 것으로 섞인다)
+      const prev = open ?? last;
+      if (!e && p.page === 2 && prev && prev.kind === "S" && prev.no === null && prev.sheetPages.includes(1) && !prev.sheetPages.includes(2)) {
+        e = prev;
+        e.no = p.no;
+      }
       if (!e) { e = { ...blank(), no: p.no, key: `S${p.no}_${idx}` }; out.push(e); }
       put(e, idx, p.page, p.marks);
       last = e;
+      open = null; // 번호가 찍힌 쪽이 끼면 앞의 빈 1쪽은 더 기다리지 않는다
       return;
     }
     // QR이 지워진 쪽인데 바로 앞 사람이 1쪽만 있으면 그 사람의 2쪽으로

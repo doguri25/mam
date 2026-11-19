@@ -6,6 +6,7 @@ import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
 import { getPin, rawKey } from "@/lib/data";
 import { inSpace, isDemo } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
+import { withIp } from "@/lib/limit";
 
 export const maxDuration = 120;
 const BUDGET_MS = (maxDuration - 15) * 1000;
@@ -15,7 +16,7 @@ const OK = /\.(pdf|png|jpe?g|webp|hwp|hwpx|docx?|pptx?|xlsx?)$/i;
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 export async function POST(req: NextRequest) {
-  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req));
+  return withIp(req.headers, () => inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)));
 }
 
 async function handle(req: NextRequest) {

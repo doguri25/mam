@@ -19,6 +19,20 @@ interface Sub {
   createdAt: string;
 }
 
+// 브라우저가 주는 알림 서버 주소(크롬·삼성 인터넷=FCM, 엣지=WNS, 파이어폭스=Mozilla, 사파리=Apple)만 받는다
+const PUSH_HOSTS = ["fcm.googleapis.com", "android.googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com"];
+export const PUSH_MAX = 10; // 학급마다 알림 받는 기기 수
+export function pushEndpointOk(v: unknown): v is string {
+  if (typeof v !== "string" || v.length > 1000) return false;
+  try {
+    const u = new URL(v);
+    return u.protocol === "https:" && PUSH_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
+  } catch {
+    return false;
+  }
+}
+export const pushKeyOk = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 200 && /^[A-Za-z0-9_\-=+/]+$/.test(v);
+
 export const subId = (endpoint: string) => crypto.createHash("sha256").update(endpoint).digest("hex").slice(0, 32);
 
 export async function saveSub(sub: PushSubscription, label: string) {

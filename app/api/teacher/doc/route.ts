@@ -5,6 +5,7 @@ import { TEACHER_COOKIE, isTeacher, teacherSpace } from "@/lib/auth";
 import { aiConfig, aiMissing, getPin, rawKey } from "@/lib/data";
 import { inSpace } from "@/lib/db";
 import { parseDocument } from "@/lib/upstage";
+import { withIp } from "@/lib/limit";
 
 // 문서 읽기(업스테이지, 최대 55초) + AI 정리(최대 40초, 한 번 다시)가 60초를 넘을 수 있다.
 // Vercel Hobby는 Fluid compute(2025-04-23 뒤 만든 프로젝트는 기본으로 켜짐)에서 함수 시간을 300초까지 쓸 수 있어 120초로 잡고,
@@ -17,7 +18,7 @@ const OK = /\.(pdf|png|jpe?g|webp|heic|bmp|tiff?|hwp|hwpx|docx?|pptx?)$/i;
 const bad = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
 export async function POST(req: NextRequest) {
-  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)); // 표에 적힌 학급 공간에서
+  return withIp(req.headers, () => inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req))); // 표에 적힌 학급 공간에서
 }
 
 async function handle(req: NextRequest) {

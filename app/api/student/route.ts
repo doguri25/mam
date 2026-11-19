@@ -3,10 +3,10 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysis } from "@/lib/ai";
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
-import { DEMO_COOKIE, OTHER_STUDENT, STUDENT_COOKIE, otherStudent, queueCodeOk, queueToken, readQueueToken, sign, unsign } from "@/lib/auth";
-import { addCalm, addLetter, aiConfig, editSelNote, getLooks, getRoster, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
+import { DEMO_COOKIE, OTHER_STUDENT, STUDENT_COOKIE, otherStudent, queueCodeOk, queueToken, readQueueToken, sign, unsign, hashId } from "@/lib/auth";
+import { addCalm, addLetter, aiConfig, editSelNote, getLooks, getRoster, getSelNotes, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
 import { addRiskDraftSummary, draftKept, dropDoneDrafts, getRiskDrafts, moveRiskActions, nearDraftIds, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
-import { clientIp, codeAttempt, waitText } from "@/lib/limit";
+import { clientIp, codeAttempt, waitText, withIp } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
 import { notifyTeachers } from "@/lib/push";
@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return bad("요청이 올바르지 않아요.");
   if (body.action === "login") return codeLogin(req, body);
-  return inSpace(await studentSpace(req, body), () => handle(req, body));
+  const sp = await studentSpace(req, body);
+  return withIp(req.headers, () => inSpace(sp, () => handle(req, body)));
 }
 
 // 코드 로그인: 틀린 코드는 IP마다 세어 너무 많으면 잠시 막는다(코드를 마구 넣어 맞히기 막기). 맞힌 로그인은 세지 않는다.
@@ -113,7 +114,10 @@ async function handle(req: NextRequest, body: Body) {
       if (!s) return bad("학생 코드가 바뀌었어요.", 410);
       const when = queuedWhen(body.madeAt, q.date);
       if (!when) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
-      return saveRecord(s, body.record ?? {}, await getSettings(), { date: when.date, madeAt: when.madeAt, saveId: body.saveId });
+      // 이 번호를 받은 날 담아 둔 기록인데 기기 시계가 늦으면 받기 전 시각이 된다 → 앞 학생 것으로 보이지 않게 받은 때로 당긴다
+      const since = s.since ? Date.parse(s.since) : NaN;
+      const madeAt = when.madeAt !== undefined && Number.isFinite(since) && when.madeAt < since ? since : when.madeAt;
+      return saveRecord(s, body.record ?? {}, await getSettings(), { date: when.date, madeAt, saveId: body.saveId });
     }
 
     // 같은 기기 다른 탭에서 다른 친구가 들어와 쿠키가 바뀌었으면, 화면이 아는 학생(screenNo·screenSpace)과 다르다 →
@@ -136,17 +140,29 @@ async function handle(req: NextRequest, body: Body) {
     // 이 번호를 새 학생에게 줬으면(since) 그 앞에 이 번호로 남은 기록·쪽지·돌아보기·점검 답은 앞 학생 것 — 보여 주지도 세지도 않는다
     const own = (at?: string) => ownBy(s, at);
     const myRecords = async () => (await recordsOf(s.no)).filter((r) => own(r.createdAt));
-    // 마음 점검: 열린 회차(없으면 마지막 회차)의 내 답·영역별 점수와 선생님이 보낸 피드백(이 번호의 앞 학생 것은 빼고)
+    // 마음 점검: 열린 회차(없으면 읽지 않은 피드백이 있는 회차, 그것도 없으면 학생이 답하는 마지막 회차)의 내 답·영역별 점수와
+    // 선생님이 보낸 피드백(이 번호의 앞 학생 것은 빼고). 닫은 회차·지난 회차에 보낸 피드백도 학생이 읽을 때까지 보인다
+    // (선생님이 지난 회차를 골라 보내거나, 그 뒤 「선생님 관찰만 하기」 회차를 만들어도 사라지지 않게).
     const myCheck = async (roundsP?: Promise<SelfRound[]>) => {
-      const rounds = await (roundsP ?? getSelfRounds());
-      const round: SelfRound | undefined = rounds.find((r) => !r.closedAt) ?? rounds.at(-1);
+      const [rounds, notes] = await Promise.all([roundsP ?? getSelfRounds(), getSelNotes()]);
+      const waiting = notes.filter((n) => n.no === s.no && own(n.at) && n.feedback && own(n.feedback.at) && unread(n));
+      const fbRound = [...rounds].reverse().find((r) => waiting.some((n) => n.round === r.id));
+      const round: SelfRound | undefined = rounds.find((r) => !r.closedAt) ?? fbRound ?? [...rounds].reverse().find((r) => !r.teacherOnly) ?? rounds.at(-1);
       if (!round) return null;
       const [ans, note] = await Promise.all([db().get<SelfAnswer>("meta", selfDocId(round.id, s.no)), db().get<SelNote>("meta", selNoteId(round.id, s.no))]);
       const a = ans && own(ans.at) && cleanSelfAnswers(ans.answers) ? ans : null;
       const n = note && own(note.at) ? note : null;
       const scores = scoresOf(a, n);
-      const feedback = n?.feedback && own(n.feedback.at) ? { text: n.feedback.text, at: n.feedback.at } : null;
-      return { round, open: !round.closedAt, answers: a?.answers ?? null, scores, done: !!scores, feedback, letter: !!feedback && unread(n) };
+      let feedback = n?.feedback && own(n.feedback.at) ? { text: n.feedback.text, at: n.feedback.at } : null;
+      let letter = !!feedback && unread(n), letterRound = round;
+      // 열린 회차에는 아직 피드백이 없고 지난 회차 것을 읽지 않았으면 그것을 보인다
+      const old = fbRound && fbRound.id !== round.id && !letter ? waiting.find((x) => x.round === fbRound.id) : undefined;
+      if (old?.feedback) {
+        feedback = { text: old.feedback.text, at: old.feedback.at };
+        letter = true;
+        letterRound = fbRound!;
+      }
+      return { round, letterRound, open: !round.closedAt, answers: a?.answers ?? null, scores, done: !!scores, feedback, letter };
     };
 
     if (body.action === "me") {
@@ -184,7 +200,7 @@ async function handle(req: NextRequest, body: Body) {
       if (!c || (!c.open && !c.feedback)) return NextResponse.json({ round: null, answers: null, tiers: null, feedback: null });
       // 피드백을 보여 주면 읽은 시각을 적는다(선생님 화면에 「읽음」) — 앞 학생에게 쓴 것이면 myCheck가 이미 걸렀다
       if (c.letter) {
-        await editSelNote(c.round.id, s, { seenAt: new Date().toISOString() });
+        await editSelNote(c.letterRound.id, s, { seenAt: new Date().toISOString() });
         await touch("other");
       }
       return NextResponse.json({
@@ -223,7 +239,13 @@ async function handle(req: NextRequest, body: Body) {
       const looks = await getLooks();
       const n = wordsOf(await myRecords()).length;
       if (ACC_UNLOCK[look.acc] > n && looks[s.no]?.acc !== look.acc) return bad("아직 열리지 않은 꾸미개예요.");
+      // 마음 친구 이름도 학생이 쓴 글: 위험 표현이면 이름으로 남기지 않고 선생님께 알린다(이름은 선생님 화면에 보내지 않으므로)
+      if (look.name && matchRisk(look.name, settings.riskWords).length) {
+        if (!isDemo()) after(() => notifyTeachers({ title: "⚠️ 바로 살펴봐 주세요", body: `${s.no}번 학생이 마음 친구 이름에 걱정되는 말을 쓰려고 했어요. 학생과 이야기를 나눠 주세요.`, url: "/teacher", tag: `look-${s.no}` }));
+        return bad("이 이름은 쓸 수 없어요. 마음이 힘들면 마음 기록에 남기거나 선생님께 말해 줘요.", 400);
+      }
       await saveLook(s.no, look);
+      await touch("other"); // 선생님 화면·TV의 마음 친구 모습도 맞춘다
       return NextResponse.json({ look });
     }
 
@@ -267,7 +289,8 @@ async function handle(req: NextRequest, body: Body) {
       return NextResponse.json({
         // 연습 학생에게 가던 쪽지(toPractice)는 같은 번호를 새로 받은 실제 학생에게 보이지 않게
         inbox: inbox.filter((l) => l.status === "ok" && !l.toPractice).sort(newest).map((l) => ({
-          id: l.id, text: l.text, from: l.showName ? name(l.from, l.createdAt) : null, at: l.checkedAt ?? l.createdAt, read: !!l.readAt,
+          // 쪽지 이름에는 보낸 번호가 들어 있다(「7_날짜_1」) → 이름을 숨긴 쪽지도 알 수 없게 바꾼 이름만 준다
+          id: hashId(`letter:${l.id}`), text: l.text, from: l.showName ? name(l.from, l.createdAt) : null, at: l.checkedAt ?? l.createdAt, read: !!l.readAt,
         })),
         sent: sent.sort(newest).slice(0, 20).map((l) => ({ id: l.id, text: l.text, to: name(l.to, l.createdAt), status: l.status, at: l.createdAt })),
       });
@@ -276,7 +299,9 @@ async function handle(req: NextRequest, body: Body) {
     // 연습 학생에게 가던 쪽지는 같은 번호의 새 학생이 읽은 것으로 적지 않는다
     if (body.action === "readLetter") {
       const at = new Date().toISOString();
-      await db().update<Letter>("letters", String(body.id), (l) => (l && l.to === s.no && own(l.createdAt) && !l.readAt && !l.toPractice ? { ...l, readAt: at } : undefined));
+      const hit = (await db().find<Letter>("letters", "to", "==", s.no)).find((l) => hashId(`letter:${l.id}`) === String(body.id));
+      if (!hit) return NextResponse.json({ ok: true });
+      await db().update<Letter>("letters", hit.id, (l) => (l && l.to === s.no && own(l.createdAt) && !l.readAt && !l.toPractice ? { ...l, readAt: at } : undefined));
       return NextResponse.json({ ok: true });
     }
 

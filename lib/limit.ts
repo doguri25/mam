@@ -3,6 +3,7 @@
 // (학급마다 모음을 늘리지 않음 — MongoDB 무료는 모음 500개까지). IP는 그대로 적지 않고 해시(hashId)만 쓴다.
 // 셈 문서마다 exp(지워도 되는 때)를 적고, 한 시간에 한 번 기한이 지난 것을 지운다(tidy) → 쌓이지 않는다.
 // 시도는 맞춰 보기 「전에」 한 칸 잡아 둔다(atomic) → 한꺼번에 수백 번 보내도 한도를 넘지 못한다. 맞으면 돌려준다.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { hashId } from "./auth.ts";
 import { today } from "./date.ts";
 import { db, outOfSpace, spaceId } from "./db.ts";
@@ -16,6 +17,10 @@ interface Count { date: string; n: number }
 export function clientIp(h: Headers) {
   return normIp(h.get("x-forwarded-for")?.split(",")[0] ?? "") || normIp(h.get("x-real-ip") ?? "") || "unknown";
 }
+// 요청한 기기 IP를 요청 안에서 기억해 둔다(체험 AI 몫처럼 깊은 곳에서 IP로 셀 때)
+const ipCtx = new AsyncLocalStorage<string>();
+export const withIp = <T>(h: Headers, fn: () => T): T => ipCtx.run(clientIp(h), fn);
+export const requestIp = () => ipCtx.getStore();
 // IPv6는 한 집·한 학교가 /64를 통째로 받아 주소를 마음대로 바꿀 수 있으므로 앞 64비트(네 묶음)로 묶는다
 export function normIp(raw: string) {
   let s = raw.trim().toLowerCase();
@@ -167,6 +172,27 @@ export function trialEditWait(ip: string, now = Date.now()): Promise<number> {
     const span = 10 * MIN;
     const end = (Math.floor(now / span) + 1) * span;
     const r = await db().bump("sys", `tedit:${hashId(ip)}`, String(end), { max: TRIAL_EDITS, extra: { exp: end } });
+    return r.ok ? 0 : secs(end, now);
+  });
+}
+
+// ── 체험 반 AI: 한 IP가 하루 체험 몫을 혼자 다 쓰지 못하게(심사장처럼 여럿이 한 와이파이를 써도 넉넉하게 절반까지) ──
+export const TRIAL_AI_PER_IP = 100;
+export async function trialAiTake(now = Date.now()): Promise<{ ok: boolean; undo: () => Promise<void> }> {
+  const ip = requestIp();
+  if (!ip) return { ok: true, undo: async () => {} };
+  const key = `tai:${hashId(ip)}`, day = today(new Date(now));
+  const r = await outOfSpace(() => db().bump("sys", key, day, { max: TRIAL_AI_PER_IP, extra: { exp: now + 2 * 24 * HOUR } }));
+  return { ok: r.ok, undo: async () => { if (r.ok) await outOfSpace(() => db().bump("sys", key, day, { by: -1 })); } };
+}
+
+// ── 알림 시험 보내기: 학급마다 10분에 5번까지(눌러 볼 만큼만) ──
+export function testPushWait(now = Date.now()): Promise<number> {
+  const sp = spaceId();
+  return outOfSpace(async () => {
+    const span = 10 * MIN;
+    const end = (Math.floor(now / span) + 1) * span;
+    const r = await db().bump("sys", `tpush:${hashId(sp || "root")}`, String(end), { max: 5, extra: { exp: end } });
     return r.ok ? 0 : secs(end, now);
   });
 }

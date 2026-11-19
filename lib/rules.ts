@@ -782,11 +782,13 @@ export function watchFlags(records: MoodRecord[], today: string, rules: Rules = 
 }
 
 // 반에서 누군가 기록한 최근 n일(수업한 날) 동안 한 번도 기록하지 않은 학생
-export function absentStudents(records: MoodRecord[], nos: number[], today: string, days: number) {
+// since: 번호를 새로 받은 학생의 받은 날(YYYY-MM-DD). 그날 뒤로 수업일이 days만큼 지나지 않았으면 「기록 없음」으로 세지 않는다.
+export function absentStudents(records: MoodRecord[], nos: number[], today: string, days: number, since: Record<number, string> = {}) {
   const classDays = [...new Set(records.filter((r) => r.date <= today).map((r) => r.date))].sort().reverse().slice(0, days);
   if (classDays.length < days) return [];
   const seen = new Set(records.filter((r) => classDays.includes(r.date)).map((r) => r.no));
-  return nos.filter((no) => !seen.has(no));
+  const oldest = classDays[classDays.length - 1];
+  return nos.filter((no) => !seen.has(no) && !(since[no] && since[no] > oldest));
 }
 
 // 응원 초안·한 주 돌아보기 답에서 아이에게 그대로 옮기면 안 되는 선생님용 표현(횟수·날수·기록 이름).

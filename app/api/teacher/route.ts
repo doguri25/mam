@@ -3,7 +3,7 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { cheer, ping, referralDraft, selFeedback, translateNotice, weeklySummary } from "@/lib/ai";
 import { SELF_ROUNDS_MAX, addRiskAction, listClasses, deleteRiskAction, editSelNote, editSelfRounds, getSelNotes, noteTeacherLogin, setConsent } from "@/lib/data";
 import { draftText, partsText, reflectEverRisk, reflectSource, riskySource } from "@/components/teacher/alerts";
-import { clientIp, passwordAttempt, resetWait, trialEditWait, waitText } from "@/lib/limit";
+import { clientIp, passwordAttempt, resetWait, testPushWait, trialEditWait, waitText, withIp } from "@/lib/limit";
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
@@ -12,7 +12,8 @@ import {
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
-import { countSubs, hasSub, notifyTeachers, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
+import { PUSH_MAX, countSubs, hasSub, notifyTeachers, pushEndpointOk, pushKeyOk, pushPublicKey, pushReady, removeSub, saveSub } from "@/lib/push";
+import type { PushSubscription } from "web-push";
 import { classWeather, watchFlags, weekStats } from "@/lib/rules";
 import { isLang } from "@/lib/i18n";
 import { DOMAINS, SELF_ITEMS, cleanObs, cleanPaper, cleanSelfAnswers, levelOf, obsMax, obsScores, scoresOf, selNoteId, selfDocId, type SelNote, type SelfAnswer, type SelfRound } from "@/lib/selfcheck";
@@ -38,7 +39,7 @@ function withTeacherCookie(v: number, extra: Record<string, unknown> = {}) {
 export async function POST(req: NextRequest) {
   // 화면은 늘 JSON으로 보낸다. 다른 사이트의 form으로 몰래 로그인시켜 엉뚱한 학급에 쓰게 하는 것(로그인 CSRF)을 막는다.
   if (!req.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "요청이 올바르지 않아요." }, { status: 415 });
-  return inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req)); // 표에 적힌 학급 공간에서
+  return withIp(req.headers, () => inSpace(teacherSpace(req.cookies.get(TEACHER_COOKIE)?.value), () => handle(req))); // 표에 적힌 학급 공간에서
 }
 
 // 체험 공간에서 막는 일: 비밀번호·AI 키 바꾸기, 휴대폰 알림(여러 사람이 함께 쓰고, 실제 반의 키를 빌려 쓰므로)
@@ -235,19 +236,20 @@ async function handle(req: NextRequest) {
       const status = body.status;
       if (status !== "ok" && status !== "no") return bad("쪽지를 찾지 못했어요.", 404);
       const edited = typeof body.text === "string" && body.text.trim().length >= 2 ? body.text.trim().slice(0, 120) : null;
-      const roster = status === "ok" ? new Set((await getRoster()).map((s) => s.no)) : null;
+      const roster = status === "ok" ? new Map((await getRoster()).map((s) => [s.no, s])) : null;
       // 허락을 기다리는 쪽지만 바꾼다(읽고 고쳐 쓰기를 한 번에): 두 기기가 같은 쪽지를 하나는 돌려보내고 하나는 전하는 일이 없게.
       // 다듬어 전하면 학생이 처음 쓴 글은 original에 남긴다(위험한 말이 고쳐 쓰여 사라지지 않게).
       const out: { why?: "none" | "done" | "gone" } = {};
       await db().update<Letter>("letters", String(body.id), (cur) => {
-        out.why = !cur ? "none" : cur.status !== "wait" ? "done" : roster && (cur.toPractice || !roster.has(cur.to)) ? "gone" : undefined;
+        // 받을 번호를 그 뒤 새 학생에게 줬으면 쓴 때의 친구는 이미 떠났다(새 학생 화면에는 그 앞 쪽지가 보이지 않는다)
+        out.why = !cur ? "none" : cur.status !== "wait" ? "done" : roster && (cur.toPractice || !roster.has(cur.to) || !ownBy(roster.get(cur.to), cur.createdAt)) ? "gone" : undefined;
         if (out.why || !cur) return undefined;
         const text = edited ?? cur.text;
         return { ...cur, text, status, checkedAt: new Date().toISOString(), ...(text !== cur.text && !cur.original ? { original: cur.text } : {}) };
       });
       if (out.why === "none") return bad("쪽지를 찾지 못했어요.", 404);
       if (out.why === "done") return bad("다른 기기에서 이미 전하거나 돌려보낸 쪽지예요. 화면을 새로 읽을게요.", 409);
-      if (out.why === "gone") return bad("받을 친구가 지금 명단에 없어요(연습용 학생이었거나 명단에서 빠짐). 전하지 말고 돌려보내 주세요.", 409);
+      if (out.why === "gone") return bad("받을 친구가 지금 명단에 없어요(연습용 학생이었거나, 명단에서 빠졌거나, 그 번호를 새 학생이 받았어요). 전하지 말고 돌려보내 주세요.", 409);
       await touch("other");
       return NextResponse.json({ ok: true });
     }
@@ -298,8 +300,10 @@ async function handle(req: NextRequest) {
     if (body.action === "note") {
       const text = String(body.text ?? "").trim().slice(0, 1000);
       if (!text) return bad("메모가 비어 있어요.");
-      const practice = (await getRoster()).find((x) => x.no === Number(body.no))?.demo;
-      const n: Note = { id: `${Date.now()}_${body.no}`, no: Number(body.no), text, createdAt: new Date().toISOString(), ...(practice ? { demo: true } : {}) };
+      // 명단에 있는 번호만(받은 값을 그대로 문서 이름에 쓰지 않게 — 아주 긴 값으로 저장소를 채우지 못하게)
+      const st = (await getRoster()).find((x) => x.no === Number(body.no));
+      if (!st) return bad("학생을 찾지 못했어요.", 404);
+      const n: Note = { id: `${Date.now()}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
       await db().set("notes", n.id, { ...n });
       await touch("other");
       return NextResponse.json({ note: n });
@@ -390,7 +394,10 @@ async function handle(req: NextRequest) {
         if (typeof m === "string" && m.trim()) next.models[p] = m.trim().slice(0, 80);
         const k = isDemo() ? undefined : body.keys?.[p]; // 체험에서는 키를 바꾸지 않는다
         if (k === "") delete next.keys[p]; // 빈 글자 = 지우기, 안 보내면 그대로
-        else if (typeof k === "string" && k.trim()) next.keys[p] = encrypt(k.trim());
+        else if (typeof k === "string" && k.trim()) {
+          if (k.trim().length > 400) return bad("AI 키가 너무 길어요. 키만 다시 붙여 넣어 주세요.");
+          next.keys[p] = encrypt(k.trim());
+        }
       }
       next.vocab = strList(body.vocab, 60, 12) ?? next.vocab;
       next.riskWords = strList(body.riskWords, RISK_WORDS_MAX, RISK_WORD_LEN) ?? next.riskWords; // 기본 목록이 늘어도 잘리지 않게 넉넉히(넘으면 화면이 저장 전에 알림)
@@ -434,8 +441,9 @@ async function handle(req: NextRequest) {
     if (body.action === "saveCheer") {
       const text = String(body.text ?? "").trim().slice(0, 600);
       if (!text) return bad("내용이 비어 있어요.");
-      const practice = (await getRoster()).find((x) => x.no === Number(body.no))?.demo;
-      const c: Cheer = { id: `${Date.now()}_${body.no}`, no: Number(body.no), text, createdAt: new Date().toISOString(), ...(practice ? { demo: true } : {}) };
+      const st = (await getRoster()).find((x) => x.no === Number(body.no));
+      if (!st) return bad("학생을 찾지 못했어요.", 404);
+      const c: Cheer = { id: `${Date.now()}_${st.no}`, no: st.no, text, createdAt: new Date().toISOString(), ...(st.demo ? { demo: true } : {}) };
       await db().set("cheers", c.id, { ...c });
       await touch("other");
       return NextResponse.json({ cheer: c });
@@ -534,7 +542,9 @@ async function handle(req: NextRequest) {
       const lessons = await getLessons();
       lessons.unshift({ id: String(Date.now()), unit: String(body.unit ?? "").slice(0, 40), words, activities, createdAt: new Date().toISOString() });
       await db().set("meta", "lessons", { items: lessons.slice(0, 30) });
-      await saveSettings({ ...settings, vocab: [...new Set([...settings.vocab, ...words])].slice(0, 60) });
+      // 60개가 차면 오래된 단어부터 뺀다(새 차시 단어가 말없이 빠지지 않게 — 차시 카드에는 새 단어가 보이므로)
+      const fresh = words.filter((w: string) => !settings.vocab.includes(w));
+      await saveSettings({ ...settings, vocab: [...settings.vocab, ...fresh].slice(-60) });
       return NextResponse.json({ ok: true });
     }
     if (body.action === "deleteLesson") {
@@ -588,14 +598,16 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ runs });
     }
     if (body.action === "sheetEdit") {
-      const run = await db().get<SheetRun>("sheets", String(body.id));
+      // 읽고 고쳐 쓰기를 한 번에(피드백을 만드는 중에 고쳐도 그사이 더해진 학생 것이 사라지지 않게)
+      const toStudent = String(body.toStudent ?? "").slice(0, 400);
+      const run = await db().update<SheetRun>("sheets", String(body.id), (cur) => (cur ? { ...cur, items: cur.items.map((x) => (x.no === Number(body.no) ? { ...x, toStudent } : x)) } : undefined));
       if (!run) return bad("활동지 피드백을 찾지 못했어요.", 404);
-      const items = run.items.map((x) => (x.no === Number(body.no) ? { ...x, toStudent: String(body.toStudent ?? "").slice(0, 400) } : x));
-      await db().set("sheets", run.id, { ...run, items });
+      await touch("other");
       return NextResponse.json({ ok: true });
     }
     if (body.action === "sheetDelete") {
       await db().del("sheets", String(body.id));
+      await touch("other");
       return NextResponse.json({ ok: true });
     }
 
@@ -777,8 +789,10 @@ async function handle(req: NextRequest) {
     if (body.action === "subscribe") {
       if (!pushReady()) return bad("서버에 알림 키(VAPID)가 아직 없어요.");
       const sub = body.subscription;
-      if (!sub?.endpoint || !/^https:\/\//.test(sub.endpoint) || !sub.keys?.p256dh || !sub.keys?.auth) return bad("알림 등록 정보가 맞지 않아요.");
-      await saveSub(sub, String(body.label ?? ""));
+      // 브라우저 알림 서버 주소만(크롬·엣지·파이어폭스·사파리), 키는 짧은 글자만 — 서버가 아무 주소로나 보내지 않게
+      if (!pushEndpointOk(sub?.endpoint) || !pushKeyOk(sub?.keys?.p256dh) || !pushKeyOk(sub?.keys?.auth)) return bad("알림 등록 정보가 맞지 않아요.");
+      if (!(await hasSub(sub.endpoint)) && (await countSubs()) >= PUSH_MAX) return bad(`알림 받는 기기는 ${PUSH_MAX}대까지예요. 「모두 끄기」로 정리한 뒤 다시 켜 주세요.`);
+      await saveSub({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } } as PushSubscription, String(body.label ?? ""));
       // 알림 받는 기기가 바뀌면 변경 표시를 남긴다: 설정을 열어 둔 다른 기기도 20초 안에 기기 수·「받는 중」을 다시 본다
       await touch("other");
       return NextResponse.json({ ok: true, devices: await countSubs() });
@@ -803,6 +817,8 @@ async function handle(req: NextRequest) {
       return NextResponse.json({ ok: true, removed, devices: await countSubs() });
     }
     if (body.action === "testPush") {
+      const wait = await testPushWait();
+      if (wait) return bad(`시험 알림은 잠시 뒤에 다시 보내 주세요(${waitText(wait)}).`, 429);
       const r = await notifyTeachers({ title: "마음빛 길잡이 알림 시험", body: "이 알림이 보이면 위험 표현 알림을 받을 수 있어요.", url: "/teacher", tag: "test" });
       return NextResponse.json(r);
     }
