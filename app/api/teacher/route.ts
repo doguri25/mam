@@ -392,7 +392,6 @@ async function handle(req: NextRequest) {
       const replaced = new Set(old.filter((s) => s.demo && !kept.has(s.no)).map((s) => s.no));
       let list = students;
       if (replaced.size) {
-        await purgePractice((no) => replaced.has(no), { onlyThese: true });
         const taken = new Set(students.map((s) => s.code));
         list = students.map((s) => {
           if (!replaced.has(s.no)) return s;
@@ -409,6 +408,9 @@ async function handle(req: NextRequest) {
         if ((e as Error).message === ROSTER_CHANGED) return NextResponse.json({ error: ROSTER_CHANGED, code: "rosterChanged" }, { status: 409 });
         throw e;
       }
+      // 연습 흔적은 명단을 저장한 뒤에 지운다(그사이 명단이 바뀌어 409로 돌려보낼 때 연습 학생은 남았는데 그 기록만 지워지지 않게).
+      // 바꾼 번호의 새 코드는 아직 아무에게도 주지 않았으니 그사이 실제 학생 기록이 생길 수 없다
+      if (replaced.size) await purgePractice((no) => replaced.has(no), { onlyThese: true });
       // 뺀 학생은 남겨 두고(다시 넣을 때 앞 학생으로 묻는다), 다시 넣은 번호는 지운다. 새 학생에게 준 번호는 앞 학생 것을 정리
       const nowNos = new Set(saved.map((s) => s.no));
       const nextLeft = Object.fromEntries(Object.entries(left).filter(([no]) => !nowNos.has(Number(no))));

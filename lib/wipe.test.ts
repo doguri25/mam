@@ -266,3 +266,29 @@ test("명단 동시 저장: 그사이 다른 기기가 준 새 코드·지우기
     assert.deepEqual((await D.getRoster()).map((s) => s.alias), ["가온이", "나래", "다솜"]);
   });
 });
+
+test("명단 합치기: 이 요청이 번호를 새 학생에게 넘기면 앞 학생 칸(동의)은 가져오지 않고, 그사이 지운 앞 학생 가명은 지운 채로", async () => {
+  await inSpace("cwipe14", async () => {
+    await D.saveRoster([{ no: 3, alias: "나래", code: "WPN333", since: "2026-11-10T00:00:00.000Z", formers: [{ alias: "가온", until: "2026-11-10T00:00:00.000Z" }] }]);
+    const base = await D.getRoster();
+    await db().update<{ students: Record<string, unknown>[] }>("meta", "roster", (cur) => cur && {
+      ...cur, students: cur.students.map((s) => ({ ...s, consent: "2026-11-18", formers: [{ alias: "", until: "2026-11-10T00:00:00.000Z", wiped: true }] })),
+    });
+    const handed = { no: 3, alias: "다솜", code: "WPN999", since: "2026-11-19T00:00:00.000Z", formers: [{ alias: "가온", until: "2026-11-10T00:00:00.000Z" }, { alias: "나래", until: "2026-11-19T00:00:00.000Z" }] };
+    const [x] = await D.saveRoster([handed], false, { base, strict: true });
+    assert.equal(x.consent, undefined);
+    assert.deepEqual(x.formers, [{ alias: "", until: "2026-11-10T00:00:00.000Z", wiped: true }, { alias: "나래", until: "2026-11-19T00:00:00.000Z" }]);
+  });
+});
+
+test("앞 학생 기록 없이 처음 넣은 번호: 늦게 온 넣기 전 글을 위해 가명 모를 앞 학생을 한 번만 적는다", async () => {
+  await inSpace("cwipe15", async () => {
+    await D.saveRoster([{ no: 3, alias: "새친구", code: "WPO333", joined: "2026-11-19T00:00:00.000Z" }, { no: 4, alias: "보람", code: "WPO444", since: "2026-11-01T00:00:00.000Z", formers: [{ alias: "", until: "2026-11-01T00:00:00.000Z" }] }]);
+    assert.equal(await D.markUnknownFormer(3, "2026-11-19T00:00:00.000Z"), true);
+    assert.equal(await D.markUnknownFormer(3, "2026-11-19T00:00:00.000Z"), true); // 두 번째는 그대로
+    assert.equal(await D.markUnknownFormer(4, "2026-11-19T00:00:00.000Z"), false); // 이미 다른 때 받은 학생
+    const r = await D.getRoster();
+    assert.deepEqual([r[0].since, r[0].formers], ["2026-11-19T00:00:00.000Z", [{ alias: "", until: "2026-11-19T00:00:00.000Z" }]]);
+    assert.equal(r[1].since, "2026-11-01T00:00:00.000Z");
+  });
+});

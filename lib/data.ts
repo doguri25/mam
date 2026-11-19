@@ -118,6 +118,13 @@ function mergeRoster(mine: Student[], base: Student[], cur: Student[]): Student[
     const bx = b.get(x.no), cx = c.get(x.no);
     if (!bx) { out.push(x); continue; } // 이 요청이 넣은 학생
     if (!cx) continue; // 그사이 다른 기기가 뺀 학생(이 요청은 그대로 두려 했음)
+    if (x.since !== bx.since) {
+      // 이 요청이 번호를 새 학생에게 넘겼다: 앞 학생 칸(동의·지우기 표시 등)은 cur에서 가져오지 않고, 앞 학생 가명은
+      // cur 것(그사이 지운 가명 표시·정리를 살려)에 이 요청이 덧붙인 것만 얹는다
+      const added = (x.formers ?? []).filter((f) => !(bx.formers ?? []).some((b) => b.until === f.until));
+      out.push({ ...x, formers: [...(cx.formers ?? []), ...added].slice(-FORMERS_MAX) });
+      continue;
+    }
     const y: Record<string, unknown> = { ...x };
     for (const k of new Set([...Object.keys(x), ...Object.keys(bx), ...Object.keys(cx)])) {
       const xv = (x as unknown as Record<string, unknown>)[k], bv = (bx as unknown as Record<string, unknown>)[k], cv = (cx as unknown as Record<string, unknown>)[k];
@@ -439,6 +446,26 @@ export function readRoster(
     taken.add(out.at(-1)!.code);
   }
   return { students: out, skipped, renamed, added };
+}
+
+// 처음 넣은 번호(앞 학생 기록이 없음 — 「모두 지우기」 뒤에 다시 넣었거나 오래전에 뺀 번호)에, 넣기 전에 받은 표로 담아 둔 글이 늦게 오면
+// 그 번호에 가명 모를 앞 학생을 적는다(받은 때 = 넣은 때). 그러면 그 글이 지금 학생 글로 보이지 않고 「앞 학생」으로 보이며 따로 지울 수 있다
+export async function markUnknownFormer(no: number, joined: string): Promise<boolean> {
+  let ok = false, changed = false;
+  await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => {
+    ok = changed = false;
+    const x = cur?.students.find((s) => s.no === no);
+    if (!cur || !x) return undefined;
+    if (x.since) {
+      ok = x.since === joined;
+      return undefined;
+    }
+    if (x.joined !== joined) return undefined;
+    ok = changed = true;
+    return { ...cur, students: cur.students.map((s) => (s.no === no ? { ...s, since: joined, formers: [{ alias: "", until: joined }] } : s)) };
+  });
+  if (changed) await touch("other");
+  return ok;
 }
 
 // 명단에서 뺀 학생(번호 → 가명·뺀 때). 그 번호를 다시 넣을 때 앞 학생으로 묻고 나누려고 남긴다.

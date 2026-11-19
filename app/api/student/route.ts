@@ -5,7 +5,7 @@ import { analyze, analyzeWithAudio, fallbackQuestion, reflectReply, type Analysi
 import { RISK_REPLY, isLang, t, type Lang } from "@/lib/i18n";
 import { DEMO_COOKIE, OTHER_STUDENT, STUDENT_COOKIE, otherStudent, queueCodeOk, queueToken, readQueueToken, sign, unsign, hashId } from "@/lib/auth";
 import { addCalm, addLetter, aiConfig, editSelNote, getLooks, getRoster, getSelNotes, getSelfRounds, getSettings, locateCode, queuedWhen, rawKey, recordsFrom, recordsOf, saveMoodRecord, timeOf, touch, type Settings } from "@/lib/data";
-import { addRiskDraftSummary, draftKept, dropDoneDrafts, getRiskDrafts, moveRiskActions, nearDraftIds, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
+import { addRiskDraftSummary, draftKept, dropDoneDrafts, getRiskDrafts, markUnknownFormer, moveRiskActions, nearDraftIds, putRiskDraft, saveLook, seenDraft } from "@/lib/data";
 import { clientIp, codeAttempt, waitText, withIp } from "@/lib/limit";
 import { addDays, monday, slotNow, today } from "@/lib/date";
 import { db, inSpace, isDemo, spaceId } from "@/lib/db";
@@ -139,11 +139,15 @@ async function handle(req: NextRequest, body: Body) {
         const practice = Number.isFinite(joined) && (q.at !== undefined ? q.at < joined : q.date <= today(new Date(joined)));
         const hits = st && text && !practice ? matchRisk(text, (await getSettings()).riskWords) : [];
         const when = queuedWhen(madeAtFix, q.date);
+        // 앞 학생 기록 없이 처음 넣은 번호(「모두 지우기」 뒤 등)인데 넣기 전에 받은 표면, 다른 아이 글일 수 있다 → 「앞 학생(가명 모름)」으로
+        const joinedAt = st && !s && !st.since && !practice && st.joined ? Date.parse(st.joined) : NaN;
+        const beforeJoin = Number.isFinite(joinedAt) && (q.at !== undefined ? q.at < joinedAt : q.date < today(new Date(joinedAt)));
         if (st && hits.length && when) {
+          const sinceIso = s ? undefined : st.since ?? (beforeJoin && (await markUnknownFormer(st.no, st.joined!)) ? st.joined : undefined);
           // 이 번호를 새 학생에게 준 날까지 받은 표의 글은 앞 학생 것: 앞 학생 기기 시계가 빨라 받은 때보다 뒤로 당겨졌으면 받기 바로 앞으로
           // (새 학생 기록으로 보이거나 새 학생 자료 지우기를 막지 않게)
           let ms = when.madeAt ?? Date.now();
-          const since = !s && st.since ? Date.parse(st.since) : NaN;
+          const since = sinceIso ? Date.parse(sinceIso) : NaN;
           // 표를 준 때가 있으면 그것으로(받은 뒤 새 코드를 받은 새 학생 표는 그대로), 없는 예전 표는 날짜로
           const formerToken = Number.isFinite(since) && (q.at !== undefined ? q.at < since : q.date <= today(new Date(since)));
           if (Number.isFinite(since) && formerToken && ms >= since) ms = since - 1;
