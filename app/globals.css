@@ -66,7 +66,12 @@ a,
   }
   /* 16px보다 작은 입력 칸은 아이패드·아이폰이 화면을 확대해 버린다 */
   .field {
-    @apply w-full rounded-2xl border border-line bg-card px-4 py-3 text-base outline-none focus:border-leaf;
+    @apply w-full rounded-2xl border border-line bg-card px-4 py-3 text-base outline-none focus:border-leaf focus:ring-2 focus:ring-leaf/25;
+  }
+  /* 파일 고르기: 숨긴 파일 칸을 감싼 단추 모양 label — 키보드로 오면 테두리가 보이게 */
+  label:has(input[type="file"]:focus-visible) {
+    outline: 2px solid var(--color-leaf);
+    outline-offset: 2px;
   }
 }
 

@@ -18,5 +18,3 @@ export function focusLater(pick: (last: boolean) => HTMLElement | null | undefin
   };
   requestAnimationFrame(step);
 }
-// 지금 초점이 든 조치 폼(닫을 때 넘긴다)
-export const openForm = () => document.activeElement?.closest("[data-riskform]") ?? null;

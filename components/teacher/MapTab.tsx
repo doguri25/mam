@@ -2,7 +2,7 @@
 // 우리 반 마음 지도: 위험 표현 알림 · 오늘 칸 · 먼저 살펴볼 학생 · 기록 없음 · 마음 날씨
 import { useEffect, useRef, useState } from "react";
 import { useTrap } from "./useTrap";
-import { focusLater, openForm } from "./focusLater";
+import { focusLater } from "./focusLater";
 import Doodle from "../Doodle";
 import { MOVED_MSG, RiskActionForm, RiskHistory, RiskTexts, movedTo, riskItems, type FormState } from "./RiskActions";
 import { EmotionArt } from "../Art";
@@ -67,6 +67,8 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
   // 마치지 않은 글을 살펴보는 사이 학생이 그 글로 기록을 마쳤으면 폼(고른 일·메모)을 같은 칸의 마음 기록 알림으로 옮긴다
   const actingOn = movedTo(acting, alerts.map((a) => a.id));
   const stopActing = () => { setActing(null); setCarry(null); };
+  // 적던 알림이 닫혔으면(기록 창·다른 기기에서) 폼도 닫아 둔다 — 같은 기록에 새 위험한 글이 와서 알림이 다시 뜰 때 닫힌 폼이 저절로 열리지 않게
+  if (acting && !actingOn) stopActing();
   const alertBtn = (id: string) => document.querySelector<HTMLElement>(`[data-alert-act="${CSS.escape(id)}"]`);
   // 「살펴봤어요」는 이번 주(월요일부터) 동안 남는다
   const checkedAt = (no: number) => flagChecked(settings.checks, no, today);
@@ -154,11 +156,11 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
               {actingOn === a.id ? (
                 <RiskActionForm recordId={a.id} kind={a.kind} today={today} first seen={a.seen} text={saw}
                   init={a.id !== acting ? { kinds: [], date: today, note: "", ...carry, msg: MOVED_MSG } : null} onState={setCarry}
-                  onCancel={() => { const from = openForm(); stopActing(); focusLater(() => alertBtn(a.id), from); }}
+                  onCancel={(from) => { stopActing(); focusLater(() => alertBtn(a.id), from); }}
                   onStale={async (st) => { setCarry(st); await reload(); }}
-                  onDone={async () => {
+                  onDone={async (_x, from) => {
                     // 알림이 닫혀 그 줄이 없어지면 그 자리의 다음 알림 단추로(없으면 알림 제목·오늘의 마음 칸 제목으로)
-                    const from = openForm(), at = alerts.findIndex((x) => x.id === a.id);
+                    const at = alerts.findIndex((x) => x.id === a.id);
                     stopActing();
                     await reload();
                     focusLater((last) => {

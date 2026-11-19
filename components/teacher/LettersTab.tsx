@@ -4,7 +4,7 @@
 import { useState } from "react";
 import Doodle from "../Doodle";
 import { RiskActionForm, kindsText } from "./RiskActions";
-import { focusLater, openForm } from "./focusLater";
+import { focusLater } from "./focusLater";
 import type { NameOf, Overview, Reload } from "./types";
 import { api } from "@/lib/api";
 import { label } from "@/lib/date";
@@ -58,8 +58,8 @@ function Card({ l, nameOf, reload, acts, today, students, onNote }: { l: Letter;
       )}
       {acting ? (
         <RiskActionForm recordId={`letter:${l.id}`} kind="letter" today={today} first={!l.riskChecked} seen={l.createdAt} text={l.original ?? l.text}
-          onCancel={() => { const from = openForm(); setActing(false); focusLater(actBtn, from); }} onStale={reload}
-          onDone={async () => { const from = openForm(); setActing(false); await reload(); focusLater(actBtn, from); }} />
+          onCancel={(from) => { setActing(false); focusLater(actBtn, from); }} onStale={reload}
+          onDone={async (_x, from) => { setActing(false); await reload(); focusLater(actBtn, from); }} />
       ) : (
         <button data-act={`letter:${l.id}`} onClick={() => setActing(true)} className="btn-sub min-h-9 px-3 text-sm"><Doodle name="memo" /> {l.riskChecked ? "조치 더 적기" : "살펴보고 적기"}</button>
       )}
