@@ -105,7 +105,7 @@ export default function CheerTab({ data, reload, no, setNo, nameOf }: { data: Ov
                     ))}
                   </div>
                 )}
-                <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="field" placeholder="초안을 고르거나 최근 기록을 보며 직접 써 주세요." />
+                <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} className="field" placeholder="초안을 고르거나 최근 기록을 보며 직접 써 주세요." aria-label="응원 한마디" />
                 {leaks(text).length > 0 && (
                   <p className="text-xs text-alert"><Doodle name="warning" /> 「{leaks(text).join("」, 「")}」 — 선생님용 숫자·말은 아이에게 보내기 전에 고쳐 주세요.</p>
                 )}

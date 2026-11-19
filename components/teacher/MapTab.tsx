@@ -244,7 +244,7 @@ export default function MapTab({ data, reload, nameOf, onCheer, onLetters, onPic
       <Weather records={records} today={today} />
 
       {open !== null && (
-        <div className="no-print fixed inset-0 z-10 grid place-items-center bg-black/30 p-4" onClick={() => setOpen(null)} onKeyDown={(e) => e.key === "Escape" && setOpen(null)}>
+        <div className="no-print fixed inset-0 z-40 grid place-items-center bg-black/30 p-4" onClick={() => setOpen(null)} onKeyDown={(e) => e.key === "Escape" && setOpen(null)}>
           <div className="card max-h-[88dvh] w-full max-w-2xl space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={`${open}번 기록`}>
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-display text-2xl">

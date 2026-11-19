@@ -95,6 +95,17 @@ export default function TeacherPage() {
   // 오른쪽 아래 「AI 도우미」: 한 번 연 뒤에는 닫아도 대화가 남게 숨기기만 한다
   const [fab, setFab] = useState(false);
   const [fabUsed, setFabUsed] = useState(false);
+  // 서랍·AI 도우미 창은 Esc로도 닫는다(열어 둔 지도 기록 창은 제 Esc를 쓴다)
+  useEffect(() => {
+    if (!drawer && !fab) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setDrawer(false);
+      setFab(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer, fab]);
   // 다시 불러오거나 바뀐 기록을 합칠 때마다 1씩 늘어난다 → 따로 불러오는 탭(역량 진단·누적 기록)도 다시 불러온다
   const [version, setVersion] = useState(0);
   const demoAct = useAct(); // 위 띠의 「연습 데이터 지우기」(두 번 눌림·실패 알림)
@@ -462,7 +473,7 @@ export default function TeacherPage() {
           <a href="/teacher/tv" target="_blank" rel="noopener" className="btn-sub min-h-11 px-3 text-sm" aria-label="교실 화면"><Doodle name="tv" size={24} /></a>
         </header>
         {/* key: 학급이 바뀌면 탭마다 들고 있던 것(고른 학생·받아 둔 누적 기록·쓰던 글)을 모두 새로 — 앞 학급 것이 섞이지 않게 */}
-        <main key={data.space} className="mx-auto max-w-6xl px-3 py-4 sm:px-6 sm:py-6">
+        <main key={data.space} className="mx-auto max-w-6xl px-3 pb-24 pt-4 sm:px-6 sm:pb-28 sm:pt-6 print:pb-0">
           <h1 className="no-print mb-4 hidden items-center gap-3 font-display text-3xl lg:flex"><Doodle name={current[1]} size={38} />{current[2]}</h1>
           {data.trial ? (
             <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-sun bg-[#fff8e1] px-4 py-3 text-sm">

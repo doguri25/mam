@@ -54,7 +54,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) return bad("요청이 올바르지 않아요.");
   if (body.action === "login") return codeLogin(req, body);
-  const sp = await studentSpace(req, body);
+  // 학급 공간을 찾다가 저장소 오류가 나도 저장소 글을 그대로 보이지 않게
+  const sp = await studentSpace(req, body).catch((e) => (console.error(e), null));
+  if (sp === null) return bad("문제가 생겼어요.", 500);
   return withIp(req.headers, () => inSpace(sp, () => handle(req, body)));
 }
 
@@ -124,7 +126,12 @@ async function handle(req: NextRequest, body: Body) {
         const hits = st && text ? matchRisk(text, (await getSettings()).riskWords) : [];
         const when = queuedWhen(body.madeAt, q.date);
         if (st && hits.length && when) {
-          const at = new Date(when.madeAt ?? Date.now()).toISOString();
+          // 이 번호를 새 학생에게 준 날까지 받은 표의 글은 앞 학생 것: 앞 학생 기기 시계가 빨라 받은 때보다 뒤로 당겨졌으면 받기 바로 앞으로
+          // (새 학생 기록으로 보이거나 새 학생 자료 지우기를 막지 않게)
+          let ms = when.madeAt ?? Date.now();
+          const since = !s && st.since ? Date.parse(st.since) : NaN;
+          if (Number.isFinite(since) && q.date <= today(new Date(since)) && ms >= since) ms = since - 1;
+          const at = new Date(ms).toISOString();
           const d: RiskDraft = { id: `${st.no}_${when.date}_${slot}`, no: st.no, date: when.date, slot, text, hits, lang: isLang(rec.lang) ? (rec.lang as Lang) : "ko", at, checked: null, ...(isDemo() || st.demo ? { demo: true } : {}) };
           if (await putRiskDraft(d).catch(() => false)) alertTeacher(st.no, "기록", `risk-${d.id}`);
         }
@@ -135,7 +142,7 @@ async function handle(req: NextRequest, body: Body) {
       // 이 번호를 받은 날 담아 둔 기록인데 기기 시계가 늦으면 받기 전 시각이 된다 → 앞 학생 것으로 보이지 않게 받은 때로 당긴다
       const since = s.since ? Date.parse(s.since) : NaN;
       const madeAt = when.madeAt !== undefined && Number.isFinite(since) && when.madeAt < since ? since : when.madeAt;
-      return saveRecord(s, body.record ?? {}, await getSettings(), { date: when.date, madeAt, saveId: body.saveId });
+      return await saveRecord(s, body.record ?? {}, await getSettings(), { date: when.date, madeAt, saveId: body.saveId }); // await: 실패도 아래 catch가 받게
     }
 
     // 같은 기기 다른 탭에서 다른 친구가 들어와 쿠키가 바뀌었으면, 화면이 아는 학생(screenNo·screenSpace)과 다르다 →
@@ -388,7 +395,9 @@ async function handle(req: NextRequest, body: Body) {
 
     if (body.action === "analyze") {
       const text = typeof body.text === "string" ? body.text.trim().slice(0, 180) : "";
-      const card = body.card && validCard(body.card) ? body.card : undefined;
+      // 고른 카드의 세 칸만 쓴다(다른 칸을 실어 보내도 기록·AI 입력에 섞이지 않게)
+      const card = body.card && typeof body.card === "object" && validCard(body.card)
+        ? { emotion: String(body.card.emotion), intensity: Number(body.card.intensity), reason: String(body.card.reason) } : undefined;
       const lang: Lang = isLang(body.lang) ? body.lang : "ko";
       if (!text && !card) return bad("카드나 문장이 필요해요.");
 
@@ -479,7 +488,7 @@ async function handle(req: NextRequest, body: Body) {
       return finish({ ...card, summary: "", ...fallbackQuestion(card.reason, card.emotion, lang), risk: false, word: "" }, false);
     }
 
-    if (body.action === "save") return saveRecord(s, body.record ?? {}, settings, { saveId: body.saveId });
+    if (body.action === "save") return await saveRecord(s, body.record ?? {}, settings, { saveId: body.saveId });
 
     return bad("알 수 없는 요청이에요.");
   } catch (e) {

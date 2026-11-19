@@ -167,8 +167,8 @@ function Steps({ value, onChange, vocab, lang, onDone, onBack, nav, onNav }: {
               <button key={label} type="button" aria-pressed={on} aria-label={`${i + 1} ${w(lang, label)}`}
                 onClick={() => { onChange({ ...value, intensity: i + 1 }); say(label); go(3); }}
                 className={`chip flex min-h-36 flex-col items-center justify-end gap-2 pb-3 pt-4 ${on ? "chip-on" : ""}`}>
-                <span className="flex h-20 items-end gap-1">
-                  {[0, 1, 2, 3, 4].map((k) => <span key={k} className="w-2 rounded-full" style={{ height: 12 + k * 16, background: k <= i ? color : "#e8e2d6" }} />)}
+                <span className="flex h-20 items-end gap-0.5 sm:gap-1">
+                  {[0, 1, 2, 3, 4].map((k) => <span key={k} className="w-1.5 rounded-full sm:w-2" style={{ height: 12 + k * 16, background: k <= i ? color : "#e8e2d6" }} />)}
                 </span>
                 <span className="text-sm font-bold sm:text-base">{w(lang, label)}</span>
               </button>

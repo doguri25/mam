@@ -84,8 +84,13 @@ a,
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .card {
-    box-shadow: none;
-    break-inside: avoid;
+}
+/* 카드는 인쇄할 때 쪽 사이에서 잘리지 않게. 레이어 안에 두어 한 쪽보다 긴 카드는 print:break-inside-auto로 풀 수 있게 */
+@layer components {
+  @media print {
+    .card {
+      box-shadow: none;
+      break-inside: avoid;
+    }
   }
 }

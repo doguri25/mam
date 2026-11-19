@@ -46,7 +46,7 @@ export default function GuideTab() {
   return (
     <div className="space-y-4">
       <div className="no-print flex justify-end">
-        <button onClick={() => window.print()} className="btn-main"><Doodle name="printer" /> 한 장으로 인쇄</button>
+        <button onClick={() => window.print()} className="btn-main"><Doodle name="printer" /> 인쇄·PDF 저장</button>
       </div>
       <article className="card mx-auto max-w-[210mm] space-y-4 bg-white p-7 text-[13.5px] leading-6 print:border-0 print:p-0 print:text-[11.5px] print:leading-5">
         <header className="flex items-end justify-between border-b-2 border-ink pb-2">

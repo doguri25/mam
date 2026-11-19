@@ -1,7 +1,7 @@
 // 한 학생을 보는 곳(학생 고르기·최근 2주·응원·의견서·누적 위험 표현)에는 지금 그 번호 학생의 것만 보인다.
 // 이 번호를 새 학생에게 줬으면(since) 그 앞에 이 번호로 남은 것은 앞 학생 것 — 반 전체를 보는 곳(위험 표현 알림·쪽지 목록·CSV)에
 // 「앞 학생 ○○」으로 남고, 여기에는 넣지 않는다.
-import { ownBy } from "../../lib/shared.ts";
+import { actionOwnBy, ownBy } from "../../lib/shared.ts";
 import type { RiskSources } from "./RiskActions";
 import type { Overview } from "./types";
 
@@ -35,6 +35,7 @@ export function riskSourcesOf(data: Overview, no: number): RiskSources {
   const l2 = letters.filter((l) => own(l.createdAt));
   const ids = new Set([...r2.map((r) => r.id), ...d2.map((d) => `draft:${d.id}`), ...x2.map((x) => `reflect:${x.id}`), ...l2.map((l) => `letter:${l.id}`)]);
   const known = new Set([...records.map((r) => r.id), ...drafts.map((d) => `draft:${d.id}`), ...reflects.map((x) => `reflect:${x.id}`), ...letters.map((l) => `letter:${l.id}`)]);
-  const actions = data.riskActions.filter((a) => a.no === no && (ids.has(a.recordId) || (!known.has(a.recordId) && own(a.recordDate || a.date))));
+  const st = data.students.find((s) => s.no === no);
+  const actions = data.riskActions.filter((a) => a.no === no && (ids.has(a.recordId) || (!known.has(a.recordId) && actionOwnBy(st, a))));
   return { records: r2, actions, drafts: d2, reflects: x2, letters: l2, words: data.settings.riskWords };
 }

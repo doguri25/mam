@@ -90,7 +90,7 @@ export default function WeekPage() {
                   <button key={k} onClick={() => setText(tt(k))} className={`chip min-h-12 px-4 text-lg ${text === tt(k) ? "border-leaf bg-leaf-soft" : ""}`}>{tt(k)}</button>
                 ))}
               </div>
-              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 80))} rows={2} className="field text-xl" placeholder="…" />
+              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 80))} rows={2} className="field text-xl" placeholder="…" aria-label={tt("weekPrompt")} />
               {err && <p className="text-alert">{err}</p>}
               <button onClick={send} disabled={busy || text.trim().length < 2} className="btn-main w-full text-lg sm:w-auto sm:px-10">{busy ? tt("thinking") : tt("weekSend")}</button>
             </>

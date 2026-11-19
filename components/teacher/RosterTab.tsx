@@ -115,7 +115,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
       <section className="no-print card space-y-3">
         <h2 className="font-display text-xl">반 명단</h2>
         <p className="text-sm text-soft">한 줄에 한 명, 「번호 가명」으로 적어요. 실명 대신 가명이나 별명을 권해요(AI에는 가명만 가요).</p>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} className="field font-mono text-sm" placeholder={"1 햇살\n2 구름\n3 단풍"} />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} className="field font-mono text-sm" placeholder={"1 햇살\n2 구름\n3 단풍"} aria-label="반 명단(한 줄에 번호 가명)" />
         {changed && text !== serverText && (
           <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#fff8e1] px-3 py-2 text-sm">
             <span>칸을 고치는 사이 저장된 명단이 바뀌었어요(연습 데이터 지우기·다른 기기). 칸에 쓰던 글은 그대로 두었어요.</span>
@@ -183,7 +183,7 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
         <p className="text-sm text-soft">
           「번호 이름」을 붙여 넣으면 이 브라우저에만 저장돼요. 서버·AI로는 보내지 않고, 다른 컴퓨터에서는 다시 넣어야 해요. 학생 화면은 늘 가명이에요.
         </p>
-        <textarea value={names.raw} onChange={(e) => names.setRaw(e.target.value)} rows={4} className="field font-mono text-sm" placeholder={"1 김하늘\n2 이도윤"} />
+        <textarea value={names.raw} onChange={(e) => names.setRaw(e.target.value)} rows={4} className="field font-mono text-sm" placeholder={"1 김하늘\n2 이도윤"} aria-label="실명 명렬표(이 컴퓨터에만)" />
         {names.raw && <button onClick={() => confirm("이 컴퓨터의 실명 명렬표를 지울까요?") && names.setRaw("")} className="text-xs text-soft underline">이 컴퓨터에서 실명 지우기</button>}
       </section>
 

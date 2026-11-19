@@ -884,12 +884,12 @@ export default function MePage() {
               )}
               <p className="text-center text-sm text-soft">{speech.listening ? tt("listening") : speech.supported ? tt("micHint") : tt("typeHint")}</p>
               {speech.error && <p className="text-center text-alert">{msg(speech.error)}</p>}
-              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 180))} rows={3} className="field text-lg" placeholder={tt("example")} />
+              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 180))} rows={3} className="field text-lg" placeholder={tt("example")} aria-label={tt("example")} />
               {me.vocab.length > 0 && (
                 <p className="text-sm text-soft">
                   {tt("classWords")}:{" "}
                   {me.vocab.map((x) => (
-                    <button key={x} onClick={() => setText((v) => `${v}${v ? " " : ""}${w(lang, x)}`)} className="mr-1 rounded-full bg-leaf-soft px-2 py-0.5 text-ink">
+                    <button key={x} onClick={() => setText((v) => `${v}${v ? " " : ""}${w(lang, x)}`)} className="mb-1 mr-1 min-h-10 rounded-full bg-leaf-soft px-3 text-ink">
                       {w(lang, x)}
                     </button>
                   ))}
@@ -914,7 +914,7 @@ export default function MePage() {
                 ))}
               </div>
               <div className="flex gap-2">
-                <input value={answer} onChange={(e) => setAnswer(e.target.value.slice(0, 120))} className="field" placeholder={tt("ownAnswer")} />
+                <input value={answer} onChange={(e) => setAnswer(e.target.value.slice(0, 120))} className="field" placeholder={tt("ownAnswer")} aria-label={tt("ownAnswer")} />
                 {answerSpeech.supported && (
                   <button onClick={answerSpeech.toggle} className="btn-sub shrink-0" aria-label={answerSpeech.listening ? tt("micStop") : tt("voice")}>
                     {answerSpeech.listening ? <span aria-hidden>■</span> : <Doodle name="mic" size={26} />}
@@ -972,7 +972,7 @@ export default function MePage() {
         <nav aria-label={tt("hubMore")} className="card p-3 lg:col-span-2 lg:col-start-1 lg:row-start-3 lg:p-4">
           <p className="mb-2 font-bold">{tt("hubMore")}</p>
           {netWait?.at === "hub" && <p ref={waitNote} role="status" className="mb-2 rounded-2xl bg-[#fff8e1] px-4 py-2 text-sm"><Doodle name="signal" /> {tt(netWait.why === "send" ? "sendWait" : "waitNet")}</p>}
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+          <div className={`grid grid-cols-3 gap-2 sm:grid-cols-4 ${tiles.length > 7 ? "lg:grid-cols-8" : "lg:grid-cols-7"}`}>
             {tiles.map((x) =>
               x.href ? (
                 <Link key={x.label} href={x.href} onClick={(e) => go(e, x.href!, "hub")} className={tileClass}>

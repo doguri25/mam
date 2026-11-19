@@ -108,3 +108,26 @@ test("번호를 넘겨받은 학생: 앞 학생은 따로 골라 지우고, 지�
     assert.equal((await D.wipeTargets()).some((t) => t.no === 3 && t.who.startsWith("f:")), false);
   });
 });
+
+test("글이 없어진 조치 기록: 쓴 때(recordAt)로 가리고, 번호를 넘긴 날의 예전 조치·옮겨 둔 앞 학생 기록은 지금 학생 것으로 보지 않는다", async () => {
+  const { actionOwnBy } = await import("./shared.ts");
+  const st = { since: "2026-11-10T04:00:00.000Z" }; // 11월 10일 13시(한국 시각)에 새 학생에게
+  const a = (x: Record<string, string>) => ({ recordId: "3_2026-11-10_am", recordDate: "2026-11-10", date: "2026-11-10", ...x });
+  assert.equal(actionOwnBy(st, a({ recordAt: "2026-11-09T23:40:00.000Z" })), false); // 넘긴 날 아침 앞 학생 글
+  assert.equal(actionOwnBy(st, a({ recordAt: "2026-11-10T05:00:00.000Z" })), true); // 넘긴 뒤 새 학생 글
+  assert.equal(actionOwnBy(st, a({})), false); // 쓴 때를 모르는 넘긴 날 조치
+  assert.equal(actionOwnBy(st, a({ recordDate: "2026-11-12", date: "2026-11-12" })), true);
+  assert.equal(actionOwnBy(st, a({ recordId: "3_2026-11-12_am_pAB12", recordDate: "2026-11-12" })), false);
+  assert.equal(actionOwnBy(undefined, a({})), true); // 번호를 넘긴 적 없는 학생
+});
+
+test("새 코드를 주는 사이 다른 기기에서 표시한 보호자 동의는 남는다", async () => {
+  await inSpace("cwipe5", async () => {
+    await D.saveRoster([{ no: 1, alias: "가나", code: "WPE111" }]);
+    const before = await D.getRoster(); // 새 코드를 주려고 읽은 명단(동의 표시 전)
+    await db().update<{ students: { no: number; consent?: string }[] }>("meta", "roster", (cur) => cur && { ...cur, students: cur.students.map((s) => ({ ...s, consent: "2026-11-19" })) });
+    const next = before.map((s) => ({ ...s, code: "WPE999" }));
+    const saved = await D.saveRoster(next, false, { recoded: { 1: "WPE111" } });
+    assert.deepEqual([saved[0].code, saved[0].consent], ["WPE999", "2026-11-19"]);
+  });
+});

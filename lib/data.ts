@@ -92,7 +92,7 @@ export async function rosterIsDemo() {
 // 학생 코드는 모든 학급을 통틀어 하나뿐이어야 한다(학생 로그인은 코드로 학급을 찾는다). 다른 학급이 쓰는 코드면 새로 뽑아
 // 저장하고, 공간 밖 「codes」 색인(코드 → 학급 공간·번호)을 이 학급 명단에 맞춘다. 실제로 저장한 명단을 돌려준다.
 interface CodeRow { id: string; space: string; no: number }
-export async function saveRoster(students: Student[], demo = false) {
+export async function saveRoster(students: Student[], demo = false, opt: { recoded?: Record<number, string> } = {}) {
   const sp = spaceId();
   // 코드 색인과 홍북초·체험 명단(색인 전에 만든 코드)을 한꺼번에 읽는다
   const [index, ...olds] = await Promise.all([
@@ -114,7 +114,8 @@ export async function saveRoster(students: Student[], demo = false) {
   await db().update<{ students: Student[]; demo?: boolean }>("meta", "roster", (cur) => {
     const was = new Map((cur?.students ?? []).map((x) => [`${x.no}:${x.code}`, x]));
     list = picked.map((x) => {
-      const c = was.get(`${x.no}:${x.code}`);
+      // 새 코드를 받은 학생(recoded: 번호 → 예전 코드)은 예전 코드로 찾는다(코드를 바꾸는 사이 다른 기기에서 표시한 동의를 잃지 않게)
+      const c = was.get(`${x.no}:${x.code}`) ?? (opt.recoded?.[x.no] ? was.get(`${x.no}:${opt.recoded[x.no]}`) : undefined);
       if (!c || c.consent === x.consent) return x;
       const rest = { ...x };
       delete rest.consent;
@@ -1261,6 +1262,11 @@ export async function seedPractice() {
 }
 
 // 「연습 데이터만 지우기」: 연습 표시가 붙은 것과 연습용 가짜 학생에게 매인 것만 지우고, 실제 학생·기록은 그대로 둔다.
+// 많은 문서를 지울 때 하나씩 기다리면 반 한 해 기록(수천 건)에 함수 시간 한도를 넘는다 → 20개씩 함께
+async function eachIn<T>(xs: T[], f: (x: T) => Promise<unknown>) {
+  for (let i = 0; i < xs.length; i += 20) await Promise.all(xs.slice(i, i + 20).map(f));
+}
+
 export async function clearPractice() {
   const doc = await db().get<{ students: Student[]; demo?: boolean }>("meta", "roster");
   const roster = doc?.students ?? [];
@@ -1305,18 +1311,20 @@ export async function purgePractice(gone: (no: number) => boolean, opt: { onlyTh
   const hit = (demo: boolean | undefined, ...nos: number[]) => (!opt.onlyThese && !!demo) || nos.some(gone);
   const recs = await db().all<MoodRecord>("records");
   const dropped = new Set<string>();
-  for (const r of recs) if (hit(r.demo, r.no)) { await db().del("records", r.id); dropped.add(r.id); }
+  const dropRecs = recs.filter((r) => hit(r.demo, r.no));
+  for (const r of dropRecs) dropped.add(r.id);
+  await eachIn(dropRecs, (r) => db().del("records", r.id));
   for (const col of ["cheers", "notes", "reflects"] as const)
-    for (const x of await db().all<{ id: string; no: number; demo?: boolean }>(col)) if (hit(x.demo, x.no)) await db().del(col, x.id);
+    await eachIn((await db().all<{ id: string; no: number; demo?: boolean }>(col)).filter((x) => hit(x.demo, x.no)), (x) => db().del(col, x.id));
   // 쪽지는 연습 표시가 붙었거나 연습 학생이 보낸 것만 지운다. 실제 학생이 연습 학생에게 쓴 쪽지는 실제 학생이 남긴 기록이라 그대로 둔다
   // (위험 표현이면 선생님 알림·조치·CSV에 남아야 한다). 다만 받을 학생이 없어지므로 「전할 수 없음」(toPractice)으로 표시해
   // 나중에 같은 번호로 들어온 다른 학생에게 가지 않게 한다. 이미 전한 평범한 쪽지는 가짜 학생 쪽지함에만 있던 것이라 지운다.
-  for (const l of await db().all<Letter>("letters")) {
+  await eachIn(await db().all<Letter>("letters"), async (l) => {
     if (hit(l.demo, l.from) || (l.demo && gone(l.to))) await db().del("letters", l.id);
-    else if (!gone(l.to)) continue;
+    else if (!gone(l.to)) return;
     else if (l.status === "ok" && !l.risk) await db().del("letters", l.id);
     else if (!l.toPractice) await db().update<Letter>("letters", l.id, (cur) => (cur ? { ...cur, toPractice: true } : undefined));
-  }
+  });
   await editRiskActions((xs) => xs.filter((a) => !hit(a.demo, a.no) && !dropped.has(a.recordId)));
   await deleteSelfData((a) => !hit(a.demo, a.no));
   const drafts = await getRiskDrafts();
@@ -1404,7 +1412,15 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   // 조치 기록: 가리키는 글이 이 학생 것이면, 글이 없어졌으면 그 날짜로(학생별 누적 기록과 같은 규칙 — 번호를 넘긴 날 앞 학생 조치가 섞이지 않게)
   const ids = new Set([...myRecs.map((r) => r.id), ...myDrafts.map((d) => `draft:${d.id}`), ...myRefs.map((x) => `reflect:${x.id}`), ...mySent.map((l) => `letter:${l.id}`)]);
   const known = new Set([...recs.map((r) => r.id), ...drafts.filter((d) => d.no === no).map((d) => `draft:${d.id}`), ...refs.map((x) => `reflect:${x.id}`), ...sent.map((l) => `letter:${l.id}`)]);
-  const myActs = acts.filter((a) => a.no === no && (ids.has(a.recordId) || (!known.has(a.recordId) && mine(a.recordDate || a.date))));
+  // 글을 쓴 때(recordAt)가 있으면 그것으로, 번호를 넘길 때 옮겨 둔 앞 학생 기록(「…_p…」)은 앞 학생 것으로
+  const actMine = (a: RiskAction) => {
+    if (a.recordAt) return mine(a.recordAt);
+    const d = a.recordDate || a.date;
+    // 옮겨 둔 앞 학생 기록: 앞 학생을 지울 때만, 넘긴 그날까지 넣어서
+    if (/_p[a-z0-9]+$/i.test(a.recordId)) return former && (!from || d >= dayOfIso(from)) && (!to || d <= dayOfIso(to));
+    return mine(d);
+  };
+  const myActs = acts.filter((a) => a.no === no && (ids.has(a.recordId) || (!known.has(a.recordId) && actMine(a))));
   const myRuns = runs.filter((r) => mine(r.createdAt) && r.items.some((x) => x.no === no));
   const hasLook = !former && no in looks;
   const held = myRecs.filter((r) => r.risk && !r.riskChecked).length + myRefs.filter((x) => x.risk && !x.riskChecked).length
@@ -1419,18 +1435,21 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
   // 지우는 사이 학생이 같은 칸에 위험한 글을 새로 남겼으면(살펴보지 않은 위험 표현) 그 글은 지우지 않는다 — 읽고 지우기를 한 번에
   let skipped = 0;
   const unseen = (x: { risk?: boolean; riskChecked?: unknown } | null) => !!x?.risk && !x.riskChecked;
-  for (const r of myRecs) await db().update<MoodRecord>("records", r.id, (cur) => (!cur ? undefined : unseen(cur) ? (skipped++, undefined) : null));
-  for (const x of myRefs) await db().update<Reflect>("reflects", x.id, (cur) => (!cur ? undefined : unseen(cur) ? (skipped++, undefined) : null));
-  for (const l of [...mySent, ...myGot]) await db().update<Letter>("letters", l.id, (cur) => (!cur ? undefined : cur.status === "wait" && unseen(cur) ? (skipped++, undefined) : null));
-  for (const x of myCheers) await db().del("cheers", x.id);
-  for (const x of myNotes) await db().del("notes", x.id);
-  for (const x of mySelf) await db().del("meta", x.docId ?? (x.kind === "selfAnswer" ? selfDocId(x.round, x.no) : selNoteId(x.round, x.no)));
+  // 마음 기록 하나하나에 갈래 문서가 붙어 있지 않으니 함께 지워도 된다(20개씩)
+  const keepNew = new Set<string>();
+  await eachIn(myRecs, (r) => db().update<MoodRecord>("records", r.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`r${r.id}`), undefined) : null)));
+  await eachIn(myRefs, (x) => db().update<Reflect>("reflects", x.id, (cur) => (!cur ? undefined : unseen(cur) ? (keepNew.add(`f${x.id}`), undefined) : null)));
+  await eachIn([...mySent, ...myGot], (l) => db().update<Letter>("letters", l.id, (cur) => (!cur ? undefined : cur.status === "wait" && unseen(cur) ? (keepNew.add(`l${l.id}`), undefined) : null)));
+  skipped = keepNew.size; // 거래가 다시 돌아도 한 번만 센다
+  await eachIn(myCheers, (x) => db().del("cheers", x.id));
+  await eachIn(myNotes, (x) => db().del("notes", x.id));
+  await eachIn(mySelf, (x) => db().del("meta", x.docId ?? (x.kind === "selfAnswer" ? selfDocId(x.round, x.no) : selNoteId(x.round, x.no))));
   // 조치 기록은 남기고 학생 글(살펴볼 때의 글)만 지운다
   const actIds = new Set(myActs.map((a) => a.id));
   if (actIds.size) await editRiskActions((xs) => xs.map((a) => (actIds.has(a.id) && a.text ? withoutText(a) : a)));
   const draftIds = new Set(myDrafts.map((d) => d.id));
   if (draftIds.size) await editRiskDrafts((xs) => xs.filter((d) => !(draftIds.has(d.id) && d.no === no && d.checked && mine(d.at))));
-  for (const r of myRuns) await db().update<SheetRun>("sheets", r.id, (cur) => (cur ? { ...cur, items: cur.items.filter((x) => x.no !== no) } : undefined));
+  await eachIn(myRuns, (r) => db().update<SheetRun>("sheets", r.id, (cur) => (cur ? { ...cur, items: cur.items.filter((x) => x.no !== no) } : undefined)));
   if (hasLook) await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
     if (!cur?.items || !(no in cur.items)) return undefined;
     const items = { ...cur.items };

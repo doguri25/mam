@@ -41,6 +41,14 @@ function Tile({ big, label: name, sub }: { big: string | number; label: string; 
 
 // version: 선생님 화면이 다시 불러오거나 새 기록을 합칠 때마다 바뀐다 → 보고 있는 학생 기록도 다시 불러온다
 // reload: 여기서 위험 표현을 살펴봤을 때 선생님 화면 전체(메뉴의 빨간 수·쪽지의 조치 기록)도 바로 새로 읽게
+// 접어 둔 칸(details)을 모두 펼쳐 인쇄하고 되돌린다(접힌 「날마다 기록 전체」가 제목 한 줄만 인쇄되지 않게)
+function printAll() {
+  const shut = [...document.querySelectorAll<HTMLDetailsElement>("main details:not([open])")];
+  for (const d of shut) d.open = true;
+  window.print();
+  for (const d of shut) d.open = false;
+}
+
 export default function StudentTab({ data, reload, nameOf, no, setNo, version }: { data: Overview; reload: Reload; nameOf: NameOf; no: number | null; setNo: (n: number) => void; version: number }) {
   // 받아 온 기록·오류는 어느 학생 것인지 함께 둔다(다른 학생을 고르면 그 학생 것이 올 때까지 「불러오는 중」)
   const [got, setGot] = useState<{ no: number; all: All } | null>(null);
@@ -113,7 +121,8 @@ function Report({ all, data, no, nameOf, onActions, reload }: { all: All; data: 
             </p>
           )}
         </div>
-        <button onClick={() => window.print()} className="no-print btn-sub"><Doodle name="printer" /> 인쇄·PDF 저장</button>
+        {/* 접어 둔 「날마다 기록 전체」도 인쇄에 담기게 펼친 뒤 인쇄하고 되돌린다 */}
+        <button onClick={printAll} className="no-print btn-sub"><Doodle name="printer" /> 인쇄·PDF 저장</button>
       </section>
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6" aria-label="모아 보기">

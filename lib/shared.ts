@@ -123,6 +123,10 @@ export const DEFAULT_RISK_WORDS = [
   "掐我",
   "그냥 죽어", "걍 죽어", "너 같은 건 죽어", "너 같은 애는 죽어", "너는 죽어", "just die", "you should die", "しね", "きえろ", "消えろ",
   "저를 패", "절 패", "절 팼",
+  "효자손으로 맞", "회초리로 맞", "벨트로 맞", "몽둥이로 맞", "파리채로 맞", "따귀", "싸대기", "께 맞았", "혼나서 맞았", "혼나고 맞았",
+  "그만 살래", "왜 태어났", "왜 낳았", "죽인대",
+  "내 몸을 만", "날 만졌", "나를 만졌", "이상한 데 만", "팬티 벗", "private part",
+  "나만 빼고 놀", "돈 뺏", "돈을 뺏", "삥 뜯", "나한테 욕", "내 욕 해", "놀림 당", "놀림 받", "nobody likes me", "没人跟我玩", "không ai chơi với",
 ];
 // 예전 기본 목록에 나중에 더한 말(판마다) — 선생님이 목록을 고친 적이 있어도 그 판 뒤에 더한 말만 한 번 더해 준다(riskWordsV).
 // add는 더할 말, from은 그 말의 줄기(먼저 있던 말). from이 있으면 선생님 목록에 줄기가 하나라도 남아 있을 때만 더한다:
@@ -188,6 +192,19 @@ export const RISK_WORDS_BY_V: Record<number, { add: string[]; from?: string[] }[
     // 존댓말로 쓴 「선생님, 아빠가 저를 패요」「형이 절 팼어요」(「날 패」「나를 패」와 같이 「패스」「패션」은 빼고 찾는다)
     { add: ["저를 패", "절 패", "절 팼"], from: ["날 패", "날 팼", "나를 패"] },
   ],
+  10: [
+    // 무엇으로 맞은 말(「엄마한테 효자손으로 맞았어」「회초리로 맞았어」)·뺨을 맞은 말(「따귀 맞았어」「싸대기 맞았어」)
+    { add: ["효자손으로 맞", "회초리로 맞", "벨트로 맞", "몽둥이로 맞", "파리채로 맞", "따귀", "싸대기"] },
+    // 「아빠께 맞았어요」「혼나서 맞았어요」: 「한테 맞」을 지운 반에는 넣지 않는다
+    { add: ["께 맞았", "혼나서 맞았", "혼나고 맞았"], from: ["한테 맞", "에게 맞"] },
+    // 「이제 그만 살래」「나는 왜 태어났을까」「엄마가 왜 낳았냐고 했어」「말하면 죽인대」: 「과자 그만 살래」「예수님은 왜 태어났을까」처럼
+    // 평범한 말에도 걸려 늘 살피는 말이 아니라 뺄 수 있는 기본 목록에
+    { add: ["그만 살래", "왜 태어났", "왜 낳았", "죽인대"] },
+    // 몸을 만지거나 옷을 벗으라고 한 말(「삼촌이 내 몸을 만져」「이상한 데 만졌어」「팬티 벗으래」)
+    { add: ["내 몸을 만", "날 만졌", "나를 만졌", "이상한 데 만", "팬티 벗", "private part"] },
+    // 따돌림·돈 뺏기·놀림(「나만 빼고 놀아」「돈 뺏겼어」「삥 뜯겼어」「단톡방에서 내 욕했어」「놀림 당했어」)
+    { add: ["나만 빼고 놀", "돈 뺏", "돈을 뺏", "삥 뜯", "나한테 욕", "내 욕 해", "놀림 당", "놀림 받", "nobody likes me", "没人跟我玩", "không ai chơi với"] },
+  ],
 };
 export const RISK_WORDS_V = Math.max(...Object.keys(RISK_WORDS_BY_V).map(Number));
 // 판 v에서 저장한 목록(saved)에 더해 줄 말: v보다 뒤 판에 더한 말 가운데 목록에 없고, 줄기가 남아 있는 것(앞 판에서 더한 말도 줄기로 친다).
@@ -226,6 +243,10 @@ export const RISK_CORE = [
   "차라리 죽", "죽는 게 나아", "죽는 게 낫", "죽는 게 나을", "내가 죽었으면 좋겠", "난 죽었으면 좋겠", "나는 죽었으면 좋겠", "나 죽었으면 좋겠",
   "내가 없어졌으면 좋겠", "내가 사라졌으면 좋겠", "내가 없어지면 좋겠", "내가 사라지면 좋겠", "옥상에서 뛰어내리고 싶", "손목을 긋",
   "죽고파", "죽구파", "사라지고파", "없어지고파",
+  // 「죽고만 싶어」「죽는 게 더 나아」「어제 죽으려고 했어」「하늘나라 가고 싶어」「주꼬시퍼」「ㅈㄱㅅㄷ」「그냥 사라질래」「살아서 뭐해」「나 죽어야 돼」
+  "죽고만 싶", "죽구만 싶", "사라지고만 싶", "없어지고만 싶", "죽는 게 편", "죽으려고 했", "죽을려고 했", "죽으려구",
+  "하늘나라 가고 싶", "하늘나라에 가고 싶", "하늘나라 갈래", "하늘나라에 갈래", "주꼬 시퍼", "주꼬 십", "ㅈㄱㅅㄷ", "ㅈㄱㅅㅍ",
+  "사라질래", "살아서 뭐해", "살아봤자", "나 죽어야",
   "목매달", "옥상에서 떨어지고 싶", "주꼬 싶", "죽어라", "죽으라", "죽으래",
   "그만 살고 싶", "나는 죽어야", "난 죽어야", "내가 죽어야", "목숨을 끊", "죽으면 편할", "삶이 싫",
   "제가 사라지면 좋겠", "제가 없어지면 좋겠", "제가 사라졌으면 좋겠", "제가 없어졌으면 좋겠", "제가 죽었으면 좋겠", "저는 죽었으면 좋겠", "전 죽었으면 좋겠",
@@ -238,6 +259,7 @@ export const RISK_CORE = [
   "wana die", "wont to die", "wanttodie", "sucid", "suisid", "wish i was never born", "wish i were never born", "wish i had never been born",
   "wish i wasn't born", "kill yourself", "kill your self", "kill urself", "kys", "end it all", "wish i could die", "hope you die",
   "hitted me", "hurted me", "beated me",
+  "hate my self", "want too die", "i hope i die", "i deserve to die", "dont deserve to live", "hate being alive", "punch myself", "better off dead",
   "bully", "bullied", "bullies", "bulling", "bulied", "bulies", "beat me", "beats me", "beating me", "hit me", "hits me", "hitting me",
   "hurt me", "hurts me", "hurting me",
   "punch me", "punched me", "punches me", "punching me", "kick me", "kicked me", "kicks me", "kicking me",
@@ -250,10 +272,12 @@ export const RISK_CORE = [
   "打了我", "去死", "死了算了", "活着没意思", "活着没有意思", "活著沒意思", "想杀", "恨自己", "恨我自己",
   "被揍", "揍我", "挨打", "挨揍", "想跳楼", "割腕", "孤立我", "揍了我", "踢我", "踢了我", "被踢",
   "把我打", "把我揍", "把我踢", "掐脖子", "扇我", "耳光", "抽我", "割自己", "自残", "踹我", "踹了我", "踹倒我", "踹倒了我", "被踹",
+  "讨厌自己", "討厭自己", "讨厌我自己", "討厭我自己", "被孤立", "伤害我自己", "傷害我自己", "不如死", "死了就好", "结束自己的生命", "結束自己的生命",
   "muốn chết", "mún chết", "không muốn sống", "chán sống", "tự tử", "tự sát", "tự làm đau", "bắt nạt", "bị đánh", "đánh đòn",
   "đánh con", "đánh em", "đánh tôi", "đánh mình", "muốn biến mất", "ghét bản thân", "đánh đập",
   "tát con", "tát em", "tát tôi", "tát mình", "đá con", "đá em", "đá tôi", "đá mình",
   "bị đá", "bị tát", "bị đấm", "đấm con", "đấm em", "đấm tôi", "đấm mình", "chết đi", "bóp cổ", "tự cắt tay",
+  "ghét chính mình", "rạch tay", "làm hại bản thân", "không được sinh ra",
   "死にたい", "しにたい", "しんじゃいたい", "消えたい", "きえたい", "いなくなりたい", "自殺", "じさつ", "自傷", "いじめ",
   "殴られ", "なぐられ", "叩かれ", "たたかれ", "蹴られ", "をけられ", "にけられ", "なかまはずれ", "仲間外れ",
   "死にたく", "しにたくな", "死んじゃいたい", "しんでしまいたい", "死んでしまいたい", "きえてしまいたい", "消えてしまいたい", "生きていたくない", "いきていたくない",
@@ -263,6 +287,8 @@ export const RISK_CORE = [
   "自分を傷つけ", "リストカット", "手首を切", "首をつり", "首をしめられ",
   "しんだほうがまし", "死んだほうがまし", "死んだ方がまし", "死んだほうがいい", "死んだ方がいい", "しんだほうがいい",
   "生きてる意味がない", "生きる意味がない", "いきてるいみがない", "いきるいみがない", "しんじゃえ", "死んじゃえ",
+  "死のう", "しのうかな", "死んでやる", "しんでやる", "生まれてこなければ", "うまれてこなければ", "生まれてこなきゃ", "うまれてこなきゃ", "いなくなればいい",
+  "自分が嫌い", "じぶんがきらい", "自分が大嫌い", "じぶんがだいきらい",
 ];
 
 export function emotionOf(name: string) {
@@ -297,6 +323,16 @@ export interface Former { alias: string; until: string; wiped?: boolean } // wip
 const dayOf = (iso: string) => today(new Date(iso));
 export const ownBy = (s: Pick<Student, "since"> | undefined, at: string | undefined) =>
   !s?.since || !at || (at.length === 10 ? at >= dayOf(s.since) : at >= s.since);
+// 가리키는 글이 없어진(지워졌거나 화면에 없는) 조치 기록이 지금 학생 것인가: 글을 쓴 때(recordAt)로 가리고,
+// 번호를 넘길 때 옮겨 둔 앞 학생 기록(「…_p…」)은 앞 학생 것. 쓴 때가 없는 예전 조치 기록은 날짜로 가리되, 번호를 넘긴 그날 것은
+// 누구 것인지 알 수 없어 지금 학생 것으로 보지 않는다(앞 학생의 조치가 새 학생 기록에 섞이지 않게)
+export function actionOwnBy(s: Pick<Student, "since"> | undefined, a: Pick<RiskAction, "recordId" | "recordDate" | "date" | "recordAt">) {
+  if (!s?.since) return true;
+  if (a.recordAt) return ownBy(s, a.recordAt);
+  if (/_p[a-z0-9]+$/i.test(a.recordId)) return false;
+  const d = a.recordDate || a.date;
+  return d !== dayOf(s.since) && ownBy(s, d);
+}
 // 그때 이 번호를 쓴 앞 학생의 가명. 지금 학생 것이면 null, 앞 학생 가명을 모르면 ""
 export function formerAt(s: Pick<Student, "since" | "formers"> | undefined, at: string | undefined): string | null {
   if (ownBy(s, at)) return null;
@@ -327,13 +363,14 @@ export interface RiskAction {
   // 무엇을 살펴봤나(없으면 마음 기록). recordId 앞머리: 「draft:」 마치지 않은 기록 · 「reflect:」 돌아보기 · 「letter:」 쪽지
   kind?: "record" | "draft" | "reflect" | "letter";
   text?: string; // 살펴볼 때의 글(마치지 않은 기록·돌아보기·쪽지는 나중에 지워지거나 바뀌어도 조치 기록에 남게)
+  recordAt?: string; // 그 글을 쓴 때(ISO) — 글이 지워진 뒤에도 번호를 넘긴 날 앞 학생 것인지 지금 학생 것인지 가린다
   via?: string; // 마치지 않은 기록(draft:…)으로 살펴본 것을 학생이 같은 글로 기록을 마쳐 그 마음 기록으로 옮겼을 때 원래 이름
 }
 export const riskKinds = (x: unknown): RiskActionKind[] =>
   Array.isArray(x) ? RISK_ACTIONS.filter((k) => x.includes(k)) : [];
 // 선생님이 고치는 위험 표현 단어 목록의 한도: 한 낱말 글자 수 · 낱말 수(서버가 이 수로 받고, 설정 화면이 저장 전에 넘는 것을 알린다)
 export const RISK_WORD_LEN = 30; // 기본 목록의 가장 긴 말(「don't want to go back home」 26자)보다 넉넉히 — 기본 말이 걸려 저장이 막히지 않게
-export const RISK_WORDS_MAX = 150;
+export const RISK_WORDS_MAX = 200; // 기본 목록(130여 개)에 선생님 말을 더해도 넉넉히
 
 export interface MoodRecord {
   id: string; // `${no}_${date}_${slot}` — 같은 시점에 다시 기록하면 덮어씀

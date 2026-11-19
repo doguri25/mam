@@ -182,10 +182,11 @@ export default function ClassTV() {
             </div>
           </section>
 
-          <section aria-label="마음 친구 행렬" className="flex shrink-0 flex-wrap justify-center gap-1">
+          {/* 반 학생 수가 많아도(1024×768 TV·30명 넘는 반) 한 줄에 들어가게 얼굴 크기를 수에 맞춘다 */}
+          <section aria-label="마음 친구 행렬" className="flex shrink-0 flex-nowrap justify-center gap-1">
             {parade.map((g, i) => (
-              <span key={i} className="animate-bounce" style={{ animationDelay: `${(i % 7) * 0.15}s`, animationDuration: "2.4s" }}>
-                <BuddyFace look={DEFAULT_LOOK} emotion={FACE_OF[g]} size={56} className="size-[clamp(32px,5.5vh,56px)]" />
+              <span key={i} className="animate-bounce" style={{ animationDelay: `${(i % 7) * 0.15}s`, animationDuration: "2.4s", "--face": `max(20px, min(5.5vh, 56px, calc((100vw - 4rem) / ${Math.max(parade.length, 1)} - 4px)))` } as React.CSSProperties}>
+                <BuddyFace look={DEFAULT_LOOK} emotion={FACE_OF[g]} size={56} className="size-[var(--face)]" />
               </span>
             ))}
           </section>

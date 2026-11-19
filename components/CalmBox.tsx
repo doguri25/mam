@@ -108,14 +108,14 @@ function Draw({ lang, onDone, onStop }: { lang: Lang; onDone: () => void; onStop
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           {INKS.map((c) => (
-            <button key={c} onClick={() => setInk(c)} aria-label={c} aria-pressed={ink === c} className={`size-9 rounded-full border-4 ${ink === c ? "border-ink" : "border-card"}`} style={{ background: c }} />
+            <button key={c} onClick={() => setInk(c)} aria-label={c} aria-pressed={ink === c} className={`size-11 rounded-full border-4 ${ink === c ? "border-ink" : "border-card"}`} style={{ background: c }} />
           ))}
           {[6, 14, 28].map((w) => (
-            <button key={w} onClick={() => setWide(w)} aria-pressed={wide === w} className={`grid size-9 place-items-center rounded-full border ${wide === w ? "border-leaf bg-leaf-soft" : "border-line"}`} aria-label={`${w}`}>
+            <button key={w} onClick={() => setWide(w)} aria-pressed={wide === w} className={`grid size-11 place-items-center rounded-full border ${wide === w ? "border-leaf bg-leaf-soft" : "border-line"}`} aria-label={`${w}`}>
               <span className="rounded-full bg-ink" style={{ width: w / 2 + 3, height: w / 2 + 3 }} />
             </button>
           ))}
-          <button onClick={() => canvas.current?.getContext("2d")?.clearRect(0, 0, 900, 600)} className="btn-sub min-h-9 px-3 text-sm">{t(lang, "drawClear")}</button>
+          <button onClick={() => canvas.current?.getContext("2d")?.clearRect(0, 0, 900, 600)} className="btn-sub min-h-11 px-3 text-sm">{t(lang, "drawClear")}</button>
         </div>
         <div className="flex gap-2">
           <button onClick={onStop} className="btn-sub">{t(lang, "breatheNo")}</button>

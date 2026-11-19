@@ -110,7 +110,7 @@ export default function SelCheckTab({ data, nameOf, version, onPick }: { data: O
 
   return (
     <div className="space-y-4">
-      <section className="card space-y-3">
+      <section className="no-print card space-y-3">
         <p className="text-sm text-soft">
           학생이 스스로 32문장(영역마다 8문장)에 5단계로 답해요. 영역별 점수와 수준은 선생님만 보고, 학생 화면에는 점수 없이 영역별 이야기와 해 볼 일만 보여요.
           「선생님 관찰 검사」에서 학생마다 관찰(간이 16 · 심층 32문항)을 적고, 「결과 보기」에서 학생을 골라 지도 가이드를 보며 학생에게 보낼 말을 남겨 주세요.
@@ -270,7 +270,7 @@ function StudentTable({ rows, base, who, pick, onPick }: { rows: SelRow[]; base:
   const watch = rows.filter((r) => r.watch.length);
   const [show, setShow] = useState<"self" | "obs">("self"); // 칸에 보일 것: 학생이 스스로 답한 수준 · 선생님 관찰 수준
   return (
-    <section className="card space-y-3">
+    <section className="card space-y-3 print:break-inside-auto">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-display text-xl">학생별 결과 <span className="text-sm text-soft">(선생님만 · 이름을 누르면 지도 가이드·보낼 말)</span></h3>
         <div className="flex gap-1" role="radiogroup" aria-label="표에 보일 것">

@@ -24,7 +24,7 @@ export default function Notes({ no, notes, reload }: { no: number; notes: Note[]
     <div className="space-y-2">
       <p className="text-xs text-soft">선생님만 보는 메모예요. AI 초안에는 쓰이지 않아요.</p>
       <div className="flex gap-2">
-        <input value={text} onChange={(e) => setText(e.target.value)} className="field py-2 text-sm" placeholder="예) 점심시간에 이야기 나눔. 피구 순서 정하기로 함" />
+        <input value={text} onChange={(e) => setText(e.target.value)} className="field py-2 text-sm" placeholder="예) 점심시간에 이야기 나눔. 피구 순서 정하기로 함" aria-label="면담 메모" />
         <button onClick={add} disabled={!text.trim() || act.busy} className="btn-main min-h-10 shrink-0 px-4 text-sm">메모</button>
       </div>
       {act.err && <p role="alert" className="text-sm text-alert">{act.err}</p>}

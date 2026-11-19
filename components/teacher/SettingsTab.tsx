@@ -94,7 +94,13 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
       riskDrafts?: Overview["riskDrafts"]; reflects?: Overview["reflects"]; letters?: Overview["letters"];
     };
     try {
-      got = await api("teacher", "export");
+      // 한 해 기록을 한 번에 받으면 응답 한도를 넘을 수 있어 달마다 나눠 받는다(예전 서버면 한 번에 온 것을 그대로)
+      const head = await api<Omit<typeof got, "records"> & { records?: MoodRecord[]; months?: string[] }>("teacher", "export", { paged: true });
+      if (head.months) {
+        const records: MoodRecord[] = [];
+        for (const month of head.months) records.push(...(await api<{ records: MoodRecord[] }>("teacher", "export", { paged: true, month })).records);
+        got = { ...head, records };
+      } else got = { ...head, records: head.records ?? [] };
     } catch (e) {
       return say("export", `내보내지 못했어요: ${(e as Error).message}`);
     }
