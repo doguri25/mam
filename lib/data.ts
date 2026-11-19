@@ -922,6 +922,9 @@ export async function editRiskActions(fn: (items: RiskAction[]) => RiskAction[])
 export async function backfillRecordAt(): Promise<number> {
   const todo = (await getRiskActions()).filter((a) => !a.recordAt && !a.atGone);
   if (!todo.length) return 0;
+  // 조치 기록 문서가 한도에 가까워 채울 수 없었으면 일주일 동안 다시 하지 않는다(화면을 열 때마다 헛되이 읽지 않게)
+  const tried = await db().get<{ fullAt?: string }>("meta", "recordAtFill");
+  if (tried?.fullAt && Date.now() - Date.parse(tried.fullAt) < 7 * 86_400_000) return 0;
   const drafts = await getRiskDrafts();
   const found = new Map<string, string | null>();
   for (const id of [...new Set(todo.map((a) => a.recordId))].slice(0, 300)) {
@@ -933,11 +936,17 @@ export async function backfillRecordAt(): Promise<number> {
       : drafts.find((d) => d.id === key)?.at;
     found.set(id, at ?? null);
   }
-  await editRiskActions((items) => items.map((a) => {
-    if (a.recordAt || a.atGone || !found.has(a.recordId)) return a;
-    const at = found.get(a.recordId);
-    return at ? { ...a, recordAt: at } : { ...a, atGone: true };
-  }));
+  try {
+    await editRiskActions((items) => items.map((a) => {
+      if (a.recordAt || a.atGone || !found.has(a.recordId)) return a;
+      const at = found.get(a.recordId);
+      return at ? { ...a, recordAt: at } : { ...a, atGone: true };
+    }));
+  } catch (e) {
+    if ((e as Error).message !== DOC_FULL) throw e;
+    await db().set("meta", "recordAtFill", { fullAt: new Date().toISOString() });
+    return 0;
+  }
   return found.size;
 }
 // draftAt: 마치지 않은 글(draft:…)에 적을 때 선생님이 본 그 글의 판(at). 그사이 학생이 그 글로 기록을 마쳐 그 글의 조치 기록이
@@ -1443,7 +1452,8 @@ export async function wipeStudent(no: number, dry: boolean, who = "now"): Promis
     if (a.recordAt) return mine(a.recordAt);
     const d = a.recordDate || a.date;
     // 옮겨 둔 앞 학생 기록: 앞 학생을 지울 때만, 넘긴 그날까지 넣어서
-    if (isMovedId(a.recordId)) return former && (!from || d >= dayOfIso(from)) && (!to || d <= dayOfIso(to));
+    // (그 학생이 받은 날 옮겨 둔 것은 그 앞 학생 것이라 받은 날은 빼고)
+    if (isMovedId(a.recordId)) return former && (!from || d > dayOfIso(from)) && (!to || d <= dayOfIso(to));
     // 쓴 때를 모르는 넘긴 날 조치는 누구 것인지 알 수 없다 → 앞 학생을 지울 때도 지금 학생을 지울 때도 학생 글을 지운다(남기는 쪽보다 안전)
     if (former && to && d === dayOfIso(to)) return true;
     return mine(d);

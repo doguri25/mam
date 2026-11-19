@@ -114,8 +114,8 @@ export default function SettingsTab({ data, reload, onAlerts }: { data: Overview
           say("export", `내보내는 중… (${i + 1}/${head.nos.length}번째 학생)`);
           records.push(...((await api<{ records?: MoodRecord[] }>("teacher", "export", { paged: true, no })).records ?? []));
         }
-        // 그사이 기록이 늘 수는 있어도 줄면(나눠 받다 빠진 것) 한 번에 다시 받는다
-        got = { ...head, records: records.length >= (head.count ?? 0) ? records : (await api<typeof got>("teacher", "export")).records };
+        // 나눠 받는 사이 기록이 지워지면 처음 센 수보다 적을 수 있다(그대로 쓴다 — 한 번에 다시 받으면 큰 반은 응답 한도를 넘는다)
+        got = { ...head, records };
       } else got = { ...head, records: head.records ?? [] };
     } catch (e) {
       return say("export", `내보내지 못했어요: ${(e as Error).message}`);

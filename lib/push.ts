@@ -48,7 +48,8 @@ const v4of = (a: string) => {
 };
 export const innerAddr = (raw: string) => {
   const a = v4of(raw);
-  return /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) || a === "::1" || a === "::" || /^f[cd]/i.test(a) || /^fe[89ab]/i.test(a);
+  // NAT64(64:ff9b::)·6to4(2002::)는 안에 IPv4를 담을 수 있어 막는다
+  return /^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(a) || a === "::1" || a === "::" || /^f[cd]/i.test(a) || /^fe[89ab]/i.test(a) || /^64:ff9b:/i.test(a) || /^2002:/i.test(a);
 };
 // 등록할 때 이름을 실제로 찾아 안쪽 주소(사설·루프백·링크 로컬)를 가리키면 받지 않는다
 export async function pushHostSafe(endpoint: string): Promise<boolean> {

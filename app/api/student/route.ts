@@ -114,10 +114,15 @@ async function handle(req: NextRequest, body: Body) {
       if (!q) return bad("보낼 수 없는 기록이에요.", 410);
       const roster = await getRoster();
       const s = roster.find((x) => x.no === q.no && queueCodeOk(x.code, q.code));
+      // 만든 때(기기 시계)를 서버 시계로 고친다: 보낼 때 기기 시계(sentAt)와 서버 시계의 차이만큼 옮기고, 표를 준 때(q.at)보다 앞일 수는 없다
+      // (로그인한 뒤에 만든 기록이므로). 기기 시계가 빠르거나 늦어도 지우기 앞뒤를 바르게 가린다
+      const devMade = Date.parse(String(body.madeAt ?? ""));
+      const sentAt = Date.parse(String(body.sentAt ?? ""));
+      const skew = Number.isFinite(sentAt) ? Date.now() - sentAt : 0;
+      const madeFix = Number.isFinite(devMade) ? Math.min(Math.max(devMade + skew, q.at ?? -Infinity), Date.now()) : q.at;
+      const madeAtFix = madeFix !== undefined ? new Date(madeFix).toISOString() : body.madeAt;
       // 보호자 요청으로 이 학생 자료를 지운 뒤에 온, 그 앞에 담아 둔 기록은 받지 않는다(지운 기록이 되살아나지 않게)
-      // 만든 때는 기기 시계라 지금보다 뒤면 지금으로 본다(시계가 빨라 지우기 전 기록이 들어오지 않게)
-      const madeMs = Math.min(Date.parse(String(body.madeAt ?? "")) || 0, Date.now());
-      const wipedBefore = !!s?.wipedAt && madeMs < Date.parse(s.wipedAt);
+      const wipedBefore = !!s?.wipedAt && (madeFix ?? 0) < Date.parse(s.wipedAt);
       if (!s || wipedBefore) {
         // 그사이 선생님이 코드를 새로 줬거나 자료를 지웠으면 기록은 받지 않는다. 다만 담아 둔 글에 위험한 말이 있으면 마치지 않은 위험 표현으로
         // 선생님께 남긴다(끊긴 채 쓴 위험한 글이 아무에게도 닿지 않고 사라지지 않게). 그 번호를 새 학생이 받았으면 「앞 학생」으로 보인다
@@ -125,8 +130,11 @@ async function handle(req: NextRequest, body: Body) {
         const rec = (body.record ?? {}) as Record<string, unknown>;
         const text = [rec.summary, rec.answer].filter((x): x is string => typeof x === "string").join(" ").trim().slice(0, 300);
         const slot = rec.slot === "pm" ? "pm" : "am";
-        const hits = st && text ? matchRisk(text, (await getSettings()).riskWords) : [];
-        const when = queuedWhen(body.madeAt, q.date);
+        // 연습 학생을 실제 학생으로 바꾸기 전에 받은 표(번호를 넣은 때 joined보다 앞)면 연습 학생이 쓴 글이다 → 실제 학생 알림으로 남기지 않는다
+        const joined = st && !s && !st.since && st.joined ? Date.parse(st.joined) : NaN;
+        const practice = Number.isFinite(joined) && (q.at !== undefined ? q.at < joined : q.date < today(new Date(joined)));
+        const hits = st && text && !practice ? matchRisk(text, (await getSettings()).riskWords) : [];
+        const when = queuedWhen(madeAtFix, q.date);
         if (st && hits.length && when) {
           // 이 번호를 새 학생에게 준 날까지 받은 표의 글은 앞 학생 것: 앞 학생 기기 시계가 빨라 받은 때보다 뒤로 당겨졌으면 받기 바로 앞으로
           // (새 학생 기록으로 보이거나 새 학생 자료 지우기를 막지 않게)
@@ -141,7 +149,7 @@ async function handle(req: NextRequest, body: Body) {
         }
         return bad(wipedBefore ? "예전에 담아 둔 기록이라 받지 않았어요." : "학생 코드가 바뀌었어요.", 410);
       }
-      const when = queuedWhen(body.madeAt, q.date);
+      const when = queuedWhen(madeAtFix, q.date);
       if (!when) return bad("너무 오래전에 담아 둔 기록이에요.", 410);
       // 이 번호를 받은 날 담아 둔 기록인데 기기 시계가 늦으면 받기 전 시각이 된다 → 앞 학생 것으로 보이지 않게 받은 때로 당긴다
       const since = s.since ? Date.parse(s.since) : NaN;

@@ -94,7 +94,8 @@ async function send() {
     try {
       const res = await fetch("/api/student", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "saveQueued", qtoken: it.token, record: it.record, madeAt: new Date(it.at).toISOString() }),
+        // sentAt: 보내는 때의 기기 시계 — 서버가 기기 시계가 빠르거나 늦은 만큼 만든 때를 고친다
+        body: JSON.stringify({ action: "saveQueued", qtoken: it.token, record: it.record, madeAt: new Date(it.at).toISOString(), sentAt: new Date().toISOString() }),
       });
       if (res.ok) sent++;
       else if (res.status >= 500 || res.status === 429) left.push(it);

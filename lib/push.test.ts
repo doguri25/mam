@@ -56,6 +56,6 @@ test("알림 등록: 브라우저 알림 서버처럼 이름 있는 https 주소
 
 test("알림 주소가 가리키는 IP: IPv4를 담은 IPv6(::ffff:10.0.0.1, ::ffff:a00:1)도 안쪽 주소로 본다", async () => {
   const { innerAddr } = await import("./push.ts");
-  for (const a of ["::ffff:10.0.0.1", "::ffff:a00:1", "::ffff:a9fe:a9fe", "::ffff:127.0.0.1", "fe80::1", "::1", "fd00::1", "10.1.2.3", "169.254.169.254"]) assert.equal(innerAddr(a), true, a);
+  for (const a of ["::ffff:10.0.0.1", "::ffff:a00:1", "::ffff:a9fe:a9fe", "::ffff:127.0.0.1", "fe80::1", "::1", "fd00::1", "10.1.2.3", "169.254.169.254", "64:ff9b::a00:1", "2002:a00:1::1"]) assert.equal(innerAddr(a), true, a);
   for (const a of ["::ffff:8.8.8.8", "2607:f8b0::1", "93.184.216.34"]) assert.equal(innerAddr(a), false, a);
 });
