@@ -7,7 +7,7 @@ import { clientIp, passwordAttempt, resetWait, testPushWait, trialEditWait, wait
 import { clearSubs } from "@/lib/push";
 import { TEACHER_COOKIE, TEACHER_HOURS, checkPassword, encrypt, decrypt, isTeacher, makePin, mask, newCode, teacherSpace, teacherToken, validPin } from "@/lib/auth";
 import {
-  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
+  DEMO_AI_PER_DAY, SHARED_AI_PER_DAY, accountName, aiConfig, aiMissing, hasSharedAi, sharedAiUsed, allRecords, createAccount, demoAiUsed, demoProvider, findAccount, trialAiSource, getLessons, getRiskActions, getRiskDrafts, checkRiskDraft, getSelfRounds, getSelfAnswers, deleteSelfData, cutoffNow, expiredCounts, purgeBefore, purgeLogs, getLooks, getPin, getRoster, getSettings, getStamp, readRoster, getLeft, saveLeft, withDataFor, startFresh, wipeStudent, HELD_STUDENT, purgePractice, clearPractice, recordsChangedAfter, recordsFrom, recordsOf,
   HELD_RISK, heldRisks, riskyRecords, rosterIsDemo, savePin, saveRoster, saveSettings, seedPractice, touch, withOpenRisks,
 } from "@/lib/data";
 import { addDays, monday, slotNow, today } from "@/lib/date";
@@ -50,7 +50,7 @@ const STAMP_ACTIONS = new Set(["stamp", "changes", "overview"]);
 // (아래 handle의 쓰는 일 이름과 하나하나 맞춘 목록 — 「demo」는 resetWait로 따로 막는다)
 const TRIAL_WRITES = new Set([
   "roster", "newCode", "settings", "note", "deleteNote", "saveCheer", "checkFlag", "checkAlert", "riskAction", "riskActionDelete", "letterCheck", "consent",
-  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selNote", "selPaperSave", "selPaperScores", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly",
+  "selfOpen", "selfClose", "selfReopen", "selfDelete", "selNote", "selPaperSave", "selPaperScores", "saveLesson", "deleteLesson", "sheetEdit", "sheetDelete", "purgeOld", "weekly", "wipeStudent",
 ]);
 const tooMany = (wait: number) => bad(`너무 많이 틀렸어요. ${waitText(wait)} 뒤에 다시 해 주세요.`, 429);
 
@@ -631,6 +631,23 @@ async function handle(req: NextRequest) {
       if (held) return NextResponse.json({ error: HELD_RISK(held), code: "heldRisk", held }, { status: 409 });
       const log = await purgeBefore(cutoff);
       return NextResponse.json({ cutoff, counts: await expiredCounts(cutoff), logs: await purgeLogs(), done: log, held: 0 });
+    }
+
+    // ── 학생 한 명 자료 지우기(보호자 요청): 고를 수 있는 번호 / 지울 것 미리 보기(dry) / 지우기 ──
+    if (body.action === "wipeTargets") {
+      const left = await getLeft();
+      return NextResponse.json({ left: Object.entries(left).map(([no, v]) => ({ no: Number(no), alias: v.alias, at: v.at })).sort((a, b) => a.no - b.no) });
+    }
+    if (body.action === "wipeStudent") {
+      const no = Number(body.no);
+      if (!Number.isInteger(no) || no < 1 || no > 999) return bad("번호를 확인해 주세요.");
+      const dry = body.dry !== false;
+      const peek = await wipeStudent(no, true);
+      if (dry) return NextResponse.json(peek);
+      if (peek.held) return NextResponse.json({ error: HELD_STUDENT(peek.held), code: "heldRisk", held: peek.held }, { status: 409 });
+      // 미리 본 뒤 그사이 자료가 늘었으면(학생이 새로 기록함) 다시 보고 지우게
+      if (body.seen && JSON.stringify(body.seen) !== JSON.stringify(peek.counts)) return NextResponse.json({ error: "그사이 이 학생 자료가 바뀌었어요. 지울 자료를 다시 확인해 주세요.", code: "changed", ...peek }, { status: 409 });
+      return NextResponse.json({ ...(await wipeStudent(no, false)), done: true });
     }
 
     // ── 학급 역량 진단(학생 화면 「마음 점검」): 회차 열기·닫기·다시 열기·지우기. 열린 회차는 하나만, 학생 화면에 그 회차만 보인다 ──

@@ -1138,6 +1138,10 @@ export async function expiredCounts(cut: string) {
   counts.selNote = (await getSelNotes()).filter((n) => n.at < cutIso(cut)).length;
   counts.risk = (await getRiskActions()).filter((a) => actDate(a) < cut).length;
   counts.drafts = (await getRiskDrafts()).filter((d) => d.date < cut).length;
+  // 정리(purgeBefore)가 함께 지우는 것: 기한 앞에 명단에서 뺀 학생 기록, 명단에 없는 번호의 마음 친구 모습
+  counts.left = Object.values(await getLeft()).filter((v) => v.at < cutIso(cut)).length;
+  const onRoster = new Set((await getRoster()).map((s) => s.no));
+  counts.looks = Object.keys(await getLooks()).filter((no) => !onRoster.has(Number(no))).length;
   return counts;
 }
 export async function purgeLogs(): Promise<PurgeLog[]> {
@@ -1178,6 +1182,21 @@ export async function purgeBefore(cut: string): Promise<PurgeLog> {
   if (counts.risk) await editRiskActions((xs) => xs.filter((a) => actDate(a) >= cut));
   counts.drafts = (await getRiskDrafts()).filter((d) => d.date < cut).length;
   if (counts.drafts) await editRiskDrafts((xs) => xs.filter((d) => d.date >= cut));
+  // 기한 앞에 명단에서 뺀 학생의 기록(가명·코드·동의 날짜)과, 명단에 없는 번호의 마음 친구 모습(이름)도 지운다(개인정보 처리방침)
+  const leftNow = await getLeft();
+  const oldLeft = Object.entries(leftNow).filter(([, v]) => v.at < iso).map(([no]) => no);
+  counts.left = oldLeft.length;
+  if (oldLeft.length) await saveLeft(Object.fromEntries(Object.entries(leftNow).filter(([no]) => !oldLeft.includes(no))));
+  const onRoster = new Set((await getRoster()).map((s) => s.no));
+  let looksGone = 0;
+  await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
+    looksGone = 0;
+    if (!cur?.items) return undefined;
+    const keep = Object.entries(cur.items).filter(([no]) => onRoster.has(Number(no)));
+    looksGone = Object.keys(cur.items).length - keep.length;
+    return looksGone ? { ...cur, items: Object.fromEntries(keep) } : undefined;
+  });
+  counts.looks = looksGone;
   // 무엇을 언제 정리했는지는 남긴다(내용 없이 수만)
   const log: PurgeLog = { at: new Date().toISOString(), cutoff: cut, counts };
   await db().set("meta", "purges", { items: [...(await purgeLogs()), log].slice(-20) });
@@ -1306,4 +1325,71 @@ export async function purgePractice(gone: (no: number) => boolean, opt: { onlyTh
     const sheet = await db().get<SheetRun>("sheets", PRACTICE_SHEET);
     if (sheet?.items.some((x) => gone(x.no))) await db().set("sheets", PRACTICE_SHEET, { ...sheet, items: sheet.items.filter((x) => !gone(x.no)) });
   }
+}
+
+// ── 학생 한 명의 자료 지우기(보호자가 지워 달라고 할 때 — 개인정보 처리방침·동의서의 약속) ──
+// 명단에 있는 번호면 지금 학생 것만(이 번호를 새 학생에게 주기 전 앞 학생 것은 남긴다), 명단에서 뺀 번호면 그 번호로 남은 것 모두.
+// 지우는 것: 마음 기록·마치지 않은 위험 표현·한 주 돌아보기·그 학생이 쓴 공감 쪽지·받아서 읽은 평범한 쪽지·응원·면담 메모·
+// 역량 진단 답과 선생님 관찰·피드백·활동지 피드백·위험 표현 조치 기록·마음 친구 모습·「살펴봤어요」 표시·명단에서 뺀 학생 기록.
+// 남기는 것: 명단의 번호·가명·코드(빼려면 명단에서), 친구가 이 학생에게 보낸 쪽지 가운데 아직 전하지 않았거나 위험 표현이 있는 것
+// (보낸 학생의 기록이다). 살펴보지 않은 위험 표현이 있으면 지우지 않는다(선생님이 보지 못한 위험한 말이 사라지지 않게).
+export interface WipeCounts { records: number; drafts: number; reflects: number; letters: number; cheers: number; notes: number; self: number; sheets: number; actions: number; look: number }
+export const HELD_STUDENT = (n: number) => `이 학생의 위험 표현 알림 ${n}건을 아직 살펴보지 않았어요. 마음 지도 알림에서 먼저 「살펴봤어요」를 누른 뒤 지워 주세요.`;
+export async function wipeStudent(no: number, dry: boolean): Promise<{ counts: WipeCounts; held: number; onRoster: boolean }> {
+  const roster = await getRoster();
+  const st = roster.find((s) => s.no === no);
+  const own = (at?: string) => (st ? ownBy(st, at) : true);
+  const [recs, sent, got, refs, cheers, notes, selfs, selNotes, acts, drafts, looks, runs, left] = await Promise.all([
+    recordsOf(no), db().find<Letter>("letters", "from", "==", no), db().find<Letter>("letters", "to", "==", no), db().find<Reflect>("reflects", "no", "==", no),
+    db().find<{ id: string; createdAt: string }>("cheers", "no", "==", no), db().find<{ id: string; createdAt: string }>("notes", "no", "==", no),
+    getSelfAnswers(), getSelNotes(), getRiskActions(), getRiskDrafts(), getLooks(), db().all<SheetRun>("sheets"), getLeft(),
+  ]);
+  const myRecs = recs.filter((r) => own(r.createdAt));
+  const mySent = sent.filter((l) => own(l.createdAt));
+  const myGot = got.filter((l) => own(l.createdAt) && !l.toPractice && l.status === "ok" && !l.risk);
+  const myRefs = refs.filter((x) => own(x.createdAt));
+  const myCheers = cheers.filter((x) => own(x.createdAt)), myNotes = notes.filter((x) => own(x.createdAt));
+  const mySelf = [...selfs, ...selNotes].filter((x) => x.no === no && own(x.at));
+  const myDrafts = drafts.filter((d) => d.no === no && own(d.at));
+  const ids = new Set([...myRecs.map((r) => r.id), ...myDrafts.map((d) => `draft:${d.id}`), ...myRefs.map((x) => `reflect:${x.id}`), ...mySent.map((l) => `letter:${l.id}`)]);
+  const myActs = acts.filter((a) => a.no === no && (ids.has(a.recordId) || own(a.recordDate || a.date)));
+  const myRuns = runs.filter((r) => own(r.createdAt) && r.items.some((x) => x.no === no));
+  const hasLook = no in looks;
+  const held = myRecs.filter((r) => r.risk && !r.riskChecked).length + myRefs.filter((x) => x.risk && !x.riskChecked).length
+    + mySent.filter((l) => l.risk && l.status === "wait" && !l.riskChecked).length + myDrafts.filter((d) => !d.checked).length;
+  const counts: WipeCounts = {
+    records: myRecs.length, drafts: myDrafts.length, reflects: myRefs.length, letters: mySent.length + myGot.length, cheers: myCheers.length,
+    notes: myNotes.length, self: mySelf.length, sheets: myRuns.length, actions: myActs.length, look: hasLook ? 1 : 0,
+  };
+  if (dry) return { counts, held, onRoster: !!st };
+  if (held) throw new Error(HELD_STUDENT(held));
+  for (const r of myRecs) await db().del("records", r.id);
+  for (const l of [...mySent, ...myGot]) await db().del("letters", l.id);
+  for (const x of myRefs) await db().del("reflects", x.id);
+  for (const x of myCheers) await db().del("cheers", x.id);
+  for (const x of myNotes) await db().del("notes", x.id);
+  for (const x of mySelf) await db().del("meta", x.docId ?? (x.kind === "selfAnswer" ? selfDocId(x.round, x.no) : selNoteId(x.round, x.no)));
+  const actIds = new Set(myActs.map((a) => a.id));
+  if (actIds.size) await editRiskActions((xs) => xs.filter((a) => !actIds.has(a.id)));
+  const draftIds = new Set(myDrafts.map((d) => d.id));
+  if (draftIds.size) await editRiskDrafts((xs) => xs.filter((d) => !(draftIds.has(d.id) && d.no === no)));
+  for (const r of myRuns) await db().update<SheetRun>("sheets", r.id, (cur) => (cur ? { ...cur, items: cur.items.filter((x) => x.no !== no) } : undefined));
+  if (hasLook) await db().update<{ items: Record<number, BuddyLook> }>("meta", "looks", (cur) => {
+    if (!cur?.items || !(no in cur.items)) return undefined;
+    const items = { ...cur.items };
+    delete items[no];
+    return { ...cur, items };
+  });
+  await pruneChecks((n) => n === no);
+  if (!st && no in left) {
+    const rest = { ...left };
+    delete rest[no];
+    await saveLeft(rest);
+  }
+  // 무엇을 언제 지웠는지만 남긴다(내용 없이 번호와 수)
+  await db().update<{ items: { at: string; no: number; counts: WipeCounts }[] }>("meta", "studentWipes", (cur) => ({ items: [...(cur?.items ?? []), { at: new Date().toISOString(), no, counts }].slice(-50) }));
+  await touch("wipe");
+  await touch("records");
+  await touch("other");
+  return { counts, held: 0, onRoster: !!st };
 }

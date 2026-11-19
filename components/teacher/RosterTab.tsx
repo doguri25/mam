@@ -10,6 +10,7 @@ import { useRosterChanging } from "./rosterBusy";
 import { api } from "@/lib/api";
 import { useNames } from "@/lib/local";
 import type { Student } from "@/lib/shared";
+import WipeStudent from "./WipeStudent";
 
 const rosterText = (xs: Pick<Student, "no" | "alias">[]) => xs.map((s) => `${s.no} ${s.alias}`).join("\n");
 // 같은 번호를 다른 학생에게 주는지 서버가 묻는 번호: 가명이 바뀐 번호(renamed), 명단에 없다가 다시 넣었는데 그 번호로 남은 기록이 있는 번호(back)
@@ -208,6 +209,8 @@ export default function RosterTab({ data, reload }: { data: Overview; reload: Re
           {notYet.length > 0 && <button onClick={() => consent(notYet.map((s) => s.no), true)} disabled={busy} className="text-xs text-soft underline underline-offset-2">모두 받음으로 표시</button>}
         </section>
       )}
+
+      <WipeStudent data={data} reload={reload} name={names.name} />
 
       {letter && (
         <section className="space-y-3">
